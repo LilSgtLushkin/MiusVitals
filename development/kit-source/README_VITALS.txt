@@ -1,8 +1,8 @@
-MiusVitals v7.3.0 — глобальная карта, Vitals и guard basic_render
+MiusVitals v7.4.0 — глобальная карта, Vitals и guard basic_render
 ====================================================================
 
 ВАЖНО: это комплект только для Steam game build 3598/1 + MiusPlayer v20.
-ОБА игрока должны установить один и тот же MiusVitals v7.3.0.
+ОБА игрока должны установить один и тот же MiusVitals v7.4.0.
 
 Быстрая установка
 -----------------
@@ -26,7 +26,7 @@ MiusVitals v7.3.0 — глобальная карта, Vitals и guard basic_ren
 
   map: unknown game build, ending the turn is not coordinated between the players
 
-v7.3.0 в main/nostart basic_network.codelib содержит проверенное исправление:
+v7.4.0 в main/nostart basic_network.codelib содержит проверенное исправление:
 * указатель Next Turn перенесён на +36b30;
 * embedded signature заменена точным 16-байтным прологом целевой Steam 3598/1
   функции;
@@ -40,7 +40,7 @@ v7.3.0 в main/nostart basic_network.codelib содержит проверенн
   user_orders с собственной картой, обрабатывает ход и присылает клиенту полную
   карту следующего epoch.
 
-v7.3.0 устраняет конкретную гонку между выдачей карты и запуском отдельного
+v7.4.0 устраняет конкретную гонку между выдачей карты и запуском отдельного
 opgame клиента. Раньше host gate Next Turn требовал уже полученный map-mode Hello
 (phase 0xfe). Но карта уже была выдана, а joiner ещё мог скачивать save/стартовать.
 В это окно Next Turn хоста шёл в stock handler: ход сразу проигрывался, а клиент
@@ -75,33 +75,45 @@ merge структурно добавляет только новые строк
 Важно о сообщении «за вторым человеком действует бот»: supplied host log уже
 показывает `391 formations and battle groups turned round`. Именно это меняет
 operation command tags на USER для joiner; `AI commander switched off` в
-тактическом log — другой механизм. Старая строка `unknown game build, ending
-the turn is not coordinated` доказывает старый/несовместимый installed module,
-а не отсутствие mirror. После установки у ОБОИХ SHA-256
-basic_network.codelib должен быть 485B655662BD062E16278F9D699A3097B49A08DE1948D2500DD589703A3102A3.
-Если при обоих таких hash симптом остаётся, нужны обе full opgame logs,
-build_report.txt и created-after-hand-off .opsave; не подменяйте module вручную
-и не используйте `norebase` для normal Steam 3598/1.
+тактическом log — другой механизм. Однако в том же host log за весь `opgame`
+нет ни одной строки `vitals:`; у joiner такая строка есть. `mp_vitals.dll`
+загружается только импортом проверенного `basic_network.codelib`, поэтому это
+доказательство разных/неполно установленных модулей на двух ПК, а не повод
+писать догадочный ownership patch.
+
+v7.4.0 Install_Vitals.bat теперь сверяет после copy **оба** файла. У ОБОИХ
+игроков должны совпасть main/nostart variant и строки:
+
+  basic_network.codelib 485B655662BD062E16278F9D699A3097B49A08DE1948D2500DD589703A3102A3
+  mp_vitals.dll          D22E931575A119136CCE9F40622EE90F8919EBD250F2738E3E50D7561C4FC486
+
+Только после этого лог карты является валидным тестом. Если при этих hash и
+строках `vitals:` на обоих ПК симптом остаётся, нужны обе full opgame logs,
+оба build_report.txt и created-after-hand-off .opsave; не подменяйте module
+вручную и не используйте `norebase` для normal Steam 3598/1.
 
 Object-number exchange и Vitals
 -------------------------------
 Номера descriptions/objects в operation battle могут быть разными на двух ПК.
-Поэтому Vitals v7.3.0 не считает exchange необязательной диагностикой:
+Поэтому Vitals не считает первый exchange необязательной диагностикой:
 
-* пока не появится "object-number lists exchanged: yes", он каждые 3 секунды
-  запрашивает нативную передачу таблиц;
-* до yes не посылает, не применяет и не ACK-ает свой Vitals state;
-* сразу после yes включает state sync и отправляет полный актуальный snapshot.
+* до первого native `ready` он каждые 3 секунды запрашивает передачу таблиц;
+* до этого момента не посылает, не применяет и не ACK-ает Vitals state;
+* первый успешный exchange **latched на весь текущий tactical session**. Raw
+  v20 ready-flag затем штатно кратко пульсирует в 0 для других transfer cycles,
+  но больше не заставляет Vitals повторно переводить тысячи descriptions и не
+  останавливает Vitals state sync;
+* latch сбрасывается только при закрытии/смене tactical session или смене peer.
 
-В нормальном логе идут строки:
+В нормальном логе идут строки только старта:
 
   vitals: waiting for object-number exchange before tactical state sync
   vitals: object-number exchange complete; tactical state sync enabled
-  vitals: object-number lists exchanged: yes (asked again N times)
 
-Состояние NO во время всего боя — основание остановить диагностику результата и
-сохранить оба полных tactical log. Не пытайтесь компенсировать его заменой DLL
-лишь на одной машине.
+Длинная Vitals telemetry раз в 5 секунд теперь выключена по умолчанию;
+`MP_LOG_VITALS=1` включает её для диагностики. Если первый exchange не
+завершается, сохраните оба full tactical log. Не пытайтесь компенсировать это
+заменой DLL лишь на одной машине.
 
 Итог боя, статистика и трупы
 ----------------------------
@@ -115,18 +127,18 @@ Object-number exchange и Vitals
 по обработанному host save и передаётся joiner целиком на новом map epoch.
 
 Синхронизируются здоровье, смерть и squad record. Этот forced scan проходит через
-обычный ACK/retry Vitals, но v7.3.0 пока НЕ устанавливает отдельный блокирующий
+обычный ACK/retry Vitals, но v7.4.0 пока НЕ устанавливает отдельный блокирующий
 ACK-barrier именно в момент выхода из tactical game. Поэтому запись о final scan
 не доказывает, что peer подтвердил её до аварийно быстрого закрытия боя.
 
 Вид конкретного трупа/ragdoll на карте боя может оставаться локальным
 render/physics результатом движка; он не является источником campaign result.
-v7.3.0 не пишет guessed offsets в corpse lifecycle. Если при совпадающем dead
+v7.4.0 не пишет guessed offsets в corpse lifecycle. Если при совпадающем dead
 клиентское тело не появляется, необходимы логи и проверенные engine addresses.
 Для сравнения проверяйте строки Vitals: после нормального боя dead here должен
 согласовываться, а still apart — быть 0.
 
-Корень нового basic_render crash и v7.3.0
+Корень нового basic_render crash и v7.4.0
 ------------------------------------------
 Новый minidump доказывает write-AV в basic_render+129a2 при deployment. Это не
 пакет сети: valid node record содержала 24-bit matrix/transform-cache slot,
@@ -135,7 +147,7 @@ v7.3.0 не пишет guessed offsets в corpse lifecycle. Если при со
 mp_vitals.dll, поэтому причина — нарушенный инвариант transient renderer cache,
 а не Vitals/object numbers.
 
-На строго проверенном Steam 3598 коде v7.3.0 перед каждым таким use проверяет,
+На строго проверенном Steam 3598 коде v7.4.0 перед каждым таким use проверяет,
 что slot принадлежит текущему writable Windows allocation matrix pool. Иначе он
 атомарно ставит штатный sentinel -2 в record+34. Затем неизменённый basic_render
 идёт в свой cache-miss allocator, получает свежий slot и сам записывает его в
@@ -152,7 +164,7 @@ movaps в тот же allocator; render operation не пропускается 
 Текущий, отдельный read-AV был в basic_render+39b52 (`movups xmm9,[rax+rsi]`).
 В dump `RAX=FAAEC630` уже является 32-bit index/stride-derived offset, а
 `RSI+RAX` точно совпадает с invalid address. Stock triangle reader не проверяет
-границы index-derived vertex/attribute address. v7.3.0 перед входом именно в эту
+границы index-derived vertex/attribute address. v7.4.0 перед входом именно в эту
 проверенную функцию сверяет весь index array и каждый будущий 16-byte primary и
 optional attribute read. Если geometry некорректна, функция возвращает только
 свой штатный no-hit (`false`, query+0xa4=0), не выполняя invalid load.
@@ -175,8 +187,9 @@ read AV, RIP, effective address и writable output. Любой другой exce
   retry через 400 ms и suppression duplicate.
 * Native MiusPlayer type 10 (игровые записи) и type 11 (его ACK) не
   переписываются DLL и всегда передаются исходному обработчику.
-* Неподвижные unit transforms повторяются каждый tick по умолчанию
-  (MP_IDLE_MS=N меняет интервал).
+* Неподвижные unit transforms по умолчанию остаются на штатной staggered
+  cadence около 2 секунд. Только явный `MP_IDLE_MS=N` меняет интервал;
+  `MP_IDLE_MS=0` — диагностический every-tick override, не оптимизация.
 * MP_RENDER_GUARD=0 отключает только узкий guard двух подтверждённых
   basic_render invalid-child read-AV.
 
@@ -185,13 +198,14 @@ read AV, RIP, effective address и writable output. Любой другой exce
 MP_VITALS=0        выключить Vitals; 1 — только сравнение/лог; 2 или 3 — применять.
 MP_VEHICLES=0/1/2  выключить / только лог / применять статусы техники.
 MP_STATS=0         не задавать одинаковый seed послебоевой статистики.
-MP_LOG_VITALS=1    писать отдельные Vitals-события.
-MP_IDLE_MS=N       период повторной отправки неподвижных unit в миллисекундах.
+MP_LOG_VITALS=1    включить individual events и 5-second aggregate telemetry для диагностики.
+MP_IDLE_MS=N       ЯВНО изменить период повторной отправки неподвижных unit в мс.
+                   По умолчанию patch не применяется; 0 = every tick (только диагностика).
 MP_RENDER_GUARD=0  выключить только exact basic_render cache-lifetime, geometry-index и invalid-child guards для диагностики.
 
 Контрольные суммы и состав
 --------------------------
-files/mp_vitals.dll                     SHA-256 3A2914AB86924A4220758865A9638E732CD3F2701D0E9F567FD14B9BE1A4BD5D
+files/mp_vitals.dll                     SHA-256 D22E931575A119136CCE9F40622EE90F8919EBD250F2738E3E50D7561C4FC486
 files/basic_network.codelib             SHA-256 485B655662BD062E16278F9D699A3097B49A08DE1948D2500DD589703A3102A3
 files/alt/basic_network_nostart.codelib SHA-256 E4317E630A21198A55E0E86BE4AA29C71FCADA6065824C858ACD0E2BDEF8ADF9
 files/alt/basic_network_v5_norebase.codelib SHA-256 D2E34581B42D0573547E221873D7538B64A413267E8ED388ABEB46DD42B630D2

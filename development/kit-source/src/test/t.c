@@ -14,6 +14,7 @@
 #include <assert.h>
 DWORD fake_tick = 100000;
 uintptr_t fake_vq_unmapped_from = UINTPTR_MAX;
+const char *fake_env_idle;
 
 #define NS 24
 static char man[NS][0x2500];
@@ -60,6 +61,7 @@ static char *sq_of(int i) { return *(char **)(man[i] + H_SQUAD); }
 
 static void setup(void)
 {
+    conn = tact = have = 1; hmode = 2;
     memset(man, 0, sizeof man); memset(members, 0, sizeof members); memset(squad, 0, sizeof squad);
     fake_vt[0x138 / 8] = (void *)fake_get_member;
     *(void ***)squad = fake_vt;
@@ -79,6 +81,7 @@ static void setup(void)
     num_ready = 1; num_flag = 0;
     g_num_ready = &num_ready; g_num_flag = &num_flag;
     g_orig_frame = fake_orig_frame; during = 0; g_on = 0; g_broken = 0; g_send = fake_send; g_log = fake_log; g_orig_packet = fake_orig_packet;
+    g_num_complete = g_num_peer_set = 0; g_idle_msg = -1; fake_env_idle = 0;
     g_phys = 0; g_phys_size = 0; memset(g_why, 0, sizeof g_why);
     vitals_transport_reset(); vitals_transport_begin(fake_tick);
     g_s_vtx = g_s_vack = g_s_vretry = g_s_vreplace = g_s_vrx = g_s_vdup = g_s_vfull = g_s_vack_sent = g_s_vack_unknown = 0;
@@ -263,7 +266,7 @@ int main(void)
     RUN(4000); assert(g_broken);
 
     // ---- 10. v7.1 state packets are taken out, accepted once and ACKed only after the mailbox copy; strangers pass neither state nor ACKs.
-    setup(); have = 1; orig_pk_calls = 0; sent_n = 0; auto_ack = 0;
+    setup(); step(1); have = 1; orig_pk_calls = 0; sent_n = 0; auto_ack = 0;
     u8 other[16] = { 9, 9 }; u8 pk[sizeof(VitalsHead) + 16]; VitalsHead hh = { { MAGIC, PKT_VITALS, 1, 1 }, 0x55aa, 7 }; Entry ee = { 0x100, E_DEAD, 0, 0 };
     memcpy(pk, &hh, sizeof hh); memcpy(pk + sizeof hh, &ee, sizeof ee);
     hook_packet(other, pk, sizeof pk, fake_tick); assert(g_box_n == 0 && sent_n == 0 && orig_pk_calls == 0);
@@ -299,19 +302,45 @@ int main(void)
         assert(orig_pk_calls == 2);
         printf("native types 10/11: pass through unchanged\n");
     }
-    // ---- 13. v7: the idle-repeat patch changes exactly the two immediates, and only when the code is what it should be
+    // ---- 13. The native number-ready bit can pulse low after success. It is latched for this tactical
+    // session, so a 3-second native transfer cycle cannot nudge/restart Vitals; a disconnect resets it.
     {
-        static u8 code[0x1a000]; memset(code, 0xcc, sizeof code);
-        memcpy(code + RVA_IDLE, SIG_IDLE, sizeof SIG_IDLE);
-        patch_idle(code);
-        assert(code[RVA_IDLE + IDLE_IMM8] == 0 && !memcmp(code + RVA_IDLE + IDLE_IMM32, "\0\0\0\0", 4) && g_idle_msg == 0);
-        u8 want[sizeof SIG_IDLE]; memcpy(want, SIG_IDLE, sizeof want); want[IDLE_IMM8] = 0; memset(want + IDLE_IMM32, 0, 4);
-        assert(!memcmp(code + RVA_IDLE, want, sizeof want) && code[RVA_IDLE + sizeof want] == 0xcc && code[RVA_IDLE - 1] == 0xcc);
-        memset(code, 0xcc, sizeof code); memcpy(code + RVA_IDLE, SIG_IDLE, sizeof SIG_IDLE); code[RVA_IDLE + 3] ^= 1; g_idle_msg = -1;
-        patch_idle(code); assert(g_idle_msg == -1 && code[RVA_IDLE + IDLE_IMM8] == 0x1e);   // not the expected code: left alone
-        printf("idle patch: OK\n");
+        setup(); num_ready = 0; num_flag = 0; g_num_complete = 0;
+        step(1);
+        assert(!g_num_complete && g_wait_numbers && num_flag == 1 && g_nudges == 1);
+        num_ready = 1; step(60);
+        assert(g_num_complete && !g_wait_numbers);
+        num_ready = 0; num_flag = 0;
+        u32 nudges = g_nudges; fake_tick += 3100; step(1);
+        assert(g_num_complete && !g_wait_numbers && num_flag == 0 && g_nudges == nudges);
+        conn = 0; step(1);
+        assert(!g_on && !g_num_complete);
+        conn = 1; num_ready = 0; num_flag = 0; fake_tick += 3100; step(1);
+        assert(!g_num_complete && g_wait_numbers && num_flag == 1 && g_nudges == 1);
+        printf("number-ready latch/reset: OK\n");
     }
-    // ---- 14. Exact basic_render repair: malformed recursive children still return through their normal epilogues,
+
+    // ---- 14. The default leaves the native staggered idle cadence intact. An explicit override changes
+    // exactly the two immediates, and only when the code is what it should be.
+    {
+        static u8 code[0x1a000]; u8 want[sizeof SIG_IDLE];
+        memset(code, 0xcc, sizeof code); memcpy(code + RVA_IDLE, SIG_IDLE, sizeof SIG_IDLE);
+        fake_env_idle = 0; patch_idle(code);
+        assert(!memcmp(code + RVA_IDLE, SIG_IDLE, sizeof SIG_IDLE) && g_idle_msg == -1);
+        fake_env_idle = "2000"; patch_idle(code);
+        assert(!memcmp(code + RVA_IDLE, SIG_IDLE, sizeof SIG_IDLE) && g_idle_msg == -1);
+        fake_env_idle = "0"; patch_idle(code);
+        assert(code[RVA_IDLE + IDLE_IMM8] == 0 && !memcmp(code + RVA_IDLE + IDLE_IMM32, "\0\0\0\0", 4) && g_idle_msg == 0);
+        memcpy(want, SIG_IDLE, sizeof want); want[IDLE_IMM8] = 0; memset(want + IDLE_IMM32, 0, 4);
+        assert(!memcmp(code + RVA_IDLE, want, sizeof want) && code[RVA_IDLE + sizeof want] == 0xcc && code[RVA_IDLE - 1] == 0xcc);
+        memset(code, 0xcc, sizeof code); memcpy(code + RVA_IDLE, SIG_IDLE, sizeof SIG_IDLE); g_idle_msg = -1;
+        fake_env_idle = "500"; patch_idle(code); { u32 ms = 0; memcpy(&ms, code + RVA_IDLE + IDLE_IMM32, 4); assert(code[RVA_IDLE + IDLE_IMM8] == 0 && ms == 500 && g_idle_msg == 500); }
+        memset(code, 0xcc, sizeof code); memcpy(code + RVA_IDLE, SIG_IDLE, sizeof SIG_IDLE); code[RVA_IDLE + 3] ^= 1; g_idle_msg = -1;
+        fake_env_idle = "0"; patch_idle(code); assert(g_idle_msg == -1 && code[RVA_IDLE + IDLE_IMM8] == 0x1e);   // not the expected code: left alone
+        fake_env_idle = 0;
+        printf("idle policy: OK\n");
+    }
+    // ---- 15. Exact basic_render repair: malformed recursive children still return through their normal epilogues,
     // stale matrix-cache IDs go through the engine allocator, and corrupt geometry is rejected before the engine reads it.
     {
         static u8 render[0x3a000], triangle_query[0xc0], triangle_vertices[256]; static u32 triangle_indices[3];

@@ -25,7 +25,7 @@ KNOWN_INPUTS = {
     "8108bd1e9af8080ef8b1050512b8311848f5a336acb49a7479388733b4ae5723":
         ("MiusPlayer v20 original", "d2e34581b42d0573547e221873d7538b64a413267e8ed388abeb46dd42b630d2"),
     # Earlier release inputs remain accepted so their artifacts can still be
-    # cleanly unpatched. The v7.3.0 release builder produces the two
+    # cleanly unpatched. The current v7.4.0 kit retains the two byte-identical,
     # target-verified, join-launch-race-fixed variants below.
     "603fb40567e0094a1dd0136df927196d76efea5dd43a364e7f470664117da272":
         ("v20 rebased for 3598/1 (v7.1.1 with Start)", "7caf36cddabf7eb388a3c6c393b05733e051955d63d32ef13531ce88004dcfba"),

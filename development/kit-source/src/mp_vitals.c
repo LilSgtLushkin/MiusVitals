@@ -29,8 +29,8 @@
 // 0, and puts the statistics object's random generator at the same value in both games right before that function runs.
 // Morale of the operation map is worked out from these numbers after the battle, so it follows them.
 //
-// v7: the unit-position sender normally repeats a stationary unit only every two seconds. The optional idle patch makes it
-// repeat every tick by default (MP_IDLE_MS changes that period); it does not alter the native reliable packet stream.
+// v7: the unit-position sender normally repeats a stationary unit only every two seconds. MP_IDLE_MS is an explicit,
+// diagnostic opt-in override for that native cadence; without it this DLL leaves the sender untouched.
 //
 // v7.0.1: two crash dumps, including one taken before this DLL was present, stop in the same basic_render recursive node walk. The child node
 // number is corrupt there, and the engine reads outside the node table. On the exact checked Steam 3598 basic_render image, a tiny vectored
@@ -39,7 +39,8 @@
 // Environment: MP_VITALS 0 off, 1 only compare and log, 2 and 3 apply.
 //              Default: apply in operation battles, compare and log only otherwise.   MP_LOG_VITALS=1 logs every event.
 //              MP_VEHICLES 0 off, 1 only compare and log, 2 apply (default: as MP_VITALS).   MP_STATS 0 leaves the statistics' dice alone.
-//              MP_RENDER_GUARD=0 disables the exact basic_render cache-lifetime, geometry-index and invalid-child guards. MP_IDLE_MS selects the stationary-unit repeat period.
+//              MP_RENDER_GUARD=0 disables the exact basic_render cache-lifetime, geometry-index and invalid-child guards.
+//              MP_IDLE_MS selects a stationary-unit repeat period only when explicitly set (0 is every tick; default is native staggered 2 s).
 //
 // v7.1.0: Vitals data uses type 0x34 and an application ACK uses type 0x35, rather than the legacy unacknowledged type 0x32.
 // Each data packet carries a nonzero epoch and sequence. It is retained for an ACK, retried at most 12 times, and applied once only.
@@ -233,7 +234,12 @@ static HMODULE g_game;
 static int g_stat_tried;
 static u32 g_stat_seeded;
 static volatile u8 *g_connected, *g_tactical, *g_have_peer;
-static volatile u8 *g_num_ready, *g_num_flag;   // v20: the other game's object numbers have arrived / send ours again at the next 3 s tick
+// v20's raw `ready` flag is a transfer-cycle flag: it can briefly go low again after a successful exchange.
+// It must never re-open Vitals' startup gate during this tactical session.
+static volatile u8 *g_num_ready, *g_num_flag;   // native: the other game's numbers arrived / ask it to send ours at its next 3 s tick
+static int g_num_complete;                       // sticky successful native exchange, reset only with the Vitals tactical session
+static u8 g_num_peer[16];
+static int g_num_peer_set;
 static u32 g_nudges;
 static DWORD g_num_since, g_num_last;
 static volatile u32 *g_host_mode;
@@ -773,7 +779,7 @@ static void vitals_take_ack(const VitalsHead *ack)
 static void reset_all(void)
 {
     memset(g_u, 0, sizeof g_u); g_u_n = 0; memset(g_v, 0, sizeof g_v); g_v_n = 0; g_veh_broken = 0;
-    g_num_since = g_num_last = g_nudges = 0; g_wait_numbers = 0; g_force_scan = 0;
+    g_num_since = g_num_last = g_nudges = 0; g_num_complete = g_num_peer_set = 0; g_wait_numbers = 0; g_force_scan = 0;
     vitals_transport_reset();
     EnterCriticalSection(&g_cs); g_box_n = 0; g_box_head = 0; LeaveCriticalSection(&g_cs);
 }
@@ -868,7 +874,7 @@ static void vitals_frame(void *om)
     try_hook_stat();
     try_render_guard();
     if (g_log) {
-        if (g_idle_msg == 0) { g_log("net: units that stand still are sent on every tick (patched at start)"); g_idle_msg = -2; }
+        if (g_idle_msg == 0) { g_log("net: units that stand still are sent on every tick (MP_IDLE_MS=0 override)"); g_idle_msg = -2; }
         else if (g_idle_msg > 0) { g_log("net: units that stand still are sent every %d ms (patched at start)", g_idle_msg); g_idle_msg = -2; }
         u32 render_recoveries = __atomic_load_n(&g_render_recoveries, __ATOMIC_RELAXED);
         if (render_recoveries != g_render_reported) {
@@ -890,30 +896,38 @@ static void vitals_frame(void *om)
     if (!on) { if (g_on) { reset_all(); g_on = 0; } return; }
     DWORD now = GetTickCount();
     g_last_on = now ? now : 1;
-    {   // v20 loads the other game's unit states only after the lists of object numbers of both games have been exchanged.
-        // This is a prerequisite, not a best-effort diagnostic: request the native list transfer from the
-        // first tactical seconds and repeat it at its normal three-second cadence until it completes.
-        if (*g_num_ready) g_num_since = 0;
-        else {
-            if (!g_num_since) g_num_since = now;
-            if (now - g_num_last >= 3000) {
-                *g_num_flag = 1; g_num_last = now; g_nudges++;
-                if (g_log && g_nudges <= 5) g_log("vitals: requested object-number exchange (waiting %u s)", (now - g_num_since) / 1000);
-            }
-        }
-    }
-    if (!g_on || om != g_om) {
+    // A new object manager or selected peer is a new tactical session. A connection loss is handled above.
+    // Do not carry a completed number table into either case.
+    if (!g_on || om != g_om || (g_num_peer_set && memcmp(g_num_peer, g_peer, sizeof g_num_peer))) {
         reset_all();
         vitals_transport_begin(now);
+        memcpy(g_num_peer, g_peer, sizeof g_num_peer); g_num_peer_set = 1;
         g_om = om; g_on = 1; g_on_since = now; last_scan = 0; last_digest = last_vdigest = now;
         g_san_seen = g_san_good = g_rec_samples = g_start_checked = g_veh_checked = 0; g_vb_off = 0; g_veh_samples = 0; g_scan_no = 0;
         if (g_log) g_log("vitals: on (mode %d, vehicles %d)", mode(), veh_mode(mode()));
     }
+    {   // The native exchange is a prerequisite, not a best-effort diagnostic. Its raw ready flag, however,
+        // is deliberately reused by v20 for later transfer cycles and pulses low after the first success.
+        // Latch the first completed exchange for *this* object-manager session instead of forcing another
+        // full description/object-table walk every three seconds.
+        if (!g_num_complete) {
+            if (*g_num_ready) {
+                g_num_complete = 1;
+                g_num_since = 0;
+            } else {
+                if (!g_num_since) g_num_since = now;
+                if (now - g_num_last >= 3000) {
+                    *g_num_flag = 1; g_num_last = now; g_nudges++;
+                    if (g_log && g_nudges <= 5) g_log("vitals: requested object-number exchange (waiting %u s)", (now - g_num_since) / 1000);
+                }
+            }
+        }
+    }
     // Every remote saved-state field is expressed in the sender's object/description-number space.
-    // Do not let Vitals get ahead of that exact translation handshake. On the receiver side a pre-ready
+    // Do not let Vitals get ahead of the first exact translation handshake. On the receiver side a pre-ready
     // Vitals packet is deliberately not ACKed (see hook_packet), so a current peer retains it instead of
     // silently considering an unsafe state delivered.
-    if (!*g_num_ready) {
+    if (!g_num_complete) {
         if (!g_wait_numbers && g_log) g_log("vitals: waiting for object-number exchange before tactical state sync");
         g_wait_numbers = 1;
         return;
@@ -1085,7 +1099,10 @@ static void vitals_frame(void *om)
     }
     if (now - last_report >= 5000) {
         last_report = now;
-        if (g_log)
+        // Per-five-second counters are useful when diagnosing a desync, but writing three long lines through
+        // the game's synchronous logger during normal play adds needless disk work.  Events and errors above
+        // remain visible; MP_LOG_VITALS=1 opts into this aggregate telemetry.
+        if (log_events() && g_log) {
             g_log("vitals: 5 s: mode %d, soldiers %u (dead here %u, dead in the other game %u; hurt here %u, in the other game %u, lowered here %u + record %u, still apart %u), "
                   "sent %u at once + %u in lists, received %u entries; killed here %u, only noticed %u, table full %u; squad records found %u, not %u (why 1..8: %u %u %u %u %u %u %u %u); "
                   "vehicles %u (flags on here %u, in the other game %u), switched on here %u, only noticed %u",
@@ -1093,13 +1110,12 @@ static void vitals_frame(void *om)
                   g_s_sent_delta, g_s_sent_digest, g_s_rx, g_s_killed, g_s_notice, g_s_dropped, g_s_rec_ok, g_s_rec_bad,
                   g_why[1], g_why[2], g_why[3], g_why[4], g_why[5], g_why[6], g_why[7], g_why[8],
                   g_s_veh, g_s_veh_flag, g_s_veh_peer, g_s_veh_set, g_s_veh_note);
-        if (g_log) g_log("vitals: state channel v7.2: packets sent %u, acked %u, retried %u, replaced %u, pending %d; received %u, duplicates %u, inbox full %u, ACK sent %u, unmatched ACK %u; final scans %u",
-                          g_s_vtx, g_s_vack, g_s_vretry, g_s_vreplace, vitals_pending(), g_s_vrx, g_s_vdup, g_s_vfull, g_s_vack_sent, g_s_vack_unknown, g_s_final_scans);
-        if (g_log) {
+            g_log("vitals: state channel v7.4: packets sent %u, acked %u, retried %u, replaced %u, pending %d; received %u, duplicates %u, inbox full %u, ACK sent %u, unmatched ACK %u; final scans %u",
+                  g_s_vtx, g_s_vack, g_s_vretry, g_s_vreplace, vitals_pending(), g_s_vrx, g_s_vdup, g_s_vfull, g_s_vack_sent, g_s_vack_unknown, g_s_final_scans);
             char tl[400]; int n = 0; tl[0] = 0;
             for (int t = 0; t < 64 && n < 360; t++) if (g_rx_type[t]) n += wsprintfA_lite(tl + n, t, g_rx_type[t], g_rx_size[t]);
             if (n) g_log("rx: datagrams of the other game by type (type:count/bytes) %s", tl);
-            g_log("vitals: object-number lists exchanged: %s (asked again %u times)", *g_num_ready ? "yes" : "NO", g_nudges);
+            g_log("vitals: object-number exchange latched: %s (requested %u times before first completion)", g_num_complete ? "yes" : "NO", g_nudges);
         }
         memset((void *)g_rx_type, 0, sizeof g_rx_type); memset((void *)g_rx_size, 0, sizeof g_rx_size);
         g_s_sent_delta = g_s_sent_digest = g_s_rx = g_s_killed = g_s_notice = g_s_dropped = g_s_rec_ok = g_s_rec_bad = g_s_merged = g_s_merged_rec = g_s_veh_set = g_s_veh_note = 0;
@@ -1132,7 +1148,7 @@ static void hook_packet(const void *from, const unsigned char *data, int size, u
         // a full mailbox deliberately leaves the packet unacknowledged so the sender retries it.
         int queued = 0, duplicate = 0;
         if (*g_have_peer && !memcmp(from, g_peer, 16) && size >= (int)sizeof(VitalsHead) && h->count > 0 && h->count <= PER_PACKET &&
-            !(h->flags & ~F_DELTA) && size == (int)(sizeof(VitalsHead) + (size_t)h->count * sizeof(Entry)) && mode() > 0 && *g_num_ready) {
+            !(h->flags & ~F_DELTA) && size == (int)(sizeof(VitalsHead) + (size_t)h->count * sizeof(Entry)) && mode() > 0 && g_num_complete) {
             const VitalsHead *vh = (const VitalsHead *)data;
             if (vh->epoch && vh->seq) {
                 EnterCriticalSection(&g_cs);
@@ -1193,7 +1209,7 @@ static void hook_stat(void *obj, long long a2, char a3)
     // This call is the last common point before operation casualties are rolled up.  Force the normal,
     // monotonic scan once more so a death or a lower health from the last combat frame is published before
     // the deterministic statistics seed is used.  It never bypasses the object-number prerequisite.
-    if (!g_broken && g_on && g_om && g_num_ready && *g_num_ready) {
+    if (!g_broken && g_on && g_om && g_num_complete) {
         g_force_scan = 1;
         vitals_frame(g_om);
         g_s_final_scans++;
@@ -1227,14 +1243,20 @@ static void try_hook_stat(void)
 }
 
 // The transform sender (called from session_frame, about 13 times a second) skips a unit that has moved less than a threshold unless its last
-// transform is older than (id & 15) * 30 + 2000 ms. Make that `T` ms (default 0 = every unit on every tick), so a unit that stands still is not
-// corrected only every 2 s and the update rate does not depend on what the units do. imm8 -> 0, imm32 -> T.
+// transform is older than (id & 15) * 30 + 2000 ms. Preserve that staggered native cadence by default. An explicitly set MP_IDLE_MS can
+// override it for diagnosis (0 = every unit on every tick); imm8 -> 0, imm32 -> T.
 static void patch_idle(u8 *b)
 {
     int T = 0;
     char v[12];
-    if (GetEnvironmentVariableA("MP_IDLE_MS", v, sizeof v)) T = num_of(v);
-    if (T < 0 || T > 60000 || T == 2000) return;            // 2000 = the module's own value (the (id & 15) * 30 part is then left too)
+    DWORD n = GetEnvironmentVariableA("MP_IDLE_MS", v, sizeof v);
+    if (!n || n >= sizeof v) return;                         // absent/too long: preserve native cadence
+    for (DWORD i = 0; i < n; i++) {
+        int d = v[i] - '0';
+        if (d < 0 || d > 9 || T > 6000 || (T == 6000 && d > 0)) return;
+        T = T * 10 + d;
+    }
+    if (T == 2000) return;                                   // the module's own value (the (id & 15) * 30 part is then left too)
     u8 *at = b + RVA_IDLE;
     if (!same(at, SIG_IDLE, sizeof SIG_IDLE)) return;
     DWORD old;

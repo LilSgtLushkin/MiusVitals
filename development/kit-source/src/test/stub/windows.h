@@ -34,12 +34,24 @@ typedef struct { DWORD TimeDateStamp; } FH; typedef struct { DWORD SizeOfImage; 
 typedef struct { DWORD Signature; FH FileHeader; OH OptionalHeader; } IMAGE_NT_HEADERS;
 extern DWORD fake_tick;
 extern uintptr_t fake_vq_unmapped_from;
+// Test-only environment control. A null value means the variable is absent.
+extern const char *fake_env_idle;
 static inline size_t VirtualQuery(const void *p, MEMORY_BASIC_INFORMATION *m, size_t n) {
     (void)n; m->BaseAddress = (void*)p; m->AllocationBase = (void*)1; m->RegionSize = (size_t)1 << 40;
     m->State = (uintptr_t)p >= fake_vq_unmapped_from ? MEM_RESERVE : MEM_COMMIT; m->Protect = PAGE_READWRITE; return 1;
 }
 static inline DWORD GetTickCount(void) { return fake_tick; }
-static inline DWORD GetEnvironmentVariableA(const char *n, char *b, DWORD s) { (void)n; (void)b; (void)s; return 0; }
+static inline DWORD GetEnvironmentVariableA(const char *n, char *b, DWORD s) {
+    const char *p = fake_env_idle;
+    int k = 0;
+    if (!p || n[0] != 'M' || n[1] != 'P' || n[2] != '_' || n[3] != 'I' || n[4] != 'D' || n[5] != 'L' || n[6] != 'E' || n[7] != '_' || n[8] != 'M' || n[9] != 'S' || n[10]) return 0;
+    while (p[k]) k++;
+    if (b && s) {
+        if ((DWORD)k >= s) return (DWORD)k + 1;
+        for (int i = 0; i <= k; i++) b[i] = p[i];
+    }
+    return (DWORD)k;
+}
 static inline void InitializeCriticalSection(CRITICAL_SECTION *c) { (void)c; }
 static inline void EnterCriticalSection(CRITICAL_SECTION *c) { (void)c; }
 static inline void LeaveCriticalSection(CRITICAL_SECTION *c) { (void)c; }
