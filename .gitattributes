@@ -7,3 +7,7 @@
 development/upstream/miusplayer-public-43b2736/basic_network/build.bat -text
 development/upstream/miusplayer-public-43b2736/mpmod1_src/Disable_Multiplayer.bat -text
 development/upstream/miusplayer-public-43b2736/mpmod1_src/Enable_Multiplayer.bat -text
+
+# The unified package canonicalizes these as CRLF internally, but its source
+# hash-list stays LF in every checkout.
+development/unified-kit-source/game_build_3598.sha256 text eol=lf

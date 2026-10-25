@@ -1,4 +1,4 @@
-# Сборка и проверка MiusVitals v7.5.0
+# Сборка и проверка MiusMultiplayer v1.0.0
 
 ## Воспроизводимые входы и артефакты
 
@@ -26,35 +26,34 @@ python3 development/merged-source/verify_workspace.py
 
 Опубликованный public release `basic_network.codelib` имеет SHA-256 `8108bd1e9af8080ef8b1050512b8311848f5a336acb49a7479388733b4ae5723`, что совпадает с проверенным v20 input. Однако C++ output, приложенный самим upstream к source snapshot, имеет другой SHA-256 `eff7ae12c5f440dc91d0fccc9d9578022a383b0485da58793bffd217922f7af5`. Поэтому source rebuild — только candidate для правки/анализа: он не может быть установлен или пропущен через RVA-bound `patch_import.py` до новой binary mapping, PE/native validation и two-peer проверки. Полная карта процесса находится в [`../development/merged-source/README.md`](../development/merged-source/README.md).
 
-## Exact downloadable kit
+## Единый downloadable multiplayer archive
 
-`development/kit-source/` — редактируемая development структура, не каталог установки. `scripts/package_kit.py` — allow-list единственного installable download: `MiusVitals_v7.5.0_INSTALL.zip`. В архив попадают ровно эти 16 файлов под единственным `MiusVitals/` root:
+`development/unified-kit-source/` — единственный runtime package source. Он объединяет опубликованные MiusPlayer v20 runtime assets с проверенными MiusVitals `basic_network.codelib` и `mp_vitals.dll`; `kit-source/` остаётся только implementation/test layer и не устанавливается отдельно.
+
+`scripts/package_unified_mod.py` строго проверяет runtime hashes, наличие `basic_network.codelib` в обоих program packs, CRC, fixed ZIP metadata, allow-list и byte identity. В archive ровно 13 файлов под единственным `MiusMultiplayer/` root:
 
 ```text
-Check_Build.ps1
-Uninstall_Vitals.bat
-known_3598.sha256
-Check_Build.bat
-Install_Vitals.bat
-README_VITALS.txt
-src/mp_vitals.c
-src/patch_import.py
-src/build.sh
-src/rebase_3598_1.py
-src/test/t.c
-src/test/stub/windows.h
+Enable_Multiplayer.bat
+Disable_Multiplayer.bat
+Check_Install.bat
+Check_Install.ps1
+README.txt
+LICENSE_CC0.txt
+game_build_3598.sha256
+files/bin/rel/x64/basic_network.codelib
 files/mp_vitals.dll
-files/basic_network.codelib
-files/alt/basic_network_nostart.codelib
-files/alt/basic_network_v5_norebase.codelib
+files/mp_join.exe
+files/root/programs/opgame.progpack
+files/root/programs/tacgame.progpack
+files/steam_appid.txt
 ```
 
-ZIP использует фиксированный timestamp 2026-10-25 00:00:00, явный порядок записей, фиксированные mode bits и deflate level 9. `--verify` проверяет CRC, дерево, timestamp и точную byte identity со входами kit.
+Install script проверяет Steam 3598, принимает только stock/известные предыдущие multiplayer modules, сохраняет foreign program/utility files, копирует DLL до importing codelib и сверяет hashes после copy. `Disable_Multiplayer.bat` удаляет только exact unified hashes и восстанавливает сохранённые файлы.
 
 ```sh
-python3 scripts/package_kit.py --output MiusVitals_v7.5.0_INSTALL.zip
-python3 scripts/package_kit.py --verify MiusVitals_v7.5.0_INSTALL.zip
-sha256sum MiusVitals_v7.5.0_INSTALL.zip
+python3 scripts/package_unified_mod.py --output MiusMultiplayer_v1.0.0_INSTALL.zip
+python3 scripts/package_unified_mod.py --verify MiusMultiplayer_v1.0.0_INSTALL.zip
+sha256sum MiusMultiplayer_v1.0.0_INSTALL.zip
 ```
 
 ## Локальная проверка

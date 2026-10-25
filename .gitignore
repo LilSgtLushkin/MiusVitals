@@ -3,6 +3,8 @@
 /dist/
 development/kit-source/state/
 development/kit-source/build_report.txt
+development/unified-kit-source/state/
+development/unified-kit-source/build_report.txt
 # A public MiusPlayer source build is a local analysis candidate, never a checked-in game artifact.
 development/upstream/miusplayer-public-43b2736/basic_network/build/
 development/upstream/miusplayer-public-43b2736/Multiplayer_DropIn/

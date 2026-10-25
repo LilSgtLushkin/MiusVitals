@@ -20,6 +20,6 @@ python3 development/merged-source/verify_workspace.py
 
 ## Установка игрока
 
-Текущий installable archive пока намеренно остаётся компактным и безопасным: [`../MiusVitals_v7.5.0_INSTALL.zip`](../MiusVitals_v7.5.0_INSTALL.zip). В нём 16 runtime/inspection файлов под обязательным `MiusVitals/` root; расширенная source workspace не подменяет его и не попадает в игру случайно.
+Единственный installable archive: [`../MiusMultiplayer_v1.0.0_INSTALL.zip`](../MiusMultiplayer_v1.0.0_INSTALL.zip). Он содержит один `MiusMultiplayer/` root с runtime MiusPlayer assets, проверенным `basic_network.codelib` и `mp_vitals.dll`; отдельные `mpmod1`/`MiusVitals` archives больше не устанавливаются.
 
-Архив создаётся и проверяется `../scripts/package_kit.py`.
+Архив создаётся и проверяется `../scripts/package_unified_mod.py`. `kit-source/` сохраняется как implementation layer и test input, а не как отдельная player install directory.
