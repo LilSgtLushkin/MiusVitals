@@ -1,4 +1,4 @@
-# Сборка и проверка MiusMultiplayer v1.0.0
+# Сборка и проверка MiusMultiplayer v1.0.1
 
 ## Воспроизводимые входы и артефакты
 
@@ -28,7 +28,7 @@ python3 development/merged-source/verify_workspace.py
 
 ## Единый downloadable multiplayer archive
 
-`development/unified-kit-source/` — единственный runtime package source. Он объединяет опубликованные MiusPlayer v20 runtime assets с проверенными MiusVitals `basic_network.codelib` и `mp_vitals.dll`; `kit-source/` остаётся только implementation/test layer и не устанавливается отдельно.
+`development/unified-kit-source/` — сохранённый source legacy v1.0.0 package. Актуальный v1.0.1 source лежит отдельно в `development/unified-fps-kit-source/`, чтобы v1.0.0 оставался доступным для deterministic rollback. Оба объединяют опубликованные MiusPlayer runtime assets с проверенными MiusVitals files; `kit-source/` остаётся только implementation/test layer и не устанавливается отдельно.
 
 `scripts/package_unified_mod.py` строго проверяет runtime hashes, наличие `basic_network.codelib` в обоих program packs, CRC, fixed ZIP metadata, allow-list и byte identity. В archive ровно 13 файлов под единственным `MiusMultiplayer/` root:
 
@@ -55,6 +55,25 @@ python3 scripts/package_unified_mod.py --output MiusMultiplayer_v1.0.0_INSTALL.z
 python3 scripts/package_unified_mod.py --verify MiusMultiplayer_v1.0.0_INSTALL.zip
 sha256sum MiusMultiplayer_v1.0.0_INSTALL.zip
 ```
+
+## Актуальный unified Steam + FPS + Vitals archive v1.0.1
+
+`MiusMultiplayer_v1.0.1_INSTALL.zip` — актуальный single installer. Его source tree — `development/unified-fps-kit-source/`; archive содержит те же Vitals DLL, launcher и program packs, что проверенный unified kit, но заменяет runtime `basic_network.codelib` на exact Steam-preserving FPS candidate:
+
+- candidate SHA-256: `7b42a69abe58deb1583d2f5320eebbecd9718ffa27ea08933613e67df1901f67`;
+- stable Steam base SHA-256: `485b655662bd062e16278f9d699a3097b49a08de1948d2500dd589703a3102a3`;
+- `.fpsfix` trampoline skips `session_sim_step` only for zero-ms `ctrl_tick`; a nonzero step uses the original function;
+- the exact Steam Friends, rich-presence, Join Game, SteamNetworking P2P and Vitals import paths are retained from the base module.
+
+`scripts/package_unified_fps_mod.py` rejects a simple binary substitution: it reconstructs and byte-compares the deterministic transformation, checks the PE trampoline plus every required Steam marker, requires byte identity with `development/fps-beta-build/basic_network.codelib`, validates all runtime hashes, both program-pack module references, ZIP allow-list and fixed metadata. The v1.0.1 installer accepts the known v1.0.0 module and withdrawn beta only as migration inputs, but still rejects an unknown active codelib.
+
+```sh
+python3 scripts/package_unified_fps_mod.py --output MiusMultiplayer_v1.0.1_INSTALL.zip
+python3 scripts/package_unified_fps_mod.py --verify MiusMultiplayer_v1.0.1_INSTALL.zip
+sha256sum MiusMultiplayer_v1.0.1_INSTALL.zip
+```
+
+`MiusMultiplayer_v1.0.0_INSTALL.zip` remains retained as a legacy rollback artifact. The standalone beta archive also remains for provenance, but it is no longer the advertised installer after v1.0.1.
 
 ## Отдельный beta_FPS_fix archive
 

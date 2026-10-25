@@ -1,26 +1,26 @@
-# MiusMultiplayer v1.0.0
+# MiusMultiplayer v1.0.1
 
-Единый multiplayer-мод для **Graviteam Tactics: Mius-Front** (Steam game build 3598/1). Он объединяет runtime MiusPlayer v20 и проверенный MiusVitals sidecar в одном устанавливаемом наборе.
+Единый multiplayer-мод для **Graviteam Tactics: Mius-Front** (Steam game build 3598/1). v1.0.1 объединяет Steam-compatible FPS candidate, MiusPlayer runtime и проверенный MiusVitals sidecar в одном устанавливаемом наборе.
 
 ## Скачать и установить
 
-**Устанавливаемый файл только один:** [`MiusMultiplayer_v1.0.0_INSTALL.zip`](MiusMultiplayer_v1.0.0_INSTALL.zip).
+**Актуальный устанавливаемый файл только один:** [`MiusMultiplayer_v1.0.1_INSTALL.zip`](MiusMultiplayer_v1.0.1_INSTALL.zip).
 
-Архив содержит единый корень `MiusMultiplayer/` и имеет SHA-256 `d027d5b4b1c741bb63d55500de76b4049505353adadca2b88eeb3428b38291fc`. Распакуйте его в корень игры рядом со `starter_x64.exe`, затем выполните `MiusMultiplayer\Check_Install.bat` и `MiusMultiplayer\Enable_Multiplayer.bat`. Не устанавливайте отдельно старые `mpmod1` и `MiusVitals`.
+Архив содержит единый корень `MiusMultiplayer/` и имеет SHA-256 `62e690fdaf4e7ca2e837e054ea3e33b9efdcbb7c8751a6934331bb733f91216f`. Распакуйте его в корень игры рядом со `starter_x64.exe`, затем выполните `MiusMultiplayer\\Check_Install.bat` и `MiusMultiplayer\\Enable_Multiplayer.bat` на обоих ПК. Не устанавливайте отдельно старые `mpmod1`, `MiusVitals`, `MiusMultiplayer_v1.0.0` или `beta_FPS_fix`.
 
-`Enable_Multiplayer.bat` может сообщить число отличий от historical full-file hash list. Для актуального Steam **6.00 build 3598/1** это предупреждение не блокирует установку; installer всё равно отказывается заменить неизвестный active multiplayer module, а engine-specific hooks запускаются только после собственных точных runtime signature checks.
+Внутри v1.0.1 находится `basic_network.codelib` SHA-256 `7b42a69abe58deb1583d2f5320eebbecd9718ffa27ea08933613e67df1901f67`: это Steam-capable 3598/1 module с проверенным `.fpsfix` trampoline. Он пропускает `session_sim_step` только при zero-ms `ctrl_tick` и оставляет original path для non-zero steps. Steam Friends, rich presence, Join Game, SteamNetworking P2P, Vitals import/signature surface и остальные текущие runtime fixes остаются в том же codelib.
 
-### Отдельный beta_FPS_fix installer
+`Enable_Multiplayer.bat` принимает known v1.0.0, withdrawn public-source beta и Steam-preserving beta, но отказывается заменить неизвестный active multiplayer module. Historical full-file game hash list остаётся diagnostic fingerprint: для актуального Steam **6.00 build 3598/1** различия не блокируют установку, а engine-specific hooks включаются только после собственных точных runtime signature checks.
 
-Для контролируемого двухpeer FPS-теста доступен второй архив [`MiusMultiplayer_beta_FPS_fix_INSTALL.zip`](MiusMultiplayer_beta_FPS_fix_INSTALL.zip), SHA-256 `cdf7745f9d4f2f5b8181d97c188e146f23672db1397ace31a1b77a65fc456b80`.
+### Старые archives
 
-Это **не** замена стабильного unified archive и не compatibility release. Предыдущий public-source beta candidate `78e271…2916e` был отозван: в публичном C++ snapshot отсутствует Steam friends/rich-presence/P2P implementation, поэтому его rebuild ломал подключение через Steam. Новый candidate SHA-256 `7b42a69abe58deb1583d2f5320eebbecd9718ffa27ea08933613e67df1901f67` начинается с проверенного Steam-capable 3598/1 module и добавляет реальное узкое FPS-изменение: `session_sim_step` не вызывается на zero-ms `ctrl_tick`. PE `.fpsfix` trampoline детерминированно проверяется; Steam friends Join Game, rich presence, SteamNetworking P2P и Vitals import/signature surface сохраняются.
+`MiusMultiplayer_v1.0.0_INSTALL.zip` и `MiusMultiplayer_beta_FPS_fix_INSTALL.zip` сохранены только для rollback/provenance. Они не являются актуальным installer. Если была установлена withdrawn beta `78e271…2916e`, используйте новый v1.0.1 installer поверх неё: он распознаёт этот known module; сохранённый beta backup при необходимости восстанавливает старый `Disable_Beta_FPS_Fix.bat`.
 
-Новый `Disable_Beta_FPS_Fix.bat` также распознаёт withdrawn `78e271…2916e` и возвращает его сохранённый pre-beta module — это путь ремонта уже установленной проблемной beta. Beta автоматически заменяет только `bin\\rel\\x64\\basic_network.codelib`: перед заменой он сохраняет **любой** предыдущий module, включая неизвестный, с отдельной SHA-256 записью и возвращает exact backup через `Disable_Beta_FPS_Fix.bat`. Если обнаружен stale beta backup одновременно с иным active module, installer ничего не перезаписывает, чтобы не потерять файл. Оба игрока должны установить один и тот же beta archive. Перед FPS comparison обязателен Steam two-PC regression: rich-presence host → friend Join Game → P2P lobby → tactical session, в обеих host directions. До этой живой проверки beta не является gameplay-certified compatibility release; перед возвратом к stable archive сначала запустите beta disable script.
+Перед campaign/FPS comparison обязателен Steam two-PC regression: rich-presence host → friend Join Game → P2P lobby → tactical session → reconnect/exit, в обеих host directions. До этой живой проверки Steam/FPS результат не следует считать gameplay-certified.
 
-> Не устанавливайте [`development/`](development/). Это расширенная рабочая область: source MiusPlayer/MiusVitals, manifest и проверки. Для игры подходит только stable unified archive либо явно помеченный beta installer для ограниченного FPS-теста. Для редактирования/полной source rebuild цепочки см. [`development/merged-source/`](development/merged-source/).
+> Не устанавливайте [`development/`](development/). Это расширенная рабочая область: source MiusPlayer/MiusVitals, manifests и проверки. Для игры используйте только `MiusMultiplayer_v1.0.1_INSTALL.zip`; для редактирования/полной source rebuild цепочки см. [`development/merged-source/`](development/merged-source/).
 
-Оба игрока должны установить один и тот же v1.0.0 archive. Откат: после закрытия игры запустите `MiusMultiplayer\Disable_Multiplayer.bat`.
+Оба игрока должны установить один и тот же v1.0.1 archive. Откат: после закрытия игры запустите `MiusMultiplayer\\Disable_Multiplayer.bat`, затем при необходимости переустановите выбранный старый kit.
 
 ## Что входит в единый мод
 

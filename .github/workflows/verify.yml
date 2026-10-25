@@ -13,7 +13,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify hashes, PE surface, exact kit and native logic
         run: scripts/verify_release.sh
-      - name: Upload stable unified installer
+      - name: Upload current unified Steam + FPS installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: MiusMultiplayer_v1.0.1_INSTALL
+          path: MiusMultiplayer_v1.0.1_INSTALL.zip
+          if-no-files-found: error
+      - name: Upload legacy stable unified installer
         uses: actions/upload-artifact@v4
         with:
           name: MiusMultiplayer_v1.0.0_INSTALL
