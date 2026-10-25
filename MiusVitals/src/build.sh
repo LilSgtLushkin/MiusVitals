@@ -13,6 +13,7 @@ mkdir -p "$(dirname -- "$OUT")"
 cat > "$WORK/k32.def" <<'DEF'
 LIBRARY KERNEL32.dll
 EXPORTS
+AddVectoredExceptionHandler
 DisableThreadLibraryCalls
 EnterCriticalSection
 FlushInstructionCache
@@ -32,7 +33,7 @@ DEF
 "$PYTHON" -m ziglang cc -target x86_64-windows-gnu -O2 -Wall -Wextra -fno-builtin -fno-stack-protector \
     -c -o "$WORK/mp_vitals.obj" "$HERE/mp_vitals.c"
 "$PYTHON" -m ziglang lld-link /dll /entry:DllMain /nodefaultlib /export:MpVitalsInit \
-    /out:"$OUT" /opt:ref /nxcompat /dynamicbase /base:0x7a0000000 /ignore:4281 \
+    /out:"$OUT" /opt:ref /nxcompat /dynamicbase /base:0x7a0000000 /Brepro /timestamp:0 /ignore:4281 \
     /implib:"$WORK/mp_vitals.lib" "$WORK/mp_vitals.obj" "$WORK/kernel32.lib"
 
 printf '%s\n' "built $OUT"

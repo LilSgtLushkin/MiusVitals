@@ -1,5 +1,5 @@
 @echo off
-rem MiusVitals: infantry life/death synchronisation for the Steam release (v20) of the Mius-Front multiplayer.
+rem MiusVitals v7.1.0: acknowledged Vitals delivery for the Steam release (v20) of the Mius-Front multiplayer.
 rem Puts two files into the game: mp_vitals.dll (game folder) and a basic_network.codelib that differs from the
 rem original only by one import entry. The original is kept in state\ and Uninstall_Vitals.bat puts it back.
 rem Both players must do this. Put the MiusVitals folder into the game folder (next to mpmod1).
@@ -18,7 +18,7 @@ if /i "%~1"=="nostart" set "MOD=%KIT%\files\alt\basic_network_nostart.codelib"
 if /i "%~1"=="norebase" set "MOD=%KIT%\files\alt\basic_network_v5_norebase.codelib"
 set "RC=0"
 echo.
-echo  MiusVitals - infantry synchronisation
+echo  MiusVitals v7.1.0 - acknowledged Vitals delivery
 echo.
 if not exist "%GAME%\starter_x64.exe" goto :no_game
 if not exist "%GAME%\bin\rel\x64\basic_network.codelib" goto :no_mp
