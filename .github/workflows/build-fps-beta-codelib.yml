@@ -1,0 +1,75 @@
+name: Build FPS beta codelib
+
+on:
+  push:
+    paths:
+      - .github/workflows/build-fps-beta-codelib.yml
+      - development/merged-source/patches/0001-elide-idempotent-remote-transform-writes.patch
+      - development/merged-source/prepare_transform_sync_candidate.py
+      - development/upstream/miusplayer-public-43b2736/basic_network/**
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-fps-beta-codelib:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply the reviewed source patch in this disposable build workspace
+        shell: cmd
+        run: |
+          rem GitHub Windows images may check ordinary source text out as CRLF. Reset it to the repository's
+          rem LF blobs before applying the reviewed LF patch; vendored binary/script attributes stay untouched.
+          git config core.autocrlf false || exit /b 1
+          git reset --hard HEAD || exit /b 1
+          git apply --check development\merged-source\patches\0001-elide-idempotent-remote-transform-writes.patch || exit /b 1
+          git apply development\merged-source\patches\0001-elide-idempotent-remote-transform-writes.patch || exit /b 1
+
+      - name: Compile twice with the VS2022 x64 toolchain
+        shell: cmd
+        run: |
+          @echo on
+          for /f "usebackq delims=" %%I in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do call "%%I\VC\Auxiliary\Build\vcvars64.bat"
+          if not defined VCToolsInstallDir exit /b 1
+          cd /d "%GITHUB_WORKSPACE%\development\upstream\miusplayer-public-43b2736\basic_network"
+          if not exist build-a mkdir build-a
+          cl /nologo /LD /MD /O1 /EHa /W3 /Fo"build-a\\" basic_network.cpp session.cpp ui.cpp state.cpp statesync.cpp shots.cpp trench.cpp xlate.cpp /link user32.lib gdi32.lib ws2_32.lib ole32.lib oleaut32.lib /Brepro /OUT:build-a\basic_network.codelib /IMPLIB:build-a\basic_network.lib || exit /b 1
+          if not exist build-b mkdir build-b
+          cl /nologo /LD /MD /O1 /EHa /W3 /Fo"build-b\\" basic_network.cpp session.cpp ui.cpp state.cpp statesync.cpp shots.cpp trench.cpp xlate.cpp /link user32.lib gdi32.lib ws2_32.lib ole32.lib oleaut32.lib /Brepro /OUT:build-b\basic_network.codelib /IMPLIB:build-b\basic_network.lib || exit /b 1
+          fc /b build-a\basic_network.codelib build-b\basic_network.codelib || exit /b 1
+
+      - name: Record candidate hash
+        shell: pwsh
+        run: |
+          $candidate = 'development/upstream/miusplayer-public-43b2736/basic_network/build-a/basic_network.codelib'
+          $hash = (Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLower()
+          "${hash}  basic_network.codelib" | Set-Content -NoNewline -Encoding ascii candidate.sha256
+          "Candidate SHA-256: $hash"
+
+      - name: Publish the reproducible candidate to this beta branch
+        shell: cmd
+        run: |
+          if /I not "%GITHUB_REF_TYPE%"=="branch" exit /b 1
+          git switch -C "%GITHUB_REF_NAME%" || exit /b 1
+          if not exist development\fps-beta-build mkdir development\fps-beta-build
+          copy /y development\upstream\miusplayer-public-43b2736\basic_network\build-a\basic_network.codelib development\fps-beta-build\basic_network.codelib || exit /b 1
+          copy /y candidate.sha256 development\fps-beta-build\candidate.sha256 || exit /b 1
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add development/fps-beta-build\basic_network.codelib development/fps-beta-build\candidate.sha256
+          git diff --cached --quiet && exit /b 0
+          git commit -m "build reproducible FPS beta codelib [skip ci]" || exit /b 1
+          git push origin HEAD:%GITHUB_REF_NAME% || exit /b 1
+
+      - name: Upload reproducible FPS beta codelib
+        uses: actions/upload-artifact@v4
+        with:
+          name: fps-beta-codelib
+          path: |
+            development/upstream/miusplayer-public-43b2736/basic_network/build-a/basic_network.codelib
+            candidate.sha256
+          if-no-files-found: error
+          retention-days: 14

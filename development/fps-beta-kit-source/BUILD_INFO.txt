@@ -1,0 +1,20 @@
+MiusMultiplayer beta_FPS_fix build provenance
+
+Candidate codelib SHA-256:
+78e2718383bc0679154118415189d1c1ee05ed0179a0a924455c22cb4ae2916e
+
+Reproducible build run:
+https://github.com/LilSgtLushkin/MiusVitals/actions/runs/40196127196
+
+Builder:
+GitHub Actions windows-2022, VS2022 x64 cl/link /Brepro.
+The candidate was compiled twice and fc /b confirmed byte identity.
+
+Inputs:
+- public MiusPlayer source snapshot 43b2736d3b4a1e208e6c80f45f6ebbdd476de3aa
+- patch 0001-elide-idempotent-remote-transform-writes.patch
+- source commit 1dd623578bfa142557249325545a1080f7c834cc
+
+Status:
+EXPERIMENTAL FPS TEST ONLY. No live Windows/two-peer gameplay certification yet.
+The candidate does not use the released v20 mp_vitals.dll import/RVA profile.
