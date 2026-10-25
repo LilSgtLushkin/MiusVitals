@@ -2,8 +2,12 @@
 
 Надстройка для [MiusPlayer](https://github.com/VampyrCat/MiusPlayer) — мультиплеера **Graviteam Tactics: Mius-Front**. Версия рассчитана на Steam-игру 6.00 build 3598 и MiusPlayer v20.
 
-**Готовая загрузка:** [`MiusVitals_kit_7.1.0.zip`](MiusVitals_kit_7.1.0.zip) — это ровно комплект из 16 файлов под единым каталогом `MiusVitals/`. Его дерево проверяется allow-list'ом, а ZIP собирается воспроизводимо.
+## Скачать и установить
 
+**Единственный установочный файл:** [`MiusVitals_v7.1.0_INSTALL.zip`](MiusVitals_v7.1.0_INSTALL.zip). Это ровно комплект из 16 файлов под единым каталогом `MiusVitals/`; его дерево проверяется allow-list'ом, а ZIP собирается воспроизводимо.
+
+> **Не устанавливайте папку [`development/kit-source/`](development/kit-source/).** Это рабочая папка разработчика: в ней есть исходники, manifest и средства проверки, которых нет в установочном комплекте. Для игры подходит только архив `MiusVitals_v7.1.0_INSTALL.zip`.
+>
 > Статус проверки: артефакты, структура ZIP и логика транспорта проверены локально; нативный тест выполняется под ASan/UBSan. Два экземпляра самой игры в этой Linux-среде не запускались, поэтому совместный бой хоста и гостя остаётся необходимой финальной проверкой.
 
 ## Что изменено в 7.1.0
@@ -30,14 +34,14 @@
 ## Установка
 
 1. Установите оригинальный **MiusPlayer v20** и закройте игру.
-2. Распакуйте `MiusVitals_kit_7.1.0.zip` в каталог игры: получиться должен `...\Graviteam Tactics Mius-Front\MiusVitals\`, рядом с `starter_x64.exe` и `mpmod1`.
+2. Распакуйте **только** `MiusVitals_v7.1.0_INSTALL.zip` в каталог игры: получиться должен `...\Graviteam Tactics Mius-Front\MiusVitals\`, рядом с `starter_x64.exe` и `mpmod1`.
 3. Запустите `MiusVitals\Check_Build.bat`. Он создаст `build_report.txt`; поддерживаемые файлы должны быть `same`.
 4. Запустите `MiusVitals\Install_Vitals.bat` от обычного пользователя.
-5. Повторите у второго игрока, используя тот же v7.1.0 kit.
+5. Повторите у второго игрока, используя тот же v7.1.0 archive.
 
 Откат: закройте игру и запустите `MiusVitals\Uninstall_Vitals.bat`. Установщик сохраняет оригинальный `basic_network.codelib` в `MiusVitals\state`.
 
-Полная инструкция, контрольные суммы и признаки работы — в [`MiusVitals/README_VITALS.txt`](MiusVitals/README_VITALS.txt).
+Полная инструкция, контрольные суммы и признаки работы находятся **внутри архива**: `MiusVitals\README_VITALS.txt`. Репозиторный исходник этой инструкции лежит в `development/kit-source/` и не предназначен для установки.
 
 ## Глобальная карта операции
 
@@ -52,15 +56,15 @@ scripts/test_native.sh
 # PE/хэши + exact ZIP + нативный тест
 scripts/verify_release.sh
 
-# Пересборка DLL и ровно этого ZIP (Python с ziglang 0.17.0)
-ZIG_PYTHON=/path/to/python-with-zig MiusVitals/src/build.sh
-python3 scripts/package_kit.py --output MiusVitals_kit_7.1.0.zip
+# Пересборка DLL и ровно этого INSTALL-архива (Python с ziglang 0.17.0)
+ZIG_PYTHON=/path/to/python-with-zig development/kit-source/src/build.sh
+python3 scripts/package_kit.py --output MiusVitals_v7.1.0_INSTALL.zip
 ```
 
 Для полного воспроизводимого rebase трёх `codelib`-вариантов нужен оригинальный MiusPlayer v20 `basic_network.codelib`:
 
 ```sh
-ZIG_PYTHON=/path/to/python-with-zig MiusVitals/src/build_release.sh \
+ZIG_PYTHON=/path/to/python-with-zig development/kit-source/src/build_release.sh \
   /path/to/mpmod1/files/bin/rel/x64/basic_network.codelib
 ```
 

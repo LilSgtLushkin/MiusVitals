@@ -5,6 +5,6 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 OUT=${TMPDIR:-/tmp}/miusvitals-native-test
 CC=${CC:-cc}
 "$CC" -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer -g \
-    -I "$ROOT/MiusVitals/src/test/stub" \
-    -o "$OUT" "$ROOT/MiusVitals/src/test/t.c"
+    -I "$ROOT/development/kit-source/src/test/stub" \
+    -o "$OUT" "$ROOT/development/kit-source/src/test/t.c"
 "$OUT"

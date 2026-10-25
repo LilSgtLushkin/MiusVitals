@@ -20,8 +20,8 @@ Output files:
   files/alt/basic_network_v5_norebase.codelib
     SHA-256: d2e34581b42d0573547e221873d7538b64a413267e8ed388abeb46dd42b630d2
 
-Downloadable archive:
-  ../MiusVitals_kit_7.1.0.zip
+Only player-installable archive:
+  ../../MiusVitals_v7.1.0_INSTALL.zip
     SHA-256: 7c98cf37188107cd84e80f0adf079f6ee43d24e88596cc720d590d9fff9e881d
     exact player kit: 16 files under one MiusVitals/ root directory
 
