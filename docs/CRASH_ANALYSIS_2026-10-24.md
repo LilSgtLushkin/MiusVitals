@@ -20,7 +20,7 @@ The two faults have the same relative address in the same engine module:
 | 2026-10-24 | `0x047d0000` | `0x047e3adb` | `0x13adb` | `0x00000001af2fc898` |
 | 2026-10-18 | `0x055e0000` | `0x055f3adb` | `0x13adb` | `0x000000018adc8a68` |
 
-The Steam 3598 `basic_render.codelib` disassembles that RVA as:
+The Steam 3598/1 `basic_render.codelib` disassembles that RVA as:
 
 ```asm
 basic_render+0x13ad7  add rsi, qword ptr [r10+r9]
@@ -39,7 +39,7 @@ So the confirmed failure is an invalid recursive render child, not an instructio
 
 `mp_vitals.dll` now waits until the normal frame hook sees `basic_render.codelib`, and arms the guard only when all of the following hold:
 
-1. the module has the Steam 3598 timestamp (`0x66f2d710`) and a sufficiently large image;
+1. the module has the Steam 3598/1 timestamp (`0x66f2d710`) and a sufficiently large image;
 2. the full 46-byte node-reader signature at `0x13ab0` and 18-byte normal epilogue signature at `0x13bc9` match;
 3. the first-chance exception is a *read* access violation at `base + 0x13adb`, whose target equals `RSI + 0x38`;
 4. the child number is outside its valid 10-bit range (`R8 > 0x3ff`) and the preserved parent material ID is valid (`RDI <= 0xffffff`).

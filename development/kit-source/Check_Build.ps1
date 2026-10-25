@@ -1,10 +1,10 @@
-# Compares the game's files with the hashes of build 3598 that the mod was made for. Writes build_report.txt next to this file.
+# Compares the game's files with the hashes of build 3598/1 that the mod was made for. Writes build_report.txt next to this file.
 $ErrorActionPreference = 'SilentlyContinue'
 $kit  = $PSScriptRoot
 $game = (Resolve-Path (Join-Path $kit '..')).Path
 $out  = Join-Path $kit 'build_report.txt'
 $want = @{}
-Get-Content (Join-Path $kit 'known_3598.sha256') | ForEach-Object {
+Get-Content (Join-Path $kit 'known_3598_1.sha256') | ForEach-Object {
     if ($_ -match '^([0-9A-Fa-f]{64})\s+\*?(.+?)\s*$') { $want[$Matches[2].ToLower()] = $Matches[1].ToUpper() }
 }
 $lines = New-Object System.Collections.Generic.List[string]

@@ -65,6 +65,8 @@ def main() -> None:
     metadata = json.loads((UPSTREAM / "UPSTREAM.json").read_text(encoding="utf-8"))
     if metadata["published_release"]["basic_network_sha256"] != "8108bd1e9af8080ef8b1050512b8311848f5a336acb49a7479388733b4ae5723":
         raise SystemExit("public-source metadata no longer points at the checked v20 release input")
+    if metadata.get("target_game", {}).get("steam_version") != "6.00 build 3598/1":
+        raise SystemExit("supported game target must remain Steam 6.00 build 3598/1")
     verify_source_manifest()
 
     # This makes the causal upstream assumption visible before anyone ports Vitals into C++.

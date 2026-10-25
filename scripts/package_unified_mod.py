@@ -18,7 +18,7 @@ FILES = (
     "Check_Install.ps1",
     "README.txt",
     "LICENSE_CC0.txt",
-    "game_build_3598.sha256",
+    "game_build_3598_1.sha256",
     "files/bin/rel/x64/basic_network.codelib",
     "files/mp_vitals.dll",
     "files/mp_join.exe",
@@ -37,7 +37,7 @@ HASHES = {
     "files/root/programs/opgame.progpack": "eca75b740f7b11d9e13f2e2001f1b2b133427d0860fb3770220b89b0b8909535",
     "files/root/programs/tacgame.progpack": "01923eabdf6a9d5fa37dc70a3d76740242dbc9a7f26c0298ca3faa8cca87600d",
     "files/steam_appid.txt": "1a43840ca36f1401c85ff5f6e6981088927cfe09b23d155a9c4301dd13ca9610",
-    "game_build_3598.sha256": "2e2be1939cab6b9871fabb1a33396ed01a88ffc02eb9b974786e73afa2ebc8b8",
+    "game_build_3598_1.sha256": "2e2be1939cab6b9871fabb1a33396ed01a88ffc02eb9b974786e73afa2ebc8b8",
 }
 ZIP_TIME = (2026, 10, 25, 0, 0, 0)
 
@@ -75,9 +75,12 @@ def require_sources(repo: Path) -> None:
             raise SystemExit(f"program pack no longer loads basic_network.codelib: {relative}")
     enable = (source / "Enable_Multiplayer.bat").read_text(encoding="utf-8")
     disable = (source / "Disable_Multiplayer.bat").read_text(encoding="utf-8")
-    for marker in ("call :known_network", "call :backup_if_foreign", "files\\mp_vitals.dll", "call :copy_checked"):
+    for marker in ("Steam 3598/1", "game_build_3598_1.sha256", "call :known_network", "call :backup_if_foreign", "files\\mp_vitals.dll", "call :copy_checked"):
         if marker not in enable:
-            raise SystemExit(f"unified installer lost safety marker: {marker}")
+            raise SystemExit(f"unified installer lost required marker: {marker}")
+    readme = (source / "README.txt").read_text(encoding="utf-8")
+    if "6.00 build 3598/1" not in readme:
+        raise SystemExit("unified README lost the supported game version 6.00 build 3598/1")
     for marker in ("call :remove_ours", "call :restore", "left changed file"):
         if marker not in disable:
             raise SystemExit(f"unified uninstaller lost safety marker: {marker}")
