@@ -1,0 +1,26 @@
+MiusVitals v7.0.0 build manifest
+Built: 2026-10-25
+
+Input: MiusPlayer v20 basic_network.codelib
+  SHA-256: 8108bd1e9af8080ef8b1050512b8311848f5a336acb49a7479388733b4ae5723
+
+Build toolchain:
+  ziglang Python package 0.17.0
+  x86_64-windows-gnu target, no C runtime
+
+Output files:
+  files/mp_vitals.dll
+    SHA-256: 497cbe706e80d57d374836c6f2d7f823ad7dba3d6fedbe79e7a049504740bcad
+    imports: KERNEL32.dll only
+    exports: MpVitalsInit only
+  files/basic_network.codelib
+    SHA-256: 7caf36cddabf7eb388a3c6c393b05733e051955d63d32ef13531ce88004dcfba
+  files/alt/basic_network_nostart.codelib
+    SHA-256: 2fb049b9b465de2e05bd9bbe7d5573a772319cc4d65fb20bb146e648a7cdf8ec
+  files/alt/basic_network_v5_norebase.codelib
+    SHA-256: d2e34581b42d0573547e221873d7538b64a413267e8ed388abeb46dd42b630d2
+
+Validation:
+  - all three codelib variants are reproduced byte-for-byte from the v20 input;
+  - every patched codelib contains exactly mp_vitals.dll!MpVitalsInit in .mpimp;
+  - native logic tests pass with AddressSanitizer and UndefinedBehaviorSanitizer.
