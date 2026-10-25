@@ -5,7 +5,7 @@
 // basic_network.codelib. Windows then loads this DLL together with the module, DllMain() below checks that the
 // module really is the build this code was made for and, only then, hooks two of its functions:
 //     session_frame  - once per rendered frame (after the original has run)
-//     on_packet      - every datagram that arrives (our own packet type 0x31 is taken out, the rest passes)
+//     on_packet      - every datagram that arrives (only the reserved Vitals types 0x34/0x35 are taken out; every native type passes unchanged)
 // Nothing else in the module is touched: Steam P2P, UPnP, lobby, animation/world sync all run unchanged.
 // If anything does not match, no hook is installed and the module behaves exactly as before.
 //
@@ -29,12 +29,8 @@
 // 0, and puts the statistics object's random generator at the same value in both games right before that function runs.
 // Morale of the operation map is worked out from these numbers after the battle, so it follows them.
 //
-// v7 (from the logs of the first operation battle with v6): the module's reliable stream from the other game (packet type 10: shots, the
-// host's end-of-battle message ...) got stuck on the guest. It accepts only the record right after the last one it took, and one record that
-// the sender had already dropped held back everything behind it for the rest of the battle (the sender's queue grew to ~10000, the guest saw no
-// shots and never got the end of the battle). v7 notices that (the oldest record that arrives is not the expected one for 1.5 s) and moves the
-// module's counter forward. It also patches the module's rule 'a unit that has not moved is only sent every 2 s' so that every unit goes
-// out on every tick (MP_IDLE_MS).
+// v7: the unit-position sender normally repeats a stationary unit only every two seconds. The optional idle patch makes it
+// repeat every tick by default (MP_IDLE_MS changes that period); it does not alter the native reliable packet stream.
 //
 // v7.0.1: two crash dumps, including one taken before this DLL was present, stop in the same basic_render recursive node walk. The child node
 // number is corrupt there, and the engine reads outside the node table. On the exact checked Steam 3598 basic_render image, a tiny vectored
@@ -43,7 +39,11 @@
 // Environment: MP_VITALS 0 off, 1 only compare and log, 2 and 3 apply.
 //              Default: apply in operation battles, compare and log only otherwise.   MP_LOG_VITALS=1 logs every event.
 //              MP_VEHICLES 0 off, 1 only compare and log, 2 apply (default: as MP_VITALS).   MP_STATS 0 leaves the statistics' dice alone.
-//              MP_RENDER_GUARD=0 disables the exact basic_render crash guard.
+//              MP_RENDER_GUARD=0 disables the exact basic_render crash guard. MP_IDLE_MS selects the stationary-unit repeat period.
+//
+// v7.1.0: Vitals data uses type 0x34 and an application ACK uses type 0x35, rather than the legacy unacknowledged type 0x32.
+// Each data packet carries a nonzero epoch and sequence. It is retained for an ACK, retried at most 12 times, and applied once only.
+// Native type 10 (reliable records) and type 11 (its ACK) are deliberately only observed in diagnostics and always pass to MiusPlayer.
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
@@ -88,7 +88,6 @@ static int num_of(const char *s) { int v = 0; while (*s >= '0' && *s <= '9') v =
 enum {
     RVA_SESSION_FRAME = 0x19f88, RVA_ON_PACKET = 0x1623a, RVA_OWNS = 0x17cf0, RVA_SEND_PEER = 0x19a98, RVA_LOG = 0x27dc,
     RVA_NUM_READY = 0x5d490, RVA_NUM_FLAG = 0x5d492, RVA_CONNECTED = 0x5b61b, RVA_TACTICAL = 0x5b618, RVA_HAVE_PEER = 0x5b61a, RVA_HOST_MODE = 0x5b8e4, RVA_PEER = 0x5b8f0,
-    RVA_REL_LAST = 0x5d038, RVA_REL_SESS = 0x5d03c,
     RVA_IDLE = 0x19d44, IDLE_IMM8 = 9, IDLE_IMM32 = 19,
     PHYS_GET_MEMBER = 0x9c480,
     GAME_STAT = 0xf80c0, STAT_STEAL = 15, STAT_SEED_OFF = 0x130, STAT_SEED = 0x4d495553,
@@ -129,12 +128,15 @@ enum { M_STATE = 0x2c, M_HEALTH = 0x60, M_OWNER = 0xc8, M_SIZE = 0x140, STATE_KI
 
 // ------------------------------------------------------------------ wire format
 #pragma pack(push, 1)
-typedef struct { u32 magic; u8 type, flags; u16 count; } Head;               // same head as every packet of the module
+typedef struct { u32 magic; u8 type, flags; u16 count; } Head;               // the first 8 bytes are the module's common header
+// v7.1's state channel is intentionally distinct from v7's type 0x32: an old DLL must not mistake the added
+// sequence fields for an Entry. `epoch, seq` identify one idempotent state packet; the ACK repeats both fields.
+typedef struct { Head h; u32 epoch, seq; } VitalsHead;
 // 16 bytes. A soldier: flags E_DEAD (dead in the sender's game), E_HURT (a = his health, float), E_REC (b = his record's health, float).
 // A vehicle: flags E_VEH, a and b = the status bytes +0xd07 +0xd08 +0xd09 +0xd0a / +0xd0b +0xd0c +0xd0e +0xd0f, bits 8..15 of flags: +0xd10.
 typedef struct { u32 id; u32 flags; u32 a; u32 b; } Entry;
 #pragma pack(pop)
-enum { PKT_VITALS = 0x32, MAGIC = 0x504d5447, PER_PACKET = 70, F_DELTA = 1, E_DEAD = 1, E_HURT = 2, E_REC = 4, E_VEH = 8 };
+enum { PKT_VITALS = 0x34, PKT_VITALS_ACK = 0x35, MAGIC = 0x504d5447, PER_PACKET = 70, F_DELTA = 1, E_DEAD = 1, E_HURT = 2, E_REC = 4, E_VEH = 8 };
 
 // ------------------------------------------------------------------ the module's functions
 typedef void (*FnFrame)(void *om, void *a2, u64 a3, void *a4);
@@ -381,33 +383,131 @@ static int veh_id(char *o, const char **name, u32 *id)
 }
 static void veh_read(const char *o, u8 *b) { for (int i = 0; i < NB; i++) b[i] = (u8)o[VB[i]]; }
 
-// ------------------------------------------------------------------ mailbox: packets arrive in on_packet, are used in the frame
-enum { BOX = 128, PKT_MAX = sizeof(Head) + PER_PACKET * sizeof(Entry), OUTCAP = 6144 };
+// ------------------------------------------------------------------ v7.1 state mailbox and acknowledged snapshot channel
+// State entries are monotonic: retransmitting an accepted packet cannot revive or heal a unit.  The protocol still
+// requires an application-level ACK, because the original sender only gives us a fire-and-forget P2P call.  A packet
+// is acknowledged only after it was copied to this mailbox (not merely after its bytes reached Steam).
+enum { BOX = 128, PKT_MAX = sizeof(VitalsHead) + PER_PACKET * sizeof(Entry), OUTCAP = 6144,
+       VITAL_TX_CAP = 32, VITAL_SEEN_CAP = 128, VITAL_RETRY_MS = 400, VITAL_MAX_RETRIES = 12 };
 static CRITICAL_SECTION g_cs;
 static struct { int size; u8 data[PKT_MAX]; } g_box[BOX];
 static int g_box_head, g_box_n;
 
+typedef struct { u8 used, retries; u16 size; u32 epoch, seq; DWORD sent_at; u8 data[PKT_MAX]; } VitalsTx;
+typedef struct { u32 epoch, seq; } VitalsSeen;
+static VitalsTx g_vtx[VITAL_TX_CAP];
+static VitalsSeen g_vseen[VITAL_SEEN_CAP];
+static u32 g_vseen_at, g_v_epoch, g_v_seq, g_v_epoch_nonce;
+
 static u32 g_s_hurt, g_s_hurt_peer, g_s_merged, g_s_merged_rec, g_s_differ, g_s_veh, g_s_veh_flag, g_s_veh_peer, g_s_veh_set, g_s_veh_note, g_veh_samples;
 static int g_veh_broken;
 static u32 g_s_seen, g_s_dead, g_s_peer_dead, g_s_sent_delta, g_s_sent_digest, g_s_rx, g_s_killed, g_s_notice, g_s_dropped, g_s_rec_ok, g_s_rec_bad;
+static u32 g_s_vtx, g_s_vack, g_s_vretry, g_s_vreplace, g_s_vrx, g_s_vdup, g_s_vfull, g_s_vack_sent, g_s_vack_unknown;
 static int g_san_seen, g_san_good, g_rec_samples, g_start_checked;
 static DWORD g_on_since;
 
-static void send_entries(const Entry *e, int n, int delta)
+static void vitals_transport_reset(void)
 {
+    memset(g_vtx, 0, sizeof g_vtx);
+    memset(g_vseen, 0, sizeof g_vseen);
+    g_vseen_at = g_v_epoch = g_v_seq = 0;
+}
+static void vitals_transport_begin(DWORD now)
+{
+    // An epoch distinguishes a new tactical connection from delayed packets of the previous one.  It is not a
+    // security token; peer-address validation below remains the authority check.
+    g_v_epoch_nonce += 0x9e3779b9u;
+    g_v_epoch = now ^ g_v_epoch_nonce;
+    if (!g_v_epoch) g_v_epoch = 1;
+    g_v_seq = 0;
+}
+static int vitals_pending(void)
+{
+    int n = 0;
+    for (int i = 0; i < VITAL_TX_CAP; i++) if (g_vtx[i].used) n++;
+    return n;
+}
+static int vitals_tx_slot(void)
+{
+    int old = 0;
+    for (int i = 0; i < VITAL_TX_CAP; i++) {
+        if (!g_vtx[i].used) return i;
+        if (g_vtx[i].sent_at < g_vtx[old].sent_at) old = i;
+    }
+    // A fresh complete digest will supersede an unacknowledged old delta.  Replacing the oldest is bounded and
+    // prevents a dead peer from consuming unbounded process memory.
+    g_vtx[old].used = 0;
+    g_s_vreplace++;
+    return old;
+}
+static void vitals_send_tx(VitalsTx *tx, DWORD now, int retry)
+{
+    g_send(tx->data, (u32)tx->size);
+    tx->sent_at = now;
+    if (retry) { tx->retries++; g_s_vretry++; }
+    else g_s_vtx++;
+}
+static int send_entries(const Entry *e, int n, int delta, DWORD now)
+{
+    int done = 0;
+    if (!g_v_epoch) vitals_transport_begin(now);
     for (int at = 0; at < n; at += PER_PACKET) {
         int c = n - at < PER_PACKET ? n - at : PER_PACKET;
-        u8 packet[PKT_MAX];
-        Head h = { MAGIC, PKT_VITALS, (u8)(delta ? F_DELTA : 0), (u16)c };
-        memcpy(packet, &h, sizeof h);
-        memcpy(packet + sizeof h, e + at, (size_t)c * sizeof(Entry));
-        g_send(packet, (u32)(sizeof h + (size_t)c * sizeof(Entry)));
+        VitalsTx *tx = &g_vtx[vitals_tx_slot()];
+        VitalsHead h = { { MAGIC, PKT_VITALS, (u8)(delta ? F_DELTA : 0), (u16)c }, g_v_epoch, ++g_v_seq };
+        if (!h.seq) h.seq = ++g_v_seq;                   // reserve zero for malformed/empty headers
+        tx->used = 1; tx->retries = 0; tx->epoch = h.epoch; tx->seq = h.seq;
+        tx->size = (u16)(sizeof h + (size_t)c * sizeof(Entry));
+        memcpy(tx->data, &h, sizeof h);
+        memcpy(tx->data + sizeof h, e + at, (size_t)c * sizeof(Entry));
+        vitals_send_tx(tx, now, 0);
+        done += c;
     }
+    return done;
+}
+static void vitals_transport_tick(DWORD now)
+{
+    for (int i = 0; i < VITAL_TX_CAP; i++) {
+        VitalsTx *tx = &g_vtx[i];
+        if (!tx->used || now - tx->sent_at < VITAL_RETRY_MS) continue;
+        if (tx->retries >= VITAL_MAX_RETRIES) { tx->used = 0; g_s_vreplace++; continue; }
+        vitals_send_tx(tx, now, 1);
+    }
+}
+static int vitals_seen_before(u32 epoch, u32 seq)
+{
+    for (int i = 0; i < VITAL_SEEN_CAP; i++) if (g_vseen[i].epoch == epoch && g_vseen[i].seq == seq) return 1;
+    return 0;
+}
+static void vitals_remember(u32 epoch, u32 seq)
+{
+    g_vseen[g_vseen_at % VITAL_SEEN_CAP].epoch = epoch;
+    g_vseen[g_vseen_at % VITAL_SEEN_CAP].seq = seq;
+    g_vseen_at++;
+}
+static void vitals_send_ack(u32 epoch, u32 seq)
+{
+    VitalsHead ack = { { MAGIC, PKT_VITALS_ACK, 0, 0 }, epoch, seq };
+    g_send(&ack, sizeof ack);
+    g_s_vack_sent++;
+}
+static void vitals_take_ack(const VitalsHead *ack)
+{
+    if (ack->epoch != g_v_epoch || !ack->seq) { g_s_vack_unknown++; return; }
+    for (int i = 0; i < VITAL_TX_CAP; i++) {
+        VitalsTx *tx = &g_vtx[i];
+        if (tx->used && tx->epoch == ack->epoch && tx->seq == ack->seq) {
+            tx->used = 0; g_s_vack++; return;
+        }
+    }
+    // An ACK can race a local timeout or be a duplicate.  It must never acknowledge another packet by position.
+    g_s_vack_unknown++;
 }
 
 static void reset_all(void)
 {
     memset(g_u, 0, sizeof g_u); g_u_n = 0; memset(g_v, 0, sizeof g_v); g_v_n = 0; g_veh_broken = 0; g_num_since = g_num_last = 0;
+    vitals_transport_reset();
     EnterCriticalSection(&g_cs); g_box_n = 0; g_box_head = 0; LeaveCriticalSection(&g_cs);
 }
 
@@ -425,10 +525,10 @@ static void drain_mailbox(void)
         }
         LeaveCriticalSection(&g_cs);
         if (!size) return;
-        const Head *h = (const Head *)data;
-        const Entry *e = (const Entry *)(data + sizeof(Head));
-        g_s_rx += h->count;
-        for (int i = 0; i < h->count; i++) {
+        const VitalsHead *h = (const VitalsHead *)data;
+        const Entry *e = (const Entry *)(data + sizeof(VitalsHead));
+        g_s_rx += h->h.count;
+        for (int i = 0; i < h->h.count; i++) {
             u32 fl = e[i].flags;
             if (fl & E_VEH) {
                 Veh *v = veh_for(e[i].id);
@@ -474,31 +574,9 @@ static void try_hook_stat(void);
 static DWORD g_last_on;
 static volatile u32 g_rx_type[64], g_rx_size[64];
 
-// ---- the module's reliable stream (type 10). Record layout: Head{magic,type,flags,count}, u32 session at +8, then count records of 0xdc bytes, the first
-// u32 of each is its sequence number. The module takes a record only when it is *(d038)+1 and (re)starts at 0 when the session number changes.
-typedef struct { u32 sess, last, min, n; DWORD since; } RelTrack;
-enum { REL_STALL_MS = 1500, REL_MIN_PKTS = 6, REL_REC = 0xdc, REL_HDR = 12 };
-static volatile u32 *g_rel_last, *g_rel_sess;
-static RelTrack g_rel;
-static u32 g_rel_heals, g_rel_skipped, g_rel_pending_from, g_rel_pending_to, g_rel_pending_ms, g_rel_pending;
-static int g_rel_off, g_idle_msg = -1;
-// One call per type-10 packet from the peer: `first` is the sequence of its first record. Returns how many records were given up (0 = nothing done).
-// Never touches anything while the stream is in order; waits for the stall, so a record that is merely late (or resent) is not skipped.
-static u32 rel_check(RelTrack *t, u32 pkt_sess, u32 first, u32 cur_sess, volatile u32 *last_p, DWORD now)
-{
-    u32 last = pkt_sess == cur_sess ? *last_p : 0;           // a new session: the module restarts its count at 0 itself
-    if (first <= last + 1) { t->n = 0; return 0; }          // the expected record, or one it already has
-    if (t->n == 0 || t->sess != pkt_sess || t->last != last) { t->sess = pkt_sess; t->last = last; t->min = first; t->n = 1; t->since = now; return 0; }
-    t->n++;
-    if (first < t->min) t->min = first;
-    if (now - t->since < REL_STALL_MS || t->n < REL_MIN_PKTS) return 0;
-    if (pkt_sess != cur_sess) return 0;                      // the module has not taken over this session yet; it does so on this packet
-    u32 skip = t->min - 1 - last;
-    *last_p = t->min - 1;
-    g_rel_pending_from = last + 1; g_rel_pending_to = t->min; g_rel_pending_ms = (u32)(now - t->since); g_rel_pending = 1;
-    t->n = 0;
-    return skip;
-}
+// Only Vitals types 0x34/0x35 have transport logic below. The pre-existing native reliable stream (types 10/11) is not
+// inspected for recovery and its receive/ACK state is never written by this DLL.
+static int g_idle_msg = -1;
 static int wsprintfA_lite(char *out, u32 t, u32 c, u32 b)
 {
     char tmp[40]; int k = 0, n = 0;
@@ -525,8 +603,6 @@ static void vitals_frame(void *om)
     if (g_log) {
         if (g_idle_msg == 0) { g_log("net: units that stand still are sent on every tick (patched at start)"); g_idle_msg = -2; }
         else if (g_idle_msg > 0) { g_log("net: units that stand still are sent every %d ms (patched at start)", g_idle_msg); g_idle_msg = -2; }
-        if (g_rel_pending) { g_rel_pending = 0; g_log("reliable: the other game's records %u..%u never arrived (stuck for %u ms) - given up so the stream goes on (%u times, %u records in all)",
-                                                      g_rel_pending_from, g_rel_pending_to - 1, g_rel_pending_ms, g_rel_heals, g_rel_skipped); }
         u32 render_recoveries = __atomic_load_n(&g_render_recoveries, __ATOMIC_RELAXED);
         if (render_recoveries != g_render_reported) {
             g_render_reported = render_recoveries;
@@ -550,11 +626,13 @@ static void vitals_frame(void *om)
     }
     if (!g_on || om != g_om) {
         reset_all();
+        vitals_transport_begin(now);
         g_om = om; g_on = 1; g_on_since = now; last_scan = 0; last_digest = last_vdigest = now;
         g_san_seen = g_san_good = g_rec_samples = g_start_checked = g_veh_checked = 0; g_vb_off = 0; g_veh_samples = 0; g_scan_no = 0;
         if (g_log) g_log("vitals: on (mode %d, vehicles %d)", mode(), veh_mode(mode()));
     }
     drain_mailbox();
+    vitals_transport_tick(now);
     int m = mode(), vm = veh_mode(m);
     if (now - last_scan >= 50) {
         last_scan = now; g_scan_no++;
@@ -698,8 +776,8 @@ static void vitals_frame(void *om)
         for (u32 i = 0; i < CAP; i++) if (g_u[i].used) { if (g_u[i].peer_dead) g_s_peer_dead++; else if (g_u[i].peer_self < 8.f) g_s_hurt_peer++; }
         g_s_veh_peer = 0;
         for (u32 i = 0; i < VCAP; i++) if (g_v[i].used && g_v[i].peer_nz) g_s_veh_peer++;
-        if (nd) { send_entries(out_delta, nd, 1); g_s_sent_delta += (u32)nd; }
-        if (ng) { send_entries(out_digest, ng, 0); g_s_sent_digest += (u32)ng; }
+        if (nd) g_s_sent_delta += (u32)send_entries(out_delta, nd, 1, now);
+        if (ng) g_s_sent_digest += (u32)send_entries(out_digest, ng, 0, now);
         // a dead share this large at the start means that the health is not what it was taken for
         if (!g_start_checked && now - g_on_since >= 3000) {
             g_start_checked = 1;
@@ -723,6 +801,8 @@ static void vitals_frame(void *om)
                   g_s_sent_delta, g_s_sent_digest, g_s_rx, g_s_killed, g_s_notice, g_s_dropped, g_s_rec_ok, g_s_rec_bad,
                   g_why[1], g_why[2], g_why[3], g_why[4], g_why[5], g_why[6], g_why[7], g_why[8],
                   g_s_veh, g_s_veh_flag, g_s_veh_peer, g_s_veh_set, g_s_veh_note);
+        if (g_log) g_log("vitals: state channel v7.1: packets sent %u, acked %u, retried %u, replaced %u, pending %d; received %u, duplicates %u, inbox full %u, ACK sent %u, unmatched ACK %u",
+                          g_s_vtx, g_s_vack, g_s_vretry, g_s_vreplace, vitals_pending(), g_s_vrx, g_s_vdup, g_s_vfull, g_s_vack_sent, g_s_vack_unknown);
         if (g_log) {
             char tl[400]; int n = 0; tl[0] = 0;
             for (int t = 0; t < 64 && n < 360; t++) if (g_rx_type[t]) n += wsprintfA_lite(tl + n, t, g_rx_type[t], g_rx_size[t]);
@@ -731,6 +811,7 @@ static void vitals_frame(void *om)
         }
         memset((void *)g_rx_type, 0, sizeof g_rx_type); memset((void *)g_rx_size, 0, sizeof g_rx_size);
         g_s_sent_delta = g_s_sent_digest = g_s_rx = g_s_killed = g_s_notice = g_s_dropped = g_s_rec_ok = g_s_rec_bad = g_s_merged = g_s_merged_rec = g_s_veh_set = g_s_veh_note = 0;
+        g_s_vtx = g_s_vack = g_s_vretry = g_s_vreplace = g_s_vrx = g_s_vdup = g_s_vfull = g_s_vack_sent = g_s_vack_unknown = 0;
         memset(g_why, 0, sizeof g_why);
     }
 }
@@ -746,26 +827,37 @@ static void hook_packet(const void *from, const unsigned char *data, int size, u
 {
     if (size < 8) return;                               // what the module's own first check does (the hook sits behind it)
     const Head *h = (const Head *)data;
-    if (h->magic == MAGIC && h->type == 10 && !g_rel_off && h->count > 0 && h->count <= 8 && size >= REL_HDR + (int)h->count * REL_REC &&
-        *g_have_peer && !memcmp(from, g_peer, 16)) {
-        u32 sess, first;
-        memcpy(&sess, data + 8, 4); memcpy(&first, data + REL_HDR, 4);
-        u32 sk = rel_check(&g_rel, sess, first, *g_rel_sess, g_rel_last, GetTickCount());
-        if (sk) { g_rel_heals++; g_rel_skipped += sk; }
+    if (h->magic == MAGIC && h->type < 64) { g_rx_type[h->type]++; g_rx_size[h->type] += (u32)size; }   // diagnostics only; native types below are passed through unchanged
+    if (h->magic == MAGIC && h->type == PKT_VITALS_ACK) {
+        if (*g_have_peer && !memcmp(from, g_peer, 16) && size == (int)sizeof(VitalsHead) && h->count == 0 && h->flags == 0) {
+            const VitalsHead *ack = (const VitalsHead *)data;
+            vitals_take_ack(ack);
+        }
+        return;                                           // our reserved packet is never handed to the original module
     }
-    if (h->magic == MAGIC && h->type < 64) { g_rx_type[h->type]++; g_rx_size[h->type] += (u32)size; }   // diagnostics: what arrives, by type
     if (h->magic == MAGIC && h->type == PKT_VITALS) {
-        // only from the other player's game (the module's own test: same address as its peer)
-        if (*g_have_peer && !memcmp(from, g_peer, 16) && size >= (int)sizeof(Head) && h->count <= PER_PACKET &&
-            size >= (int)(sizeof(Head) + (size_t)h->count * sizeof(Entry)) && mode() > 0) {
-            EnterCriticalSection(&g_cs);
-            if (g_box_n < BOX) {
-                int at = (g_box_head + g_box_n) % BOX;
-                g_box[at].size = (int)(sizeof(Head) + (size_t)h->count * sizeof(Entry));
-                memcpy(g_box[at].data, data, (size_t)g_box[at].size);
-                g_box_n++;
+        // Only accept a whole v7.1 packet from the selected peer.  The ACK comes after a successful mailbox copy;
+        // a full mailbox deliberately leaves the packet unacknowledged so the sender retries it.
+        int queued = 0, duplicate = 0;
+        if (*g_have_peer && !memcmp(from, g_peer, 16) && size >= (int)sizeof(VitalsHead) && h->count > 0 && h->count <= PER_PACKET &&
+            !(h->flags & ~F_DELTA) && size == (int)(sizeof(VitalsHead) + (size_t)h->count * sizeof(Entry)) && mode() > 0) {
+            const VitalsHead *vh = (const VitalsHead *)data;
+            if (vh->epoch && vh->seq) {
+                EnterCriticalSection(&g_cs);
+                duplicate = vitals_seen_before(vh->epoch, vh->seq);
+                if (!duplicate && g_box_n < BOX) {
+                    int at = (g_box_head + g_box_n) % BOX;
+                    g_box[at].size = size;
+                    memcpy(g_box[at].data, data, (size_t)size);
+                    g_box_n++;
+                    vitals_remember(vh->epoch, vh->seq);
+                    queued = 1;
+                }
+                LeaveCriticalSection(&g_cs);
+                if (duplicate) { g_s_vdup++; vitals_send_ack(vh->epoch, vh->seq); }
+                else if (queued) { g_s_vrx++; vitals_send_ack(vh->epoch, vh->seq); }
+                else g_s_vfull++;
             }
-            LeaveCriticalSection(&g_cs);
         }
         return;
     }
@@ -875,8 +967,6 @@ static void attach(void)
     g_host_mode = (volatile u32 *)(b + RVA_HOST_MODE);
     g_peer = b + RVA_PEER;
     InitializeCriticalSection(&g_cs);
-    g_rel_last = (volatile u32 *)(b + RVA_REL_LAST); g_rel_sess = (volatile u32 *)(b + RVA_REL_SESS);
-    { char v[8]; if (GetEnvironmentVariableA("MP_REL_HEAL", v, sizeof v) && num_of(v) == 0) g_rel_off = 1; }
     g_orig_packet = (FnPacket)install_detour(b + RVA_ON_PACKET, sizeof SIG_PACKET, (void *)hook_packet);
     if (!g_orig_packet) return;
     g_orig_frame = (FnFrame)install_detour(b + RVA_SESSION_FRAME, sizeof SIG_FRAME, (void *)hook_frame);

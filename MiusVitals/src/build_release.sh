@@ -20,3 +20,4 @@ mkdir -p "$KIT/files/alt"
 OUT="$KIT/files/mp_vitals.dll" ZIG_PYTHON="$ZIG_PYTHON" "$HERE/build.sh"
 
 "$PYTHON" "$HERE/verify_artifacts.py" --kit "$KIT"
+"$PYTHON" "$KIT/../scripts/package_kit.py" --output "$KIT/../MiusVitals_kit_7.1.0.zip"

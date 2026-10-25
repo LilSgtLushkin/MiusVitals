@@ -26,8 +26,22 @@ static char om_buf[0x200];
 static u8 conn = 1, tact = 1, have = 1;
 static volatile u8 num_ready, num_flag; static u32 hmode = 2;
 static u8 peer[16] = { 2, 0, 0x07, 0xa7, 1, 2, 3, 4 };
-static unsigned char sent_pk[64][1200]; static int sent_len[64], sent_n;
-static void fake_send(const void *d, u32 n) { memcpy(sent_pk[sent_n], d, n); sent_len[sent_n++] = (int)n; }
+static unsigned char sent_pk[512][1200]; static int sent_len[512], sent_n;
+static int auto_ack = 1;
+static void fake_send(const void *d, u32 n)
+{
+    assert(sent_n < (int)(sizeof sent_pk / sizeof sent_pk[0]));
+    memcpy(sent_pk[sent_n], d, n); sent_len[sent_n++] = (int)n;
+    // The ordinary state tests model the healthy peer: it acknowledges a v7.1 data packet after accepting it.
+    // The dedicated protocol test disables this to inspect retransmission and mailbox-full behaviour.
+    if (auto_ack && n >= sizeof(VitalsHead)) {
+        const VitalsHead *h = (const VitalsHead *)d;
+        if (h->h.magic == MAGIC && h->h.type == PKT_VITALS) {
+            VitalsHead ack = { { MAGIC, PKT_VITALS_ACK, 0, 0 }, h->epoch, h->seq };
+            hook_packet(peer, (const u8 *)&ack, sizeof ack, fake_tick);
+        }
+    }
+}
 static void fake_log(const char *f, ...) { va_list a; va_start(a, f); printf("   LOG: "); vprintf(f, a); printf("\n"); va_end(a); }
 static int stat_calls;
 static void fake_stat(void *o, long long b, char c) { (void)o;(void)b;(void)c; stat_calls++; }
@@ -62,12 +76,15 @@ static void setup(void)
     g_num_ready = &num_ready; g_num_flag = &num_flag;
     g_orig_frame = fake_orig_frame; during = 0; g_on = 0; g_broken = 0; g_send = fake_send; g_log = fake_log; g_orig_packet = fake_orig_packet;
     g_phys = 0; g_phys_size = 0; memset(g_why, 0, sizeof g_why);
-    g_box_n = g_box_head = 0; sent_n = 0; fake_tick += 10000;
+    vitals_transport_reset(); vitals_transport_begin(fake_tick);
+    g_s_vtx = g_s_vack = g_s_vretry = g_s_vreplace = g_s_vrx = g_s_vdup = g_s_vfull = g_s_vack_sent = g_s_vack_unknown = 0;
+    g_box_n = g_box_head = 0; sent_n = 0; auto_ack = 1; fake_tick += 10000;
 }
 static void step(int ms) { fake_tick += (DWORD)ms; hook_frame(om_buf, 0, 0, 0); }
+static u32 peer_seq;
 static void from_peer(const Entry *e, int n, int delta)
 {
-    u8 pk[sizeof(Head) + 16 * 10]; Head h = { MAGIC, PKT_VITALS, (u8)delta, (u16)n };
+    u8 pk[sizeof(VitalsHead) + 16 * 10]; VitalsHead h = { { MAGIC, PKT_VITALS, (u8)delta, (u16)n }, 0x7a11ce01u, ++peer_seq };
     memcpy(pk, &h, sizeof h); memcpy(pk + sizeof h, e, (size_t)n * sizeof(Entry));
     hook_packet(peer, pk, (int)(sizeof h + (size_t)n * sizeof(Entry)), fake_tick);
 }
@@ -75,8 +92,10 @@ static int hurt_entries_sent(u32 id, float *self, float *rec)
 {
     int c = 0;
     for (int p = 0; p < sent_n; p++) {
-        Head *h = (Head *)sent_pk[p]; Entry *e = (Entry *)(sent_pk[p] + sizeof(Head));
-        for (int i = 0; i < h->count; i++) if (e[i].id == id && (e[i].flags & E_HURT) && !(e[i].flags & E_VEH)) { c++; memcpy(self, &e[i].a, 4); memcpy(rec, &e[i].b, 4); }
+        VitalsHead *h = (VitalsHead *)sent_pk[p];
+        if (sent_len[p] < (int)sizeof *h || h->h.magic != MAGIC || h->h.type != PKT_VITALS) continue;
+        Entry *e = (Entry *)(sent_pk[p] + sizeof(VitalsHead));
+        for (int i = 0; i < h->h.count; i++) if (e[i].id == id && (e[i].flags & E_HURT) && !(e[i].flags & E_VEH)) { c++; memcpy(self, &e[i].a, 4); memcpy(rec, &e[i].b, 4); }
     }
     return c;
 }
@@ -84,8 +103,10 @@ static int veh_entries_sent(u32 id)
 {
     int c = 0;
     for (int p = 0; p < sent_n; p++) {
-        Head *h = (Head *)sent_pk[p]; Entry *e = (Entry *)(sent_pk[p] + sizeof(Head));
-        for (int i = 0; i < h->count; i++) if ((e[i].flags & E_VEH) && e[i].id == id) c++;
+        VitalsHead *h = (VitalsHead *)sent_pk[p];
+        if (sent_len[p] < (int)sizeof *h || h->h.magic != MAGIC || h->h.type != PKT_VITALS) continue;
+        Entry *e = (Entry *)(sent_pk[p] + sizeof(VitalsHead));
+        for (int i = 0; i < h->h.count; i++) if ((e[i].flags & E_VEH) && e[i].id == id) c++;
     }
     return c;
 }
@@ -96,9 +117,10 @@ static int dead_entries_sent(u32 id)
 {
     int c = 0;
     for (int p = 0; p < sent_n; p++) {
-        Head *h = (Head *)sent_pk[p]; Entry *e = (Entry *)(sent_pk[p] + sizeof(Head));
-        assert(h->magic == MAGIC && h->type == PKT_VITALS);
-        for (int i = 0; i < h->count; i++) if (e[i].id == id && (e[i].flags & E_DEAD)) c++;
+        VitalsHead *h = (VitalsHead *)sent_pk[p];
+        if (sent_len[p] < (int)sizeof *h || h->h.magic != MAGIC || h->h.type != PKT_VITALS) continue;
+        Entry *e = (Entry *)(sent_pk[p] + sizeof(VitalsHead));
+        for (int i = 0; i < h->h.count; i++) if (e[i].id == id && (e[i].flags & E_DEAD)) c++;
     }
     return c;
 }
@@ -229,66 +251,44 @@ int main(void)
     // (the sanity count of 40 samples is done with sensible numbers: the zero ones are sensible, the dead share then trips)
     RUN(4000); assert(g_broken);
 
-    // ---- 10. the packet hook: our packet is taken out, others pass, a stranger's is dropped
-    setup(); have = 1; orig_pk_calls = 0;
-    u8 other[16] = { 9, 9 }; u8 pk[sizeof(Head) + 16]; Head hh = { MAGIC, PKT_VITALS, 1, 1 }; Entry ee = { 0x100, E_DEAD, 0, 0 }; memcpy(pk, &hh, 8); memcpy(pk + 8, &ee, 16);
-    hook_packet(other, pk, 24, fake_tick); assert(g_box_n == 0 && orig_pk_calls == 0);
-    hook_packet(peer, pk, 24, fake_tick); assert(g_box_n == 1 && orig_pk_calls == 0);
+    // ---- 10. v7.1 state packets are taken out, accepted once and ACKed only after the mailbox copy; strangers pass neither state nor ACKs.
+    setup(); have = 1; orig_pk_calls = 0; sent_n = 0; auto_ack = 0;
+    u8 other[16] = { 9, 9 }; u8 pk[sizeof(VitalsHead) + 16]; VitalsHead hh = { { MAGIC, PKT_VITALS, 1, 1 }, 0x55aa, 7 }; Entry ee = { 0x100, E_DEAD, 0, 0 };
+    memcpy(pk, &hh, sizeof hh); memcpy(pk + sizeof hh, &ee, sizeof ee);
+    hook_packet(other, pk, sizeof pk, fake_tick); assert(g_box_n == 0 && sent_n == 0 && orig_pk_calls == 0);
+    hook_packet(peer, pk, sizeof pk, fake_tick); assert(g_box_n == 1 && sent_n == 1 && ((VitalsHead *)sent_pk[0])->h.type == PKT_VITALS_ACK && orig_pk_calls == 0);
+    hook_packet(peer, pk, sizeof pk, fake_tick); assert(g_box_n == 1 && sent_n == 2 && g_s_vdup == 1);  // duplicate is ACKed but never queued twice
+    g_box_n = BOX; hh.seq++; memcpy(pk, &hh, sizeof hh); hook_packet(peer, pk, sizeof pk, fake_tick); assert(sent_n == 2 && g_s_vfull == 1);
     Head h2 = { MAGIC, 7, 0, 0 }; u8 pk2[8]; memcpy(pk2, &h2, 8); hook_packet(peer, pk2, 8, fake_tick); assert(orig_pk_calls == 1);
 
-    // ---- 11. v7: the module's reliable stream (type 10). In order: nothing is touched. A hole that stays: after 1.5 s the counter jumps over it.
+    // ---- 11. v7.1 sender keeps an exact state packet until its matching ACK; the retry does not allocate a new sequence.
     {
-        static u8 rp[REL_HDR + 5 * REL_REC]; static u32 last_ack, sess_now; u32 s1 = 777;
-        g_rel_last = &last_ack; g_rel_sess = &sess_now; g_rel_off = 0; memset(&g_rel, 0, sizeof g_rel); g_rel_heals = g_rel_skipped = 0; g_rel_pending = 0;
-        last_ack = 0; sess_now = s1; orig_pk_calls = 0;
-        #define RELPK(first, cnt, sess) do { memset(rp, 0, sizeof rp); Head _h = { MAGIC, 10, 0, (u16)(cnt) }; u32 _s = (sess), _f = (first); \
-            memcpy(rp, &_h, 8); memcpy(rp + 8, &_s, 4); for (int _i = 0; _i < (cnt); _i++) { u32 _q = _f + (u32)_i; memcpy(rp + REL_HDR + _i * REL_REC, &_q, 4); } \
-            hook_packet(peer, rp, REL_HDR + (cnt) * REL_REC, fake_tick); } while (0)
-        // in order (the module itself advances last_ack; here we do it by hand)
-        for (u32 q = 1; q < 50; q += 5) { RELPK(q, 5, s1); last_ack = q + 4; fake_tick += 50; }
-        assert(g_rel_heals == 0 && orig_pk_calls == 10 && last_ack == 50);
-        // a resend of old records is nothing
-        RELPK(1, 5, s1); assert(g_rel_heals == 0 && last_ack == 50);
-        // a hole: 51..119 lost for good, records from 120 on keep coming, resent every ~150 ms
-        for (int k = 0; k < 8; k++) { RELPK(120, 5, s1); RELPK(125, 5, s1); fake_tick += 150; }          // 1200 ms: not yet
-        assert(g_rel_heals == 0 && last_ack == 50);
-        for (int k = 0; k < 3; k++) { RELPK(125, 5, s1); RELPK(120, 5, s1); fake_tick += 150; }
-        printf("heal: last_ack %u, heals %u, skipped %u\n", last_ack, g_rel_heals, g_rel_skipped);
-        assert(g_rel_heals == 1 && last_ack == 119 && g_rel_skipped == 69);
-        assert(g_rel_pending && g_rel_pending_from == 51 && g_rel_pending_to == 120);
-        last_ack = 124;   // the module takes the head group
-        RELPK(125, 5, s1); last_ack = 129; assert(g_rel_heals == 1);
-        // the sender's queue is behind a longer hole that is closing: the missing record arrives within 1.5 s -> nothing skipped
-        memset(&g_rel, 0, sizeof g_rel); g_rel_heals = 0; last_ack = 200; g_rel_pending = 0;
-        for (int k = 0; k < 8; k++) { RELPK(210, 5, s1); fake_tick += 100; }
-        RELPK(201, 5, s1); last_ack = 205; RELPK(206, 5, s1); last_ack = 214; RELPK(215, 5, s1);
-        for (int k = 0; k < 8; k++) { RELPK(220, 5, s1); fake_tick += 100; }
-        assert(g_rel_heals == 0 && last_ack == 214);
-        // too few packets: even after a long time one stray packet changes nothing
-        memset(&g_rel, 0, sizeof g_rel); RELPK(300, 5, s1); fake_tick += 5000; RELPK(300, 5, s1); assert(g_rel_heals == 0 && last_ack == 214);
-        // another session: the module resets itself (the count restarts at 0): we never touch it while the session differs
-        memset(&g_rel, 0, sizeof g_rel); sess_now = s1; last_ack = 500;
-        for (int k = 0; k < 20; k++) { RELPK(1, 5, 999); fake_tick += 200; }       // session 999 is new: the module would take it over; here it does not
-        assert(g_rel_heals == 0 && last_ack == 500);
-        sess_now = 999; last_ack = 0;                                                // now it has: the first group is expected
-        RELPK(1, 5, 999); assert(g_rel_heals == 0);
-        // a new session whose first records were lost: a hole from the start is healed too
-        memset(&g_rel, 0, sizeof g_rel); sess_now = 1234; last_ack = 0;
-        for (int k = 0; k < 14; k++) { RELPK(40, 5, 1234); fake_tick += 150; }
-        assert(g_rel_heals == 1 && last_ack == 39);
-        // malformed packets and strangers: ignored, and always handed on to the module
-        orig_pk_calls = 0; u32 before = g_rel_heals; Head bad = { MAGIC, 10, 0, 9 }; memcpy(rp, &bad, 8); hook_packet(peer, rp, sizeof rp, fake_tick);
-        bad.count = 0; memcpy(rp, &bad, 8); hook_packet(peer, rp, sizeof rp, fake_tick); hook_packet(peer, rp, 10, fake_tick);
-        assert(orig_pk_calls == 3 && g_rel_heals == before);
-        memset(&g_rel, 0, sizeof g_rel); last_ack = 0; sess_now = 5;
-        for (int k = 0; k < 20; k++) { memset(rp, 0, sizeof rp); Head hs = { MAGIC, 10, 0, 1 }; u32 ss = 5, ff = 50; memcpy(rp, &hs, 8); memcpy(rp + 8, &ss, 4); memcpy(rp + 12, &ff, 4);
-                                       hook_packet(other, rp, REL_HDR + REL_REC, fake_tick); fake_tick += 300; }
-        assert(g_rel_heals == before && last_ack == 0);
-        // switched off
-        g_rel_off = 1; for (int k = 0; k < 20; k++) { RELPK(50, 5, 5); fake_tick += 300; } assert(last_ack == 0); g_rel_off = 0;
-        printf("reliable stream: OK\n");
+        setup(); auto_ack = 0; sent_n = 0;
+        Entry one = { 0x100, E_HURT, 0, 0 }; float hp = 0.75f; memcpy(&one.a, &hp, 4);
+        assert(send_entries(&one, 1, 1, fake_tick) == 1 && sent_n == 1 && vitals_pending() == 1);
+        VitalsHead sent = *(VitalsHead *)sent_pk[0];
+        assert(sent.h.type == PKT_VITALS && sent.h.count == 1 && sent.epoch == g_v_epoch && sent.seq != 0);
+        fake_tick += VITAL_RETRY_MS; vitals_transport_tick(fake_tick);
+        assert(sent_n == 2 && g_s_vretry == 1 && !memcmp(sent_pk[0], sent_pk[1], (size_t)sent_len[0]) && vitals_pending() == 1);
+        VitalsHead wrong = { { MAGIC, PKT_VITALS_ACK, 0, 0 }, sent.epoch, sent.seq + 1 };
+        hook_packet(peer, (const u8 *)&wrong, sizeof wrong, fake_tick); assert(vitals_pending() == 1 && g_s_vack_unknown == 1);
+        VitalsHead ack = { { MAGIC, PKT_VITALS_ACK, 0, 0 }, sent.epoch, sent.seq };
+        hook_packet(peer, (const u8 *)&ack, sizeof ack, fake_tick); assert(vitals_pending() == 0 && g_s_vack == 1);
+        printf("state ACK/retry: OK\n");
     }
-    // ---- 12. v7: the idle-repeat patch changes exactly the two immediates, and only when the code is what it should be
+
+    // ---- 12. Native MiusPlayer reliability types are transparent.  Vitals observes their totals only; it never changes
+    // their bytes, peer state, record cursor, or type-11 acknowledgement handling.
+    {
+        setup(); orig_pk_calls = 0;
+        Head native10 = { MAGIC, 10, 0x5a, 1 };
+        Head native11 = { MAGIC, 11, 0xa5, 0 };
+        hook_packet(peer, (const u8 *)&native10, sizeof native10, fake_tick);
+        hook_packet(peer, (const u8 *)&native11, sizeof native11, fake_tick);
+        assert(orig_pk_calls == 2);
+        printf("native types 10/11: pass through unchanged\n");
+    }
+    // ---- 13. v7: the idle-repeat patch changes exactly the two immediates, and only when the code is what it should be
     {
         static u8 code[0x1a000]; memset(code, 0xcc, sizeof code);
         memcpy(code + RVA_IDLE, SIG_IDLE, sizeof SIG_IDLE);
@@ -300,7 +300,7 @@ int main(void)
         patch_idle(code); assert(g_idle_msg == -1 && code[RVA_IDLE + IDLE_IMM8] == 0x1e);   // not the expected code: left alone
         printf("idle patch: OK\n");
     }
-    // ---- 13. v7.0.1: the render guard accepts only the exact corrupt recursive-child read and resumes through the normal epilogue.
+    // ---- 14. v7.0.1: the render guard accepts only the exact corrupt recursive-child read and resumes through the normal epilogue.
     {
         static u8 render[0x14000]; EXCEPTION_RECORD er; CONTEXT cx; EXCEPTION_POINTERS xp = { &er, &cx };
         memset(&er, 0, sizeof er); memset(&cx, 0, sizeof cx);

@@ -1,17 +1,21 @@
-name: Verify MiusVitals v7
+name: Verify MiusVitals v7.1.0
 
 on:
   push:
-    branches: ["arena/33c8e36e-miusvitals"]
+    branches: ["arena/b551d0f9-miusvitals"]
   pull_request:
   workflow_dispatch:
 
 jobs:
-  native-and-artifact-checks:
+  native-artifact-and-kit-checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Verify codelib and DLL packaging
-        run: python3 MiusVitals/src/verify_artifacts.py --kit MiusVitals
-      - name: Run native ASan and UBSan tests
-        run: scripts/test_native.sh
+      - name: Verify hashes, PE surface, exact kit and native logic
+        run: scripts/verify_release.sh
+      - name: Upload exact downloadable kit
+        uses: actions/upload-artifact@v4
+        with:
+          name: MiusVitals_kit_7.1.0
+          path: MiusVitals_kit_7.1.0.zip
+          if-no-files-found: error

@@ -10,6 +10,7 @@ EXPECTED_MODULES = {
     "files/alt/basic_network_nostart.codelib": "2fb049b9b465de2e05bd9bbe7d5573a772319cc4d65fb20bb146e648a7cdf8ec",
     "files/alt/basic_network_v5_norebase.codelib": "d2e34581b42d0573547e221873d7538b64a413267e8ed388abeb46dd42b630d2",
 }
+EXPECTED_DLL = "83387d8434241773eed6216224cf9bd20ebac61167c5e675fad9a6fb101a5bf0"
 KERNEL32_IMPORTS = {
     "AddVectoredExceptionHandler", "DisableThreadLibraryCalls", "EnterCriticalSection", "FlushInstructionCache", "GetCurrentProcess",
     "GetEnvironmentVariableA", "GetModuleHandleA", "GetTickCount", "InitializeCriticalSection",
@@ -132,11 +133,15 @@ def main():
         except (ValueError, struct.error, UnicodeDecodeError) as error:
             raise SystemExit(f"{relative}: invalid PE/import layout: {error}")
         print(f"OK {relative}: {actual}")
+    dll = kit / "files/mp_vitals.dll"
+    actual_dll = sha256(dll.read_bytes())
+    if actual_dll != EXPECTED_DLL:
+        raise SystemExit(f"files/mp_vitals.dll: sha256 {actual_dll}, expected {EXPECTED_DLL}")
     try:
-        check_dll(kit / "files/mp_vitals.dll")
+        check_dll(dll)
     except (ValueError, struct.error, UnicodeDecodeError) as error:
         raise SystemExit(f"files/mp_vitals.dll: invalid PE/import layout: {error}")
-    print(f"OK files/mp_vitals.dll: {sha256((kit / 'files/mp_vitals.dll').read_bytes())}; KERNEL32 only; MpVitalsInit exported")
+    print(f"OK files/mp_vitals.dll: {actual_dll}; KERNEL32 only; MpVitalsInit exported")
 
 
 if __name__ == "__main__":

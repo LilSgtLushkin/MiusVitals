@@ -1,4 +1,4 @@
-MiusVitals v7.0.1 build manifest
+MiusVitals v7.1.0 build manifest
 Built: 2026-10-25
 
 Input: MiusPlayer v20 basic_network.codelib
@@ -10,7 +10,7 @@ Build toolchain:
 
 Output files:
   files/mp_vitals.dll
-    SHA-256: efac50b82ff75e968c2305de2e54390798fae5d4cbc9db755655c014ea6fb808
+    SHA-256: 83387d8434241773eed6216224cf9bd20ebac61167c5e675fad9a6fb101a5bf0
     imports: KERNEL32.dll only (including AddVectoredExceptionHandler)
     exports: MpVitalsInit only
   files/basic_network.codelib
@@ -20,7 +20,14 @@ Output files:
   files/alt/basic_network_v5_norebase.codelib
     SHA-256: d2e34581b42d0573547e221873d7538b64a413267e8ed388abeb46dd42b630d2
 
+Downloadable archive:
+  ../MiusVitals_kit_7.1.0.zip
+    SHA-256: 7c98cf37188107cd84e80f0adf079f6ee43d24e88596cc720d590d9fff9e881d
+    exact player kit: 16 files under one MiusVitals/ root directory
+
 Validation:
   - all three codelib variants are reproduced byte-for-byte from the v20 input;
   - every patched codelib contains exactly mp_vitals.dll!MpVitalsInit in .mpimp;
+  - the DLL imports only KERNEL32.dll and exports only MpVitalsInit;
+  - package_kit.py verifies the archive CRCs, exact 16-file allow-list, fixed ZIP metadata, and byte identity with kit inputs;
   - native logic tests pass with AddressSanitizer and UndefinedBehaviorSanitizer.
