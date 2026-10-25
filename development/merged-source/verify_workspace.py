@@ -16,6 +16,7 @@ UPSTREAM = ROOT / "development/upstream/miusplayer-public-43b2736"
 MANIFEST = UPSTREAM / "SOURCE_MANIFEST.sha256"
 VITALS = ROOT / "development/kit-source/src/mp_vitals.c"
 SESSION = UPSTREAM / "basic_network/session.cpp"
+TRANSFORM_PATCH = ROOT / "development/merged-source/patches/0001-elide-idempotent-remote-transform-writes.patch"
 
 
 def sha256(path: Path) -> str:
@@ -61,6 +62,23 @@ def require(text: str, expected: str, name: str) -> None:
         raise SystemExit(f"source-workbench invariant missing: {name}")
 
 
+def verify_transform_candidate() -> None:
+    patch = TRANSFORM_PATCH.read_text(encoding="utf-8")
+    for marker in (
+        "session_sim_step(o->objman, ms)",
+        "void session_sim_step(ObjMan *om, u32 sim_ms)",
+        "if (!sim_ms) return;",
+        "static bool held_at_rest",
+        "static bool transform_is_already_set",
+        "already-settled writes elided",
+    ):
+        require(patch, marker, f"transform candidate: {marker}")
+    # Keep the candidate a computation-elision patch, not a hidden sync/rate/map policy change.
+    for forbidden in ("MP_STATE_KBPS", "MP_BG_FPS", "MP_FG_FPS", "g_last_snapshot", "MP_SYNC_STATE", "MP_HOST_MODE", "g_map_"):
+        if forbidden in patch:
+            raise SystemExit(f"transform candidate must not change {forbidden}")
+
+
 def main() -> None:
     metadata = json.loads((UPSTREAM / "UPSTREAM.json").read_text(encoding="utf-8"))
     if metadata["published_release"]["basic_network_sha256"] != "8108bd1e9af8080ef8b1050512b8311848f5a336acb49a7479388733b4ae5723":
@@ -68,6 +86,7 @@ def main() -> None:
     if metadata.get("target_game", {}).get("steam_version") != "6.00 build 3598/1":
         raise SystemExit("supported game target must remain Steam 6.00 build 3598/1")
     verify_source_manifest()
+    verify_transform_candidate()
 
     # This makes the causal upstream assumption visible before anyone ports Vitals into C++.
     session = SESSION.read_text(encoding="utf-8")
@@ -82,6 +101,7 @@ def main() -> None:
     print("OK public source", metadata["revision"])
     print("OK published v20 input", metadata["published_release"]["basic_network_sha256"])
     print("OK upstream operation default + MiusVitals sidecar policy boundary")
+    print("OK source-only exact remote-transform write-elision candidate")
 
 
 if __name__ == "__main__":

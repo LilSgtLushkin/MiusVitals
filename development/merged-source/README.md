@@ -28,6 +28,31 @@ python3 development/merged-source/verify_workspace.py
 
 Проверка утверждает hash каждого vendored source file, связь опубликованного базового codelib с v20 input и оба конца policy boundary. Она не является игровым тестом.
 
+## Candidate: устранение холостых записей remote transforms
+
+В `session.cpp` устранена конкретная лишняя работа: `session_sim_step` запускался на каждом `ctrl_tick`, включая `ms == 0`, и снова записывал transform каждого followed unit; во время battle это также делалось для уже точного неподвижного состояния.
+
+Проверяемый source-only candidate лежит в [`patches/0001-elide-idempotent-remote-transform-writes.patch`](patches/0001-elide-idempotent-remote-transform-writes.patch). Он:
+
+- хранит newest snapshots, но не пишет transforms, пока engine не сделал simulation step;
+- пропускает только **byte-identical settled no-op** запись: две одинаковые snapshots с нулевыми velocities и уже идентичные local position/matrices/velocities;
+- не меняет 66 ms snapshot cadence, `MP_STATE_KBPS`, `MP_SYNC_STATE`, global map или frame pacing;
+- добавляет счётчик `already-settled writes elided` в пятисекундный log для live-measurement.
+
+Проверка candidate без игры:
+
+```sh
+python3 development/merged-source/tests/test_transform_sync_patch.py
+```
+
+Это patch для будущей source rebuild и **не** часть текущего install archive: нужны Windows build, новый binary/Vitals profile и two-peer tactical validation до выпуска runtime binary. Для создания disposable copy без изменения pinned provenance tree:
+
+```sh
+python3 development/merged-source/prepare_transform_sync_candidate.py
+```
+
+Она создаёт игнорируемый `development/merged-source/candidates/transform-sync/basic_network/`; его output всё ещё analysis candidate, не installable artifact.
+
 ## Полная пересборка: безопасный путь
 
 На Windows с Visual Studio 2022 C++ tools публичный C++ кандидат строится штатным upstream script:

@@ -6,6 +6,7 @@
 | --- | --- | --- | --- |
 | Operation tactical full-state policy | `kit-source/src/mp_vitals.c`: strict command-line classifier, absent-only `MP_SYNC_STATE=0` | `basic_network/session.cpp`, `sync_state_mode()` | Сохранить explicit `MP_SYNC_STATE`; C++ default должен быть выбран до state sync cache и проверен двумя peers |
 | Vitals loss/damage exchange | `kit-source/src/mp_vitals.c`, packet 0x34/0x35 | `session.cpp`, `state.cpp`, `statesync.cpp` | Сначала описать protocol compatibility и ACK/retry transfer, затем добавить C++ unit/native tests |
+| Tactical remote-transform write elision | `merged-source/patches/0001-elide-idempotent-remote-transform-writes.patch` — source-only candidate | `basic_network.cpp`, `session.cpp`, `common.h` | Только `ms == 0` no-simulation и byte-identical settled no-op; не менять snapshot cadence/KBPS/frame pacing; проверить moving units, combat, reconnect и оба host roles до binary release |
 | Object-number readiness latch | `kit-source/src/mp_vitals.c` | `xlate.cpp`, `session.cpp` | Не включать Vitals save state до native number exchange на обеих сторонах |
 | Renderer cache/geometry guards | `kit-source/src/mp_vitals.c` | Нет в public MiusPlayer C++ tree: это другой engine module (`basic_render.codelib`) | Оставить отдельным строго signature-bound sidecar guard до появления engine-backed source/API |
 | Global-map issue | Никаких изменений в v7.5 | `session.cpp` map functions — reference only | Не переносить и не выпускать исправление без отдельного two-peer evidence и operation-save анализа |
