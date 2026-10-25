@@ -1,5 +1,5 @@
 @echo off
-rem Removes only the exact beta_FPS_fix codelib and restores the module saved before the beta install.
+rem Removes either recognized beta_FPS_fix codelib (including the withdrawn source build) and restores the saved module.
 setlocal EnableExtensions DisableDelayedExpansion
 set "MOD=%~dp0"
 set "MOD=%MOD:~0,-1%"
@@ -7,7 +7,8 @@ for %%I in ("%MOD%\..") do set "GAME=%%~fI"
 set "QUIET="
 if /i "%~1"=="/quiet" set "QUIET=1"
 set "RC=0"
-set "CANDIDATE=78E2718383BC0679154118415189D1C1EE05ED0179A0A924455C22CB4AE2916E"
+set "CANDIDATE=7B42A69ABE58DEB1583D2F5320EEBBECD9718FFA27EA08933613E67DF1901F67"
+set "LEGACY_CANDIDATE=78E2718383BC0679154118415189D1C1EE05ED0179A0A924455C22CB4AE2916E"
 set "ACTIVE=%GAME%\bin\rel\x64\basic_network.codelib"
 set "BACKUP=%MOD%\state\backup\bin\rel\x64\basic_network.codelib"
 set "BACKUP_HASH=%MOD%\state\backup\bin\rel\x64\basic_network.codelib.sha256"
@@ -55,6 +56,7 @@ exit /b 1
 if not exist "%ACTIVE%" exit /b 1
 call :hash_file "%ACTIVE%" ACTIVE_HASH || exit /b 1
 if /i "%ACTIVE_HASH%"=="%CANDIDATE%" exit /b 0
+if /i "%ACTIVE_HASH%"=="%LEGACY_CANDIDATE%" exit /b 0
 exit /b 1
 
 :hash_file
