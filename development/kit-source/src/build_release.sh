@@ -21,4 +21,8 @@ mkdir -p "$KIT/files/alt"
 OUT="$KIT/files/mp_vitals.dll" ZIG_PYTHON="$ZIG_PYTHON" "$HERE/build.sh"
 
 "$PYTHON" "$HERE/verify_artifacts.py" --kit "$KIT"
-"$PYTHON" "$REPO/scripts/package_kit.py" --output "$REPO/MiusVitals_v7.5.0_INSTALL.zip"
+# The player archive is one unified mod.  Its MiusPlayer program assets are static checked inputs;
+# feed the freshly verified module and sidecar into that one install source before packaging.
+cp "$KIT/files/basic_network.codelib" "$REPO/development/unified-kit-source/files/bin/rel/x64/basic_network.codelib"
+cp "$KIT/files/mp_vitals.dll" "$REPO/development/unified-kit-source/files/mp_vitals.dll"
+"$PYTHON" "$REPO/scripts/package_unified_mod.py" --output "$REPO/MiusMultiplayer_v1.0.0_INSTALL.zip"

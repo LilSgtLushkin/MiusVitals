@@ -1,24 +1,24 @@
-# MiusVitals v7.5.0
+# MiusMultiplayer v1.0.0
 
-Надстройка для [MiusPlayer](https://github.com/VampyrCat/MiusPlayer) в **Graviteam Tactics: Mius-Front**. Версия рассчитана на Steam game build 3598/1 и MiusPlayer v20.
+Единый multiplayer-мод для **Graviteam Tactics: Mius-Front** (Steam game build 3598/1). Он объединяет runtime MiusPlayer v20 и проверенный MiusVitals sidecar в одном устанавливаемом наборе.
 
 ## Скачать и установить
 
-**Устанавливаемый файл только один:** [`MiusVitals_v7.5.0_INSTALL.zip`](MiusVitals_v7.5.0_INSTALL.zip).
+**Устанавливаемый файл только один:** [`MiusMultiplayer_v1.0.0_INSTALL.zip`](MiusMultiplayer_v1.0.0_INSTALL.zip).
 
-Архив содержит ровно 16 файлов в корне `MiusVitals/` и имеет SHA-256 `76ec4286fb5c25517c20025c9eda4fc1685cbceb26161756beba5f38c255a4e6`. Распакуйте его в корень игры, рядом с `starter_x64.exe` и `mpmod1`, затем выполните `MiusVitals\Check_Build.bat` и `MiusVitals\Install_Vitals.bat`.
+Архив содержит единый корень `MiusMultiplayer/` и имеет SHA-256 `2723ef1d109353041632802ecbfb9b292540b2597341472be2d374e6da51333a`. Распакуйте его в корень игры рядом со `starter_x64.exe`, затем выполните `MiusMultiplayer\Check_Install.bat` и `MiusMultiplayer\Enable_Multiplayer.bat`. Не устанавливайте отдельно старые `mpmod1` и `MiusVitals`.
 
-> Не устанавливайте [`development/kit-source/`](development/kit-source/). Это дерево разработки с manifest, проверками и промежуточными файлами. Для игры подходит только INSTALL-архив.
+> Не устанавливайте [`development/`](development/). Это расширенная рабочая область: source MiusPlayer/MiusVitals, manifest и проверки. Для игры подходит только единый INSTALL-архив. Для редактирования/полной source rebuild цепочки см. [`development/merged-source/`](development/merged-source/).
 
-Оба игрока должны установить один и тот же v7.5.0. Откат: после закрытия игры запустите `MiusVitals\Uninstall_Vitals.bat`.
+Оба игрока должны установить один и тот же v1.0.0 archive. Откат: после закрытия игры запустите `MiusMultiplayer\Disable_Multiplayer.bat`.
 
-## Что исправляет v7.5.0
+## Что входит в единый мод
 
 ### Глобальная карта — без изменений в этом выпуске
 
 Текущая жалоба на то, что ходы глобальной карты не синхронизируются, **не исправляется и не маскируется в v7.5.0**. По явному решению этот выпуск не меняет ни `adv_opgame`, ни `basic_network.codelib`, ни map-mode/ownership/Next Turn логику: main и `nostart` codelib оставлены байт-в-байт прежними. В том числе hash основного модуля остаётся `485B655662BD062E16278F9D699A3097B49A08DE1948D2500DD589703A3102A3`.
 
-Проверка карты не является критерием для данного FPS-исправления. Не подменяйте codelib вручную и не вводите map throttle или guessed ownership patch. Когда работа с картой будет вновь разрешена, потребуются обе полные `basic_network_opgame_*.log`, `MiusVitals/build_report.txt` с обоих ПК и созданный после hand-off `.opsave`.
+Проверка карты не является критерием для данного FPS-исправления. Не подменяйте codelib вручную и не вводите map throttle или guessed ownership patch. Когда работа с картой будет вновь разрешена, потребуются обе полные `basic_network_opgame_*.log`, `MiusMultiplayer/build_report.txt` с обоих ПК и созданный после hand-off `.opsave`.
 
 ### Номера объектов — обязательное условие Vitals
 

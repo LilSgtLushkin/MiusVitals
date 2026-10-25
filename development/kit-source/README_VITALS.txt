@@ -1,22 +1,17 @@
-MiusVitals v7.5.0 — тактический FPS, Vitals и guard basic_render
-====================================================================
+MiusVitals v7.5.0 — implementation layer; НЕ отдельный install-kit
+=====================================================================
 
-ВАЖНО: это комплект только для Steam game build 3598/1 + MiusPlayer v20.
-ОБА игрока должны установить один и тот же MiusVitals v7.5.0.
+ВАЖНО: игрокам следует ставить только единый MiusMultiplayer_v1.0.0_INSTALL.zip. Этот каталог сохраняет исходник/исторические компоненты Vitals для разработки и проверки; не запускайте его Install_Vitals.bat как отдельную установку.
 
-Быстрая установка
------------------
-1. Установите оригинальный MiusPlayer v20 и полностью закройте игру.
-2. Распакуйте этот архив в корень игры. Должен получиться путь:
-   ...\Graviteam Tactics Mius-Front\MiusVitals\Install_Vitals.bat
-   Рядом с папкой MiusVitals должны находиться starter_x64.exe и mpmod1.
-3. Запустите Check_Build.bat. Он ничего не меняет и создаёт build_report.txt.
-4. Запустите Install_Vitals.bat. Он сохранит исходный basic_network.codelib
-   в MiusVitals\state и установит mp_vitals.dll в корень игры.
-5. Установите этот же архив у второго игрока.
+Этот internal layer относится к Steam game build 3598/1 + MiusPlayer v20 и содержит
+сохраняемые исходники/manifest Vitals. Runtime install flow намеренно вынесен в
+`development/unified-kit-source/` и архив `MiusMultiplayer_v1.0.0_INSTALL.zip`.
 
-Откат: закройте игру и запустите Uninstall_Vitals.bat. Не удаляйте state
-до отката.
+Не используйте Install_Vitals.bat, Uninstall_Vitals.bat или Check_Build.bat из
+этой директории на игровом ПК: это legacy implementation material для анализа
+старого отдельного sidecar flow. Для установки и удаления используйте только
+`MiusMultiplayer\Enable_Multiplayer.bat` и `Disable_Multiplayer.bat` из единого
+архива.
 
 Глобальная карта: без изменений в v7.5.0
 ------------------------------------------
