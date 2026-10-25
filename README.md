@@ -24,7 +24,7 @@
 
 ### Глобальная карта — без изменений в этом выпуске
 
-Текущая жалоба на то, что ходы глобальной карты не синхронизируются, **не исправляется и не маскируется в v7.5.0**. По явному решению этот выпуск не меняет ни `adv_opgame`, ни `basic_network.codelib`, ни map-mode/ownership/Next Turn логику: main и `nostart` codelib оставлены байт-в-байт прежними. В том числе hash основного модуля остаётся `485B655662BD062E16278F9D699A3097B49A08DE1948D2500DD589703A3102A3`.
+Stable v7.5.0 по-прежнему **не** выдаёт global-map проблему за исправленную: его main/`nostart` codelib и hash `485B655662BD062E16278F9D699A3097B49A08DE1948D2500DD589703A3102A3` не менялись. Отдельный, пока неinstallable C++ source candidate для ordered host → client operational turns, authoritative handoff и client-initiated attacks описан в [`development/merged-source/README.md`](development/merged-source/README.md). Он не входит ни в stable, ни в beta_FPS_fix archive до Windows/two-peer validation.
 
 Проверка карты не является критерием для данного FPS-исправления. Не подменяйте codelib вручную и не вводите map throttle или guessed ownership patch. Когда работа с картой будет вновь разрешена, потребуются обе полные `basic_network_opgame_*.log`, `MiusMultiplayer/build_report.txt` с обоих ПК и созданный после hand-off `.opsave`.
 

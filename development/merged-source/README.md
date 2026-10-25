@@ -28,6 +28,8 @@ python3 development/merged-source/verify_workspace.py
 
 Проверка утверждает hash каждого vendored source file, связь опубликованного базового codelib с v20 input и оба конца policy boundary. Она не является игровым тестом.
 
+Полный file-by-file audit runtime source, исправленные hot paths и оставшиеся safety boundaries находятся в [`../../docs/NETWORK_CODE_AUDIT_2026-10-25.md`](../../docs/NETWORK_CODE_AUDIT_2026-10-25.md).
+
 ## Candidate: устранение холостых записей remote transforms
 
 В `session.cpp` устранена конкретная лишняя работа: `session_sim_step` запускался на каждом `ctrl_tick`, включая `ms == 0`, и снова записывал transform каждого followed unit; во время battle это также делалось для уже точного неподвижного состояния.
@@ -76,6 +78,24 @@ build.bat
 4. добавить native/PE tests и двух-peer game evidence;
 5. только затем расширять player archive или выпускать новый install kit.
 
-## Явный non-scope
+## Candidate: упорядоченная operational map и network hygiene
 
-Глобальная карта остаётся без изменений. Наличие upstream `session.cpp` не даёт права смешивать или выпускать map edits без отдельной доказательной цепочки.
+Пользовательский scope для этой ветки расширен на operational map. Второй source overlay [`patches/0002-ordered-operation-turns-and-network-hygiene.patch`](patches/0002-ordered-operation-turns-and-network-hygiene.patch) применяет C++ state machine поверх transform overlay:
+
+- operational input принадлежит только одному игроку: **host → client → collection/resolution**; raw-input gate блокирует пассивную сторону, а host Next Turn не может обойти protocol, пока client process запускается;
+- host после своей фазы сохраняет новый authoritative operation save и передаёт его client до разблокирования client input. Поэтому client видит позиции host units из завершённой host phase, а не старую initial copy;
+- client orders, включая атаку на host, возвращаются в host save через existing three-way `opsave::merge_moves`; только после обеих завершённых фаз host вызывает engine turn worker, который решает, начинается ли battle;
+- transform receive burst теперь coalesces только duplicate snapshots одной и той же unit до следующего real simulation step, а stale sent/held entries уничтоженных units удаляются. Это применяется к skirmish, custom mission и operation tactical battle без изменения cadence, KBPS, state policy или frame pacing.
+
+Новый wire state занимает ранее неиспользуемые bits 2–3 существующего `Welcome.map_flags`; packet layout и `k_version` не меняются. Этот source candidate требует одинаковую новую codelib у обоих игроков. Перед реальным выпуском нужно пересобрать и проверить также launcher `mp_join.exe`, а не смешивать его со stable archive.
+
+```sh
+python3 development/merged-source/tests/test_ordered_operation_patch.py
+python3 development/merged-source/prepare_ordered_operation_candidate.py
+```
+
+Последняя команда создаёт игнорируемую `candidates/ordered-operation-network/` copy. Она не пригодна для установки: необходимы Windows MSVC build, new PE/Vitals profile, two-peer operation test (host attack, client attack, disconnect/reconnect, map handoff) и отдельная проверка live map engine API. У public source есть безопасный handoff snapshot только на границе фаз; он не даёт права выдавать неподтверждённую memory polling/reload loop за непрерывную live-render synchronization внутри одной фазы.
+
+## Граница выпуска
+
+Ни один operational-map edit из этого source overlay не добавлен в stable archive или beta_FPS_fix archive. Ветка намеренно остаётся отдельной до полной Windows/two-peer validation.

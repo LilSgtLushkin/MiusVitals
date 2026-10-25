@@ -9,7 +9,7 @@
 | Tactical remote-transform write elision | `merged-source/patches/0001-elide-idempotent-remote-transform-writes.patch` — source-only candidate | `basic_network.cpp`, `session.cpp`, `common.h` | Только `ms == 0` no-simulation и byte-identical settled no-op; не менять snapshot cadence/KBPS/frame pacing; проверить moving units, combat, reconnect и оба host roles до binary release |
 | Object-number readiness latch | `kit-source/src/mp_vitals.c` | `xlate.cpp`, `session.cpp` | Не включать Vitals save state до native number exchange на обеих сторонах |
 | Renderer cache/geometry guards | `kit-source/src/mp_vitals.c` | Нет в public MiusPlayer C++ tree: это другой engine module (`basic_render.codelib`) | Оставить отдельным строго signature-bound sidecar guard до появления engine-backed source/API |
-| Global-map issue | Никаких изменений в v7.5 | `session.cpp` map functions — reference only | Не переносить и не выпускать исправление без отдельного two-peer evidence и operation-save анализа |
+| Operational map ordering / handoff | Source-only overlay `patches/0002-ordered-operation-turns-and-network-hygiene.patch` | `session.cpp`, `joiner.h`, `protocol.h`, new C++ `operation_turn.h` | Host → authoritative handoff → client → collect/host resolve; rebuild codelib **and** launcher, then validate two peers before any archive release |
 
 ## Минимальный checklist для нового C++ изменения
 
