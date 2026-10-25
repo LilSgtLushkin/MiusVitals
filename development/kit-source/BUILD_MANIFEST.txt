@@ -16,7 +16,7 @@ Runtime composition:
 
 Player-facing artifact (the only install archive):
   ../../MiusMultiplayer_v1.0.0_INSTALL.zip
-    SHA-256: 40a4ab0b7abca5fed80e0ec642ebd81e7a3bbf297fa86385e657b1f225f82210
+    SHA-256: d027d5b4b1c741bb63d55500de76b4049505353adadca2b88eeb3428b38291fc
     exact tree: 13 files under one MiusMultiplayer/ root directory
 
 Install invariant:
