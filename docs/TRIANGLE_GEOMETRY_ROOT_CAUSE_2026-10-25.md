@@ -70,7 +70,7 @@ This is a different root mechanism from:
 * the old `+0x12ffd`/`+0x13adb` recursive material child reads; and
 * the old `+0x129a2` stale transform-cache write.
 
-## v7.1.0 fix: preflight the engine's complete geometry read set
+## v7.3.0 fix: preflight the engine's complete geometry read set
 
 The fix detours only the exact, signature-verified triangle-query entry
 `basic_render+0x39a40`. Before it calls the untouched engine function, it reads

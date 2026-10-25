@@ -1,4 +1,4 @@
-MiusVitals v7.1.0 build manifest
+MiusVitals v7.3.0 build manifest
 Built: 2026-10-25
 
 Input: MiusPlayer v20 basic_network.codelib
@@ -40,8 +40,8 @@ Output files:
     SHA-256: d2e34581b42d0573547e221873d7538b64a413267e8ed388abeb46dd42b630d2
 
 Only player-installable archive:
-  ../../MiusVitals_v7.1.0_INSTALL.zip
-    SHA-256: f06e83284494ddc4f8ac16c57d7a4bed4ecb48af4b5aa0f1ad27fc8a953a5a4c
+  ../../MiusVitals_v7.3.0_INSTALL.zip
+    SHA-256: c253173d62a72a0c20004f7d8c532eba9c1fcbb8c68d4ff91d424c3df5e6a17f
     exact player kit: 16 files under one MiusVitals/ root directory
 
 Validation:

@@ -1,4 +1,4 @@
-# Сборка и проверка MiusVitals v7.1.0
+# Сборка и проверка MiusVitals v7.3.0
 
 ## Воспроизводимые входы и артефакты
 
@@ -25,7 +25,7 @@ Main и `nostart` изменяют три связанных элемента op
 
 ## Exact downloadable kit
 
-`development/kit-source/` — редактируемая development структура, не каталог установки. `scripts/package_kit.py` — allow-list единственного installable download: `MiusVitals_v7.1.0_INSTALL.zip`. В архив попадают ровно эти 16 файлов под единственным `MiusVitals/` root:
+`development/kit-source/` — редактируемая development структура, не каталог установки. `scripts/package_kit.py` — allow-list единственного installable download: `MiusVitals_v7.3.0_INSTALL.zip`. В архив попадают ровно эти 16 файлов под единственным `MiusVitals/` root:
 
 ```text
 Check_Build.ps1
@@ -49,9 +49,9 @@ files/alt/basic_network_v5_norebase.codelib
 ZIP использует фиксированный timestamp 2026-10-25 00:00:00, явный порядок записей, фиксированные mode bits и deflate level 9. `--verify` проверяет CRC, дерево, timestamp и точную byte identity со входами kit.
 
 ```sh
-python3 scripts/package_kit.py --output MiusVitals_v7.1.0_INSTALL.zip
-python3 scripts/package_kit.py --verify MiusVitals_v7.1.0_INSTALL.zip
-sha256sum MiusVitals_v7.1.0_INSTALL.zip
+python3 scripts/package_kit.py --output MiusVitals_v7.3.0_INSTALL.zip
+python3 scripts/package_kit.py --verify MiusVitals_v7.3.0_INSTALL.zip
+sha256sum MiusVitals_v7.3.0_INSTALL.zip
 ```
 
 ## Локальная проверка

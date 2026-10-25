@@ -1,8 +1,8 @@
-MiusVitals v7.1.0 — глобальная карта, Vitals и guard basic_render
+MiusVitals v7.3.0 — глобальная карта, Vitals и guard basic_render
 ====================================================================
 
 ВАЖНО: это комплект только для Steam game build 3598/1 + MiusPlayer v20.
-ОБА игрока должны установить один и тот же MiusVitals v7.1.0.
+ОБА игрока должны установить один и тот же MiusVitals v7.3.0.
 
 Быстрая установка
 -----------------
@@ -26,7 +26,7 @@ MiusVitals v7.1.0 — глобальная карта, Vitals и guard basic_ren
 
   map: unknown game build, ending the turn is not coordinated between the players
 
-v7.1.0 в main/nostart basic_network.codelib содержит проверенное исправление:
+v7.3.0 в main/nostart basic_network.codelib содержит проверенное исправление:
 * указатель Next Turn перенесён на +36b30;
 * embedded signature заменена точным 16-байтным прологом целевой Steam 3598/1
   функции;
@@ -40,7 +40,7 @@ v7.1.0 в main/nostart basic_network.codelib содержит проверенн
   user_orders с собственной картой, обрабатывает ход и присылает клиенту полную
   карту следующего epoch.
 
-v7.1.0 устраняет конкретную гонку между выдачей карты и запуском отдельного
+v7.3.0 устраняет конкретную гонку между выдачей карты и запуском отдельного
 opgame клиента. Раньше host gate Next Turn требовал уже полученный map-mode Hello
 (phase 0xfe). Но карта уже была выдана, а joiner ещё мог скачивать save/стартовать.
 В это окно Next Turn хоста шёл в stock handler: ход сразу проигрывался, а клиент
@@ -86,7 +86,7 @@ build_report.txt и created-after-hand-off .opsave; не подменяйте mo
 Object-number exchange и Vitals
 -------------------------------
 Номера descriptions/objects в operation battle могут быть разными на двух ПК.
-Поэтому Vitals v7.1.0 не считает exchange необязательной диагностикой:
+Поэтому Vitals v7.3.0 не считает exchange необязательной диагностикой:
 
 * пока не появится "object-number lists exchanged: yes", он каждые 3 секунды
   запрашивает нативную передачу таблиц;
@@ -115,18 +115,18 @@ Object-number exchange и Vitals
 по обработанному host save и передаётся joiner целиком на новом map epoch.
 
 Синхронизируются здоровье, смерть и squad record. Этот forced scan проходит через
-обычный ACK/retry Vitals, но v7.1.0 пока НЕ устанавливает отдельный блокирующий
+обычный ACK/retry Vitals, но v7.3.0 пока НЕ устанавливает отдельный блокирующий
 ACK-barrier именно в момент выхода из tactical game. Поэтому запись о final scan
 не доказывает, что peer подтвердил её до аварийно быстрого закрытия боя.
 
 Вид конкретного трупа/ragdoll на карте боя может оставаться локальным
 render/physics результатом движка; он не является источником campaign result.
-v7.1.0 не пишет guessed offsets в corpse lifecycle. Если при совпадающем dead
+v7.3.0 не пишет guessed offsets в corpse lifecycle. Если при совпадающем dead
 клиентское тело не появляется, необходимы логи и проверенные engine addresses.
 Для сравнения проверяйте строки Vitals: после нормального боя dead here должен
 согласовываться, а still apart — быть 0.
 
-Корень нового basic_render crash и v7.1.0
+Корень нового basic_render crash и v7.3.0
 ------------------------------------------
 Новый minidump доказывает write-AV в basic_render+129a2 при deployment. Это не
 пакет сети: valid node record содержала 24-bit matrix/transform-cache slot,
@@ -135,7 +135,7 @@ v7.1.0 не пишет guessed offsets в corpse lifecycle. Если при со
 mp_vitals.dll, поэтому причина — нарушенный инвариант transient renderer cache,
 а не Vitals/object numbers.
 
-На строго проверенном Steam 3598 коде v7.1.0 перед каждым таким use проверяет,
+На строго проверенном Steam 3598 коде v7.3.0 перед каждым таким use проверяет,
 что slot принадлежит текущему writable Windows allocation matrix pool. Иначе он
 атомарно ставит штатный sentinel -2 в record+34. Затем неизменённый basic_render
 идёт в свой cache-miss allocator, получает свежий slot и сам записывает его в
@@ -152,7 +152,7 @@ movaps в тот же allocator; render operation не пропускается 
 Текущий, отдельный read-AV был в basic_render+39b52 (`movups xmm9,[rax+rsi]`).
 В dump `RAX=FAAEC630` уже является 32-bit index/stride-derived offset, а
 `RSI+RAX` точно совпадает с invalid address. Stock triangle reader не проверяет
-границы index-derived vertex/attribute address. v7.1.0 перед входом именно в эту
+границы index-derived vertex/attribute address. v7.3.0 перед входом именно в эту
 проверенную функцию сверяет весь index array и каждый будущий 16-byte primary и
 optional attribute read. Если geometry некорректна, функция возвращает только
 свой штатный no-hit (`false`, query+0xa4=0), не выполняя invalid load.

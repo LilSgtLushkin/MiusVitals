@@ -1,6 +1,6 @@
 # Операционная карта: причина преждевременного Next Turn — 2026-10-25
 
-> **Итог для v7.1.0:** supplied host evidence `391 formations and battle groups
+> **Итог для v7.3.0:** supplied host evidence `391 formations and battle groups
 > turned round` proves that `opsave::mirror` did execute its USER-tag hand-off;
 > tactical `AI commander switched off` is a different system. The supplied logs
 > do not prove a map-command ownership defect in that function. In contrast,
