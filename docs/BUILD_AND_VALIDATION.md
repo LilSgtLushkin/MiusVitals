@@ -26,9 +26,9 @@ python3 development/merged-source/verify_workspace.py
 
 Опубликованный public release `basic_network.codelib` имеет SHA-256 `8108bd1e9af8080ef8b1050512b8311848f5a336acb49a7479388733b4ae5723`, что совпадает с проверенным v20 input. Однако C++ output, приложенный самим upstream к source snapshot, имеет другой SHA-256 `eff7ae12c5f440dc91d0fccc9d9578022a383b0485da58793bffd217922f7af5`. Поэтому source rebuild — только candidate для правки/анализа: он не может быть установлен или пропущен через RVA-bound `patch_import.py` до новой binary mapping, PE/native validation и two-peer проверки. Полная карта процесса находится в [`../development/merged-source/README.md`](../development/merged-source/README.md).
 
-## Единый downloadable multiplayer archive
+## Устаревший unified archive (outdated)
 
-`development/unified-kit-source/` — сохранённый source legacy v1.0.0 package. Актуальный v1.0.1 source лежит отдельно в `development/unified-fps-kit-source/`, чтобы v1.0.0 оставался доступным для deterministic rollback. Оба объединяют опубликованные MiusPlayer runtime assets с проверенными MiusVitals files; `kit-source/` остаётся только implementation/test layer и не устанавливается отдельно.
+`development/unified-kit-source/` — сохранённый source legacy v1.0.0 package; его player artifact публикуется как `MiusMultiplayer_OUTDATED_INSTALL.zip`. Актуальный v1.0.1 source лежит отдельно в `development/unified-fps-kit-source/`, чтобы v1.0.0 оставался доступным для deterministic rollback. Оба объединяют опубликованные MiusPlayer runtime assets с проверенными MiusVitals files; `kit-source/` остаётся только implementation/test layer и не устанавливается отдельно.
 
 `scripts/package_unified_mod.py` строго проверяет runtime hashes, наличие `basic_network.codelib` в обоих program packs, CRC, fixed ZIP metadata, allow-list и byte identity. В archive ровно 13 файлов под единственным `MiusMultiplayer/` root:
 
@@ -51,9 +51,9 @@ files/steam_appid.txt
 Install script не содержит проверок, влияющих на замену: все шесть runtime files заменяются безусловно (`attrib` → `del` → `copy`, повтор, копирование через `*.put` + `move`). Ни historical full-file reference list, ни allow-list известных модулей, ни `certutil`, ни SHA-256 после copy не могут отменить замену или оборвать установку. Порядок копирования сохраняет работоспособность при обрыве: DLL → codelib → `mp_join` → program packs → `steam_appid.txt`. Backup прежних файлов best-effort и не блокирует установку; после copy снимается Mark of the Web. `Disable_Multiplayer.bat` удаляет файлы по записи `state\installed.txt`, без сравнения hash-ей, и восстанавливает сохранённые файлы; hash-режим остался только для установок прежних архивов, где такой записи нет. Engine-specific hooks защищены своими exact runtime signatures; `unknown game build` в логах означает, что конкретный hook не включился. Подробный разбор кнопки MULTIPLAYER: [`MULTIPLAYER_MENU_BUTTON_2026-10-25.md`](MULTIPLAYER_MENU_BUTTON_2026-10-25.md).
 
 ```sh
-python3 scripts/package_unified_mod.py --output MiusMultiplayer_v1.0.0_INSTALL.zip
-python3 scripts/package_unified_mod.py --verify MiusMultiplayer_v1.0.0_INSTALL.zip
-sha256sum MiusMultiplayer_v1.0.0_INSTALL.zip
+python3 scripts/package_unified_mod.py --output MiusMultiplayer_OUTDATED_INSTALL.zip
+python3 scripts/package_unified_mod.py --verify MiusMultiplayer_OUTDATED_INSTALL.zip
+sha256sum MiusMultiplayer_OUTDATED_INSTALL.zip
 ```
 
 ## Актуальный unified Steam + FPS + Vitals archive v1.0.1
@@ -73,22 +73,20 @@ python3 scripts/package_unified_fps_mod.py --verify MiusMultiplayer_v1.0.1_INSTA
 sha256sum MiusMultiplayer_v1.0.1_INSTALL.zip
 ```
 
-`MiusMultiplayer_v1.0.0_INSTALL.zip` remains retained as a legacy rollback artifact. The standalone beta archive also remains for provenance, but it is no longer the advertised installer after v1.0.1.
+`MiusMultiplayer_OUTDATED_INSTALL.zip` (the former v1.0.0 archive, unchanged payload) remains retained as a rollback artifact only. The standalone `MiusMultiplayer_beta_FPS_fix_INSTALL.zip` was removed: its only payload is the Steam-preserving FPS `basic_network.codelib`, which the v1.0.1 archive already ships, and two installers with different codelibs only invited mixed installs.
 
-## Отдельный beta_FPS_fix archive
+## Steam-preserving FPS candidate (без отдельного архива)
 
-`MiusMultiplayer_beta_FPS_fix_INSTALL.zip` — второй, явно experimental installer для controlled two-peer FPS comparison. Это не замена stable unified MiusPlayer + Vitals archive. Его единственный runtime payload — Steam-preserving `basic_network.codelib`, SHA-256 `7b42a69abe58deb1583d2f5320eebbecd9718ffa27ea08933613e67df1901f67`.
+`MiusMultiplayer_beta_FPS_fix_INSTALL.zip`, `scripts/package_fps_beta.py` и `development/fps-beta-kit-source/` удалены: отдельный experimental installer больше не публикуется. Steam-preserving FPS `basic_network.codelib` — единственный payload того архива — входит в v1.0.1, а второй установщик с другим codelib приводил к смешанным установкам и к отсутствию кнопки MULTIPLAYER.
 
-Причина Steam regression была в старом source candidate `78e271…2916e`: полный public MiusPlayer snapshot не содержит source кода Steam friends/rich-presence/JoinRequested/SteamNetworking P2P из released codelib. Пересборка public source поэтому не могла сохранить friend Join Game. Новый candidate не маскирует этот факт unchanged stable binary: `scripts/build_steam_compatible_fps_candidate.py` начинает с exact verified Steam 3598/1 module (`485b655…102a3`) и добавляет отдельный executable `.fpsfix` PE section. Его 23-byte trampoline пропускает исходный `session_sim_step` только когда `on_ctrl_tick` получает zero-ms step; non-zero path вызывает original function без изменения.
+Сам candidate остаётся воспроизводимым и проверяемым:
 
-Workflow `.github/workflows/build-fps-beta-codelib.yml` заново выполняет эту deterministic transformation, сравнивает byte-for-byte с checked-in candidate и строит reproducible installer. `scripts/package_fps_beta.py` допускает только exact transformation: проверяет base hash, original call signature, redirected call, `.fpsfix` code, retained Vitals import и Steam runtime markers `MP_STEAM_PEER`, `+gtmf_join=`, SteamFriends, SteamUser, SteamNetworking, `SendP2PPacket`, `ReadP2PPacket`, `JoinRequested`.
+- `scripts/build_steam_compatible_fps_candidate.py` начинает с exact verified Steam 3598/1 module (`485b655…102a3`) и добавляет отдельную executable `.fpsfix` PE section; её 23-byte trampoline пропускает исходный `session_sim_step` только когда `on_ctrl_tick` получает zero-ms step, а non-zero path вызывает original function без изменения;
+- checked-in кандидат лежит в `development/fps-beta-build/basic_network.codelib`;
+- workflow `.github/workflows/verify-fps-codelib.yml` заново собирает его, сравнивает byte-for-byte с checked-in файлом и затем проверяет v1.0.1 archive через `scripts/package_unified_fps_mod.py --verify`;
+- `scripts/package_unified_fps_mod.py` по-прежнему допускает только exact transformation: base hash, original call signature, redirected call, `.fpsfix` code, retained Vitals import и Steam runtime markers `MP_STEAM_PEER`, `+gtmf_join=`, SteamFriends, SteamUser, SteamNetworking, `SendP2PPacket`, `ReadP2PPacket`, `JoinRequested`.
 
-Beta installer автоматически сохраняет **любой** active codelib, включая unknown module, и затем безусловно заменяет его candidate; сбой или отсутствие backup замену не блокируют. `Disable_Beta_FPS_Fix.bat` удаляет файл по записи `state\installed.txt` без сравнения hash-ей и восстанавливает сохранённый module, поэтому stale backup больше не останавливает установку. После beta disable можно снова применять normal stable installer/remover. Retained binary surface не заменяет live evidence: до Windows Steam two-peer regression (rich presence host, friends Join Game, P2P lobby, tactical session, reconnect, обе стороны host) candidate остаётся FPS test candidate, не gameplay-certified compatibility release.
-
-```sh
-python3 scripts/package_fps_beta.py --output MiusMultiplayer_beta_FPS_fix_INSTALL.zip
-python3 scripts/package_fps_beta.py --verify MiusMultiplayer_beta_FPS_fix_INSTALL.zip
-```
+Retained binary surface не заменяет live evidence: до Windows Steam two-peer regression (rich presence host, friends Join Game, P2P lobby, tactical session, reconnect, обе стороны host) candidate остаётся FPS test candidate, не gameplay-certified compatibility release.
 
 ## Локальная проверка
 
@@ -97,7 +95,7 @@ scripts/test_native.sh
 scripts/verify_release.sh
 ```
 
-`scripts/package_unified_mod.py`, `scripts/package_unified_fps_mod.py` и `scripts/package_fps_beta.py` теперь не только проверяют байты и ZIP tree, но и **запрещают возврат гейтов замены**: если в `Enable_Multiplayer.bat` снова появится `certutil`, `known_network`, `copy_checked`, `foreign_network`, `ODD`, `game_build_3598_1.sha256` или `SHA-256 verification failed`, сборка архива падает. Это превращает «файлы заменяются всегда» в проверяемый инвариант, а не в обещание.
+`scripts/package_unified_mod.py` и `scripts/package_unified_fps_mod.py` теперь не только проверяют байты и ZIP tree, но и **запрещают возврат гейтов замены**: если в `Enable_Multiplayer.bat` снова появится `certutil`, `known_network`, `copy_checked`, `foreign_network`, `ODD`, `game_build_3598_1.sha256` или `SHA-256 verification failed`, сборка архива падает. Это превращает «файлы заменяются всегда» в проверяемый инвариант, а не в обещание.
 
 Native harness запускается с ASan/UBSan. Помимо прежних тестов смертей/ранений/техники, ACK/retry, duplicate mailbox и transparent type 10/11, он утверждает:
 

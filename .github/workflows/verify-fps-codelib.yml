@@ -1,22 +1,18 @@
-name: Verify Steam-preserving FPS beta codelib
+name: Verify Steam-preserving FPS codelib
 
 on:
   push:
     paths:
-      - .github/workflows/build-fps-beta-codelib.yml
+      - .github/workflows/verify-fps-codelib.yml
       - scripts/build_steam_compatible_fps_candidate.py
-      - scripts/package_fps_beta.py
       - development/kit-source/files/basic_network.codelib
       - development/fps-beta-build/**
-      - development/fps-beta-kit-source/**
   pull_request:
     paths:
-      - .github/workflows/build-fps-beta-codelib.yml
+      - .github/workflows/verify-fps-codelib.yml
       - scripts/build_steam_compatible_fps_candidate.py
-      - scripts/package_fps_beta.py
       - development/kit-source/files/basic_network.codelib
       - development/fps-beta-build/**
-      - development/fps-beta-kit-source/**
   workflow_dispatch:
 
 permissions:
@@ -34,15 +30,6 @@ jobs:
           cmp /tmp/basic_network.codelib development/fps-beta-build/basic_network.codelib
           python3 scripts/build_steam_compatible_fps_candidate.py verify
 
-      - name: Verify beta payload and reproducible installer
+      - name: Verify the current installer carrying that candidate
         run: |
-          python3 scripts/package_fps_beta.py --output /tmp/MiusMultiplayer_beta_FPS_fix_INSTALL.zip
-          python3 scripts/package_fps_beta.py --verify /tmp/MiusMultiplayer_beta_FPS_fix_INSTALL.zip
-
-      - name: Upload verified beta installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: MiusMultiplayer_beta_FPS_fix_INSTALL
-          path: /tmp/MiusMultiplayer_beta_FPS_fix_INSTALL.zip
-          if-no-files-found: error
-          retention-days: 14
+          python3 scripts/package_unified_fps_mod.py --verify MiusMultiplayer_v1.0.1_INSTALL.zip

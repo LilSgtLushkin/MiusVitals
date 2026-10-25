@@ -4,7 +4,7 @@
 
 Проверен весь runtime source публичного `VampyrCat/MiusPlayer@43b2736d3b4a1e208e6c80f45f6ebbdd476de3aa` (`basic_network/*.cpp`, `*.h`, включая launcher `mp_join.cpp`) и действующий C sidecar `development/kit-source/src/mp_vitals.c`.
 
-Закреплённый upstream tree не редактируется: изменения оформлены отдельным C++ overlay `0002-ordered-operation-turns-and-network-hygiene.patch`, который применяется **после** FPS overlay `0001`. Это не бинарный release и не изменение stable/beta archive.
+Закреплённый upstream tree не редактируется: изменения оформлены отдельным C++ overlay `0002-ordered-operation-turns-and-network-hygiene.patch`, который применяется **после** FPS overlay `0001`. Это не бинарный release и не изменение player archives.
 
 | Участок | Проверка | Результат в candidate |
 | --- | --- | --- |
@@ -32,7 +32,7 @@
 ## Обязательные safety boundaries
 
 - Проверка C++ overlay строит `basic_network.codelib` **дважды** `/Brepro` и отдельно компилирует matching `mp_join.exe`; workflow artifact помечен source-only/unvalidated и не публикуется в player archive.
-- Новая map stage зависит от обоих новых modules. Смешивать candidate с released stable codelib, beta_FPS_fix codelib или старым launcher нельзя.
+- Новая map stage зависит от обоих новых modules. Смешивать candidate с released stable codelib, прежним experimental FPS codelib (beta_FPS_fix, ныне удалён) или старым launcher нельзя.
 - `mp_vitals.dll` released v20 profile несовместим с source-built candidate. Его hooks не должны загружаться без нового exact PE/RVA profile.
 - Не реализован unsafe «per-frame live operation-memory synchronization»: public source не раскрывает validated engine API для безопасной записи active opgame units. Полный save/reload polling в ходе одной фазы создал бы lag, races и риск повреждения save. Candidate делает безопасный authoritative handoff перед client phase, поэтому client не выдаёт orders по stale host positions. Полноценный live visual sync требует отдельного reverse-engineered API, signature checks и двух-peer evidence.
 

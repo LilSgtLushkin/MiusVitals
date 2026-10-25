@@ -14,8 +14,9 @@ Runtime composition:
     tacgame.progpack:     01923eabdf6a9d5fa37dc70a3d76740242dbc9a7f26c0298ca3faa8cca87600d
     steam_appid.txt:      1a43840ca36f1401c85ff5f6e6981088927cfe09b23d155a9c4301dd13ca9610
 
-Player-facing artifact (the only install archive):
-  ../../MiusMultiplayer_v1.0.0_INSTALL.zip
+Outdated player-facing artifact (rollback/provenance only; the current installer is
+  MiusMultiplayer_v1.0.1_INSTALL.zip):
+  ../../MiusMultiplayer_OUTDATED_INSTALL.zip
     SHA-256: 67661473d1f8e6bcd67d7cf9117e92e19d30e5adda456dab5ee347aa851fa027
     exact tree: 13 files under one MiusMultiplayer/ root directory
 

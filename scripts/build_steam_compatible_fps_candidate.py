@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build and verify the Steam-preserving beta FPS candidate.
+"""Build and verify the Steam-preserving FPS candidate.
 
 The public MiusPlayer C++ snapshot does not contain the Steam friends/P2P layer
 that is present in the released `basic_network.codelib`.  Rebuilding that public

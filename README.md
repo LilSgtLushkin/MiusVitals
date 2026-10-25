@@ -6,21 +6,25 @@
 
 **Актуальный устанавливаемый файл только один:** [`MiusMultiplayer_v1.0.1_INSTALL.zip`](MiusMultiplayer_v1.0.1_INSTALL.zip).
 
-Архив содержит единый корень `MiusMultiplayer/` и имеет SHA-256 `13dd5b317f05ee9f6852cb75671af0f3c847b040e622799b7afb19efe07479b6`. Распакуйте его в корень игры рядом со `starter_x64.exe`, затем выполните `MiusMultiplayer\\Check_Install.bat` и `MiusMultiplayer\\Enable_Multiplayer.bat` на обоих ПК. Не устанавливайте отдельно старые `mpmod1`, `MiusVitals`, `MiusMultiplayer_v1.0.0` или `beta_FPS_fix`.
+Архив содержит единый корень `MiusMultiplayer/` и имеет SHA-256 `13dd5b317f05ee9f6852cb75671af0f3c847b040e622799b7afb19efe07479b6`. Распакуйте его в корень игры рядом со `starter_x64.exe`, затем выполните `MiusMultiplayer\\Check_Install.bat` и `MiusMultiplayer\\Enable_Multiplayer.bat` на обоих ПК. Не устанавливайте отдельно старые `mpmod1`, `MiusVitals` или архив `MiusMultiplayer_OUTDATED_INSTALL.zip`.
 
 Внутри v1.0.1 находится `basic_network.codelib` SHA-256 `7b42a69abe58deb1583d2f5320eebbecd9718ffa27ea08933613e67df1901f67`: это Steam-capable 3598/1 module с проверенным `.fpsfix` trampoline. Он пропускает `session_sim_step` только при zero-ms `ctrl_tick` и оставляет original path для non-zero steps. Steam Friends, rich presence, Join Game, SteamNetworking P2P, Vitals import/signature surface и остальные текущие runtime fixes остаются в том же codelib.
 
 `Enable_Multiplayer.bat` заменяет все шесть runtime files **безусловно**: в установщике больше нет ни allow-list известных модулей, ни `certutil`, ни SHA-256 после copy, ни чтения `game_build_3598_1.sha256`. Любой прежний `basic_network.codelib` (v1.0.0, withdrawn beta, другой мод, неизвестная сборка) сохраняется best-effort и заменяется; сбой backup-а установку не прерывает. Если файл физически не записывается, установщик печатает `NOT REPLACED` и всё равно заменяет остальные. Historical full-file game hash list остался только диагностикой в `Check_Install.bat`, а engine-specific hooks включаются только после собственных точных runtime signature checks. Причина этого изменения и разбор того, почему кнопка MULTIPLAYER может не появиться, — в [`docs/MULTIPLAYER_MENU_BUTTON_2026-10-25.md`](docs/MULTIPLAYER_MENU_BUTTON_2026-10-25.md).
 
-### Старые archives
+### Устаревшие archives
 
-`MiusMultiplayer_v1.0.0_INSTALL.zip` и `MiusMultiplayer_beta_FPS_fix_INSTALL.zip` сохранены только для rollback/provenance. Они не являются актуальным installer. Если была установлена withdrawn beta `78e271…2916e`, используйте новый v1.0.1 installer поверх неё: он распознаёт этот known module; сохранённый beta backup при необходимости восстанавливает старый `Disable_Beta_FPS_Fix.bat`.
+В репозитории остался ровно один устаревший архив — [`MiusMultiplayer_OUTDATED_INSTALL.zip`](MiusMultiplayer_OUTDATED_INSTALL.zip) (бывший v1.0.0). Он сохранён только для rollback/provenance и **не** является актуальным installer.
+
+Отдельный experimental `MiusMultiplayer_beta_FPS_fix_INSTALL.zip` **удалён**: его единственный payload (Steam-preserving FPS `basic_network.codelib`) давно входит в v1.0.1, а два installer'а с разными codelib только путали установку. Вместе с архивом удалены `scripts/package_fps_beta.py` и `development/fps-beta-kit-source/`; воспроизводимая сборка самого FPS candidate остаётся в [`development/fps-beta-build/`](development/fps-beta-build/) и проверяется workflow [`verify-fps-codelib.yml`](.github/workflows/verify-fps-codelib.yml).
+
+Если в игре остался withdrawn beta module `78e271…2916e` или установка `beta_FPS_fix`, просто запустите `MiusMultiplayer\\Enable_Multiplayer.bat` из v1.0.1: он заменяет codelib и program packs безусловно.
 
 Перед campaign/FPS comparison обязателен Steam two-PC regression: rich-presence host → friend Join Game → P2P lobby → tactical session → reconnect/exit, в обеих host directions. До этой живой проверки Steam/FPS результат не следует считать gameplay-certified.
 
 > Не устанавливайте [`development/`](development/). Это расширенная рабочая область: source MiusPlayer/MiusVitals, manifests и проверки. Для игры используйте только `MiusMultiplayer_v1.0.1_INSTALL.zip`; для редактирования/полной source rebuild цепочки см. [`development/merged-source/`](development/merged-source/).
 
-Оба игрока должны установить один и тот же v1.0.1 archive. Откат: после закрытия игры запустите `MiusMultiplayer\\Disable_Multiplayer.bat`, затем при необходимости переустановите выбранный старый kit.
+Оба игрока должны установить один и тот же v1.0.1 archive. Откат: после закрытия игры запустите `MiusMultiplayer\\Disable_Multiplayer.bat`; если нужен именно прежний v1.0.0, распакуйте `MiusMultiplayer_OUTDATED_INSTALL.zip` и выполните его `Enable_Multiplayer.bat`.
 
 ## Кнопка MULTIPLAYER в главном меню
 
@@ -39,7 +43,7 @@
 
 ### Глобальная карта — без изменений в этом выпуске
 
-Stable v7.5.0 по-прежнему **не** выдаёт global-map проблему за исправленную: его main/`nostart` codelib и hash `485B655662BD062E16278F9D699A3097B49A08DE1948D2500DD589703A3102A3` не менялись. Отдельный, пока неinstallable C++ source candidate для ordered host → client operational turns, authoritative handoff и client-initiated attacks описан в [`development/merged-source/README.md`](development/merged-source/README.md). Он не входит ни в stable, ни в beta_FPS_fix archive до Windows/two-peer validation.
+Stable v7.5.0 по-прежнему **не** выдаёт global-map проблему за исправленную: его main/`nostart` codelib и hash `485B655662BD062E16278F9D699A3097B49A08DE1948D2500DD589703A3102A3` не менялись. Отдельный, пока неinstallable C++ source candidate для ordered host → client operational turns, authoritative handoff и client-initiated attacks описан в [`development/merged-source/README.md`](development/merged-source/README.md). Он не входит ни в current, ни в outdated archive до Windows/two-peer validation.
 
 Проверка карты не является критерием для данного FPS-исправления. Не подменяйте codelib вручную и не вводите map throttle или guessed ownership patch. Когда работа с картой будет вновь разрешена, потребуются обе полные `basic_network_opgame_*.log`, `MiusMultiplayer/build_report.txt` с обоих ПК и созданный после hand-off `.opsave`.
 

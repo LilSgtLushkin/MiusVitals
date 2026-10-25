@@ -20,16 +20,16 @@ python3 development/merged-source/verify_workspace.py
 
 ## Установка игрока
 
-Единственный installable archive: [`../MiusMultiplayer_v1.0.0_INSTALL.zip`](../MiusMultiplayer_v1.0.0_INSTALL.zip). Он содержит один `MiusMultiplayer/` root с runtime MiusPlayer assets, проверенным `basic_network.codelib` и `mp_vitals.dll`; отдельные `mpmod1`/`MiusVitals` archives больше не устанавливаются.
+Актуальный installable archive: [`../MiusMultiplayer_v1.0.1_INSTALL.zip`](../MiusMultiplayer_v1.0.1_INSTALL.zip). Единственный устаревший архив — [`../MiusMultiplayer_OUTDATED_INSTALL.zip`](../MiusMultiplayer_OUTDATED_INSTALL.zip) (бывший v1.0.0, только для rollback/provenance). Оба содержат один `MiusMultiplayer/` root с runtime MiusPlayer assets, проверенным `basic_network.codelib` и `mp_vitals.dll`; отдельные `mpmod1`/`MiusVitals` archives больше не устанавливаются.
 
 Архив создаётся и проверяется `../scripts/package_unified_mod.py`. `kit-source/` сохраняется как implementation layer и test input, а не как отдельная player install directory.
 
-## Отдельный FPS beta candidate
+## Steam-preserving FPS candidate
 
-`fps-beta-build/` хранит только reproducible Windows VS2022 candidate `basic_network.codelib`, автоматически созданный workflow `../.github/workflows/build-fps-beta-codelib.yml` из закреплённого public source и transform-write-elision patch. `fps-beta-kit-source/` и `../scripts/package_fps_beta.py` создают второй, явно experimental installer `MiusMultiplayer_beta_FPS_fix_INSTALL.zip`: он безусловно меняет только codelib, предварительно сохраняя любой active module (включая unknown) best-effort, а beta remover удаляет файл по записи `state\installed.txt` и восстанавливает сохранённый module.
+`fps-beta-build/` хранит воспроизводимый candidate `basic_network.codelib`: `scripts/build_steam_compatible_fps_candidate.py` получает его детерминированно из проверенного Steam 3598/1 module, а workflow `../.github/workflows/verify-fps-codelib.yml` заново собирает файл и сравнивает его byte-for-byte с checked-in копией. Этот же candidate входит в актуальный `MiusMultiplayer_v1.0.1_INSTALL.zip`, поэтому `scripts/package_unified_fps_mod.py` требует с ним полного совпадения.
 
-Это не runtime replacement для stable MiusPlayer + Vitals: candidate не несёт released `mp_vitals.dll` import/RVA profile и до Windows/two-peer gameplay certification предназначен лишь для FPS comparison. Не смешивайте его installer/remover со stable installer: сначала используйте `Disable_Beta_FPS_Fix.bat`.
+Отдельный `MiusMultiplayer_beta_FPS_fix_INSTALL.zip` и `fps-beta-kit-source/` удалены: второй installer с собственным codelib больше не публикуется. В игре, где остался прежний beta module (включая withdrawn `78e271…2916e`), `MiusMultiplayer\Enable_Multiplayer.bat` из v1.0.1 всё равно заменяет codelib и program packs безусловно.
 
 ## Separate ordered-operation source candidate
 
-`merged-source/patches/0002-ordered-operation-turns-and-network-hygiene.patch` — отдельный C++ overlay, не включённый в beta archive. Он serializes operational turns `host → client → host resolution`, передаёт authoritative host snapshot перед client input, оставляет client attack в merged orders и coalesces tactical receive bursts во всех battle modes. Подготовка/проверка candidate описана в [`merged-source/README.md`](merged-source/README.md); до rebuild matching codelib + `mp_join.exe` и live two-peer tests это не installable runtime.
+`merged-source/patches/0002-ordered-operation-turns-and-network-hygiene.patch` — отдельный C++ overlay, не включённый ни в один player archive. Он serializes operational turns `host → client → host resolution`, передаёт authoritative host snapshot перед client input, оставляет client attack в merged orders и coalesces tactical receive bursts во всех battle modes. Подготовка/проверка candidate описана в [`merged-source/README.md`](merged-source/README.md); до rebuild matching codelib + `mp_join.exe` и live two-peer tests это не installable runtime.

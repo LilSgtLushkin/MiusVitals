@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Create or validate the one-archive MiusPlayer + MiusVitals player install."""
+"""Create or validate the outdated (former v1.0.0) one-archive MiusPlayer + MiusVitals install.
+
+The current installer is built by package_unified_fps_mod.py (v1.0.1). This archive is kept for
+rollback/provenance only and is published as MiusMultiplayer_OUTDATED_INSTALL.zip.
+"""
 from __future__ import annotations
 
 import argparse

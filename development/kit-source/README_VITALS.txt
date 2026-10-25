@@ -1,11 +1,11 @@
 MiusVitals v7.5.0 — implementation layer; НЕ отдельный install-kit
 =====================================================================
 
-ВАЖНО: игрокам следует ставить только единый MiusMultiplayer_v1.0.0_INSTALL.zip. Этот каталог сохраняет исходник/исторические компоненты Vitals для разработки и проверки; не запускайте его Install_Vitals.bat как отдельную установку.
+ВАЖНО: игрокам следует ставить только актуальный MiusMultiplayer_v1.0.1_INSTALL.zip. Этот каталог сохраняет исходник/исторические компоненты Vitals для разработки и проверки; не запускайте его Install_Vitals.bat как отдельную установку.
 
 Этот internal layer относится к Steam game build 3598/1 + MiusPlayer v20 и содержит
 сохраняемые исходники/manifest Vitals. Runtime install flow намеренно вынесен в
-`development/unified-kit-source/` и архив `MiusMultiplayer_v1.0.0_INSTALL.zip`.
+`development/unified-kit-source/` и архив `MiusMultiplayer_OUTDATED_INSTALL.zip` (бывший v1.0.0).
 
 Не используйте Install_Vitals.bat, Uninstall_Vitals.bat или Check_Build.bat из
 этой директории на игровом ПК: это legacy implementation material для анализа
