@@ -5,7 +5,7 @@ anew, so functions moved by a few hundred bytes); v20 compares every address wit
 anything, so a wrong address would leave a feature off, never break it.
 
     python rebase_3598_1.py  v20/basic_network.codelib  rebased.codelib          [--no-start: leave the Start group (3 functions + 16 bytes of data) alone]
-Only 32-bit constants inside the module's own code change (listed below; one of them is the state stream's speed limit). Refuses anything but the v20 release.
+The address corrections change only listed 32-bit constants; one separately byte-asserted eight-byte edit closes the proven operation-map join-launch race. Refuses anything but the v20 release.
 """
 import hashlib, struct, sys
 
@@ -52,6 +52,26 @@ TARGET_DATA = [  # (what, RVA in v20's .rdata, bytes v20 expects, bytes of Steam
      bytes.fromhex("48895c2408574883ec300f57c0498bd8"),
      bytes.fromhex("40534883ec404c8b81d8010000488bd9")),
 ]
+
+# A map has already been handed to the lobby joiner before its separate opgame
+# process can send phase 0xfe ("on map") Hello.  v20 consequently let the host
+# call the stock Next Turn during that launch window: `g_map_given` and the
+# connection were true, but `g_peer_on_map` was still false.  The map was then
+# abandoned and the client received the following tactical battle instead.
+#
+# This is the exact inlined g_peer_on_map comparison in next_turn_hook().  NOP
+# only that comparison and its conditional branch: the following g_connected
+# comparison remains intact.  Thus the host waits only after it has shared a
+# map with a still-connected lobby joiner; normal solo/disconnected Next Turn
+# remains the original call path.  The byte assertion makes this a strict v20
+# fix rather than an offset guess.
+MAP_JOIN_LAUNCH_RACE = (
+    "map Next Turn waits while the handed-off joiner launches",
+    0x15A77,
+    bytes.fromhex("380dbc5d04007413"),
+    b"\x90" * 8,
+)
+
 START_DATA = [   # (what, RVA in v20's .rdata, bytes v20 expects, bytes of the build 3598/1)
     ("expected prologue of start 2", 0x497a8, bytes.fromhex("48895c2408574883ec50498bd8488bf9"), bytes.fromhex("48895c2408574883ec40498bf8488bd9")),
 ]
@@ -87,6 +107,11 @@ def rebase(src, start=True):
         off = section_of(d, rva)
         if bytes(d[off:off + len(old)]) != old: raise SystemExit("%s: bytes at %x are not the expected ones" % (what, rva))
         d[off:off + len(new)] = new
+    what, rva, old, new = MAP_JOIN_LAUNCH_RACE
+    off = section_of(d, rva)
+    if bytes(d[off:off + len(old)]) != old:
+        raise SystemExit("%s: bytes at %x are not the expected ones" % (what, rva))
+    d[off:off + len(new)] = new
     return bytes(d)
 
 if __name__ == "__main__":
@@ -97,4 +122,4 @@ if __name__ == "__main__":
     if hashlib.sha256(src).hexdigest() != V20_SHA256: raise SystemExit("SHA-256 differs from the v20 release")
     out = rebase(src, start)
     open(sys.argv[2], "wb").write(out)
-    print("written", sys.argv[2], len(out), "bytes, sha256", hashlib.sha256(out).hexdigest(), "-", sum(1 for e in EDITS + (START_EDITS if start else []) if e[2] != e[3]), "constants moved", "(with the Start group)" if start else "(without the Start group)")
+    print("written", sys.argv[2], len(out), "bytes, sha256", hashlib.sha256(out).hexdigest(), "-", sum(1 for e in EDITS + (START_EDITS if start else []) if e[2] != e[3]), "constants moved", "(with the Start group)" if start else "(without the Start group)", "+ exact join-launch wait")

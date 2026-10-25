@@ -1,62 +1,159 @@
-# Операционная карта: исследование невозможности хода — 2026-10-25
+# Операционная карта: причина преждевременного Next Turn — 2026-10-25
 
-> **Статус обновлён в v7.2.0.** После извлечения и проверки фактического `adv_opgame.codelib` выяснено, что Next Turn начинается на `+0x36b30` с прологом `40 53 48 83 ec 40 4c 8b 81 d8 01 00 00 48 8b d9`. В v7.1.1 `basic_network` ещё проверял старый `+0x36b40`, поэтому сознательно отключал detour. v7.2.0 переносит и адрес, и embedded signature после строгой проверки исходного v20; проверка артефакта утверждает оба значения. Остальной текст ниже сохраняет ход диагностики.
+## Итог: два разных дефекта в разных наборах файлов
 
-## Короткий вывод
+Логи содержат сессии от нескольких поколений MiusPlayer/MiusVitals. Их нельзя
+сводить к одному сообщению `unknown game build`.
 
-На момент исходного анализа по имеющимся данным нельзя было честно утверждать, что причина уже найдена в одном машинном адресе. Зато исключён неверный вывод «клиент подключён — значит, хост обязан ждать его при пропуске хода». В MiusPlayer ожидание появляется только после отдельного map-mode handshake второго экземпляра `opgame` с совпадающим epoch. Обычное соединение в лобби этого не заменяет.
+1. В старых сессиях `basic_network_opgame_34232.log`, `35204.log`, `20248.log`
+   и `14864.log` есть:
 
-Приложенный `basic_network_opgame_21240.log` содержит только запуск `opgame`, создание network object, первый tick и выгрузку примерно через две секунды. В нём нет `net: joining`, `net: connected`, `map:`, `Hello`/`Welcome`, передачи карты, команды Next Turn или строки `unknown game build`. Следовательно, этот файл не позволяет различить несостоявшийся hook, неверно запущенный joiner, mismatch epoch и проблему игровых команд. Непроверенный патч хода в v7.1.0 не добавлялся.
+   ```text
+   map: unknown game build, ending the turn is not coordinated between the players
+   ```
 
-## Как должно работать по upstream source
+   Там старый target Next Turn (`+0x36b40`) не совпадал с Steam 3598/1. Stock
+   handler действительно завершает ход без ожидания. Это исправлено в v7.2.0:
+   target перенесён на `adv_opgame+0x36b30`, его точный 16-byte prologue
+   проверяется до установки detour.
 
-Исследован `/tmp/miusplayer-source/_mp_research/basic_network/session.cpp` upstream MiusPlayer (`43b2736…`). Порядок условий важен:
+2. Новая host-сессия `basic_network_opgame_32004.log` уже доказывает, что этот
+   detour был установлен:
 
-1. При `session_start()` флаг `g_map_mode` включается лишь в нетактическом процессе и только если `MP_MAP` задан и ненулевой.
-2. Joiner открывает UDP/P2P peer в `opgame` только при `g_role == ROLE_JOIN && (g_tactical || g_map_mode)`. Сам по себе обычный join в тактический бой не гарантирует joiner map-mode после боя.
-3. Host создаёт/несёт `g_map_epoch`. В map-mode joiner объявляет себя в `Hello` через `phase == 0xfe`, `turn_done` и свой `map_epoch`.
-4. Host считает клиента участвующим в карте только когда такой Hello имеет epoch, равный `g_map_epoch`. Лишь тогда `g_peer_turn_done` отражает его `turn_done`.
-5. Host начинает сбор возвращаемых ходов (`begin_collect`) только когда он и joiner завершили ход, соединены, epoch совпадает и карта была выдана. Флаг collection выдаётся joiner в `Welcome.map_flags`.
-6. `session_map_blocking()` для joiner возвращает `g_map_given && !g_map_sent`: блокировка предназначена только для периода **после** выдачи/сохранения карты и до возврата ходов. Она не должна блокировать обычные приказы в начале нормального хода.
+   ```text
+   map: the turn ends when both players have pressed next turn; the other player's moves are collected then
+   ```
 
-Отсюда наблюдение «хост пропускает ход и не просит подтверждения клиента» наиболее прямо означает, что host не видел второго корректного map-mode Hello с текущим epoch, либо карта не была успешно выдана. Это отличается от ошибки тактического соединения.
+   Поэтому её отдельная строка
+   `map: unknown game build, what the other player's intelligence finds out is
+   not kept for him` **не** относится к Next Turn. Она означает лишь, что
+   detour persistence разведданных не распознал build; выдача карты и
+   turn-handshake ею не выключаются.
 
-## Рискованная точка реализации
+## Доказанная причина сессии PID 32004 / 15436
 
-Операционная координация зависит от адресных detour в `adv_opgame.codelib`:
-
-- Next Turn: offset `0x36b40`;
-- worker подтверждённого хода: offset `0x76810`;
-- map save: call `0xd6660`.
-
-`install_map_detours()` помечает одноразовый запуск `done` **до** проверки сигнатур. При несовпадении байтов оно записывает `unknown game build`, оставляет stock Next Turn и не повторяет попытку в этом процессе.
-
-Это условие теперь **подтверждено** в новом host log `basic_network_opgame_34232.log`: сразу после выбора hosting operation записано `map: unknown game build, ending the turn is not coordinated between the players`. Поэтому именно в этой сессии host использует stock Next Turn и не будет координировать подтверждение пропуска хода с joiner. Данный факт независим от GT3 renderer crash и требует отдельного сравнения фактического `adv_opgame.codelib` с адресными сигнатурами перед безопасным исправлением.
-
-## Связь с симптомом «у клиента нет хода»
-
-Если игрок ещё в лобби или его `opgame` стартовал без `MP_MAP`, он не является joiner map-mode и подтверждение хода от него не ожидается. Если он уже на карте, но клики невозможны **до** фазы `g_map_given && !g_map_sent`, это не объясняется `session_map_blocking()` само по себе. Тогда нужно проверить:
-
-- map/side tags в сохранённой выданной карте (результат mirror);
-- верный `MP_ROLE`, `MP_MAP`, `MP_MAP_EPOCH`, `MP_PEER` и command line процесса joiner;
-- применились ли detour на обеих машинах;
-- сообщения игрового UI/операции, а не только сетевой факт соединения.
-
-## Нужный воспроизводимый сбор доказательств
-
-На обоих ПК после воспроизведения следует сохранить не вырезки, а полные логи от тактической битвы до попытки следующего хода:
+Host выдал карту `zloy1971` в `15:42:14.638`:
 
 ```text
-basic_network_*.log
-command line каждого opgame (она есть в логе)
-строки net:, map:, lobby:, unknown game build, next turn, host commands
-build_report.txt
+map: shared with zloy1971: ...opsave, 3998509 bytes, 391 formations and battle groups turned round
 ```
 
-Добавить: кто host, кто joiner; была ли карта у joiner визуально; когда именно пропал ввод; что произошло при Next Turn на host и joiner. Особо значимы такие строки:
+Однако joiner `opgame` (PID 15436) появился только через примерно 39 секунд в
+своих часах и не содержит map-mode lifecycle. Вместо строк `net: joining ...`,
+`net: connected to host ...` и `map: this player's side ...` он сразу сообщает:
 
-- у joiner: `net: joining ...`, `net: connected to host ...`, `map: ...`;
-- у host: выдача карты, фаза peer на карте/epoch, `map: shared`, collection/returned moves;
-- на любой стороне: `unknown game build`, ошибки сохранения/запуска и `map: returning to the lobby`.
+```text
+ui: rejoining the lobby ...
+ui: battle received ..., starting it
+```
 
-После этого можно сопоставить конкретный путь с source и выпускным `basic_network.codelib`, а не менять произвольные offsets. Эта диагностика отделена от v7.1 Vitals transport: последний работает только в tactical process и не должен маскировать ошибку map lifecycle.
+Host к тому времени уже начал tactical battle. То есть клиент не был «картой с
+плохим вводом»: он вообще не успел стать map-mode process и поэтому закономерно
+получил battle из лобби.
+
+Исходный код v20 объясняет точную гонку. До v7.2.2 host `next_turn_hook()`
+перехватывал click лишь когда `other_player_on_map()` был true:
+
+```cpp
+return g_role == ROLE_HOST && !g_tactical && g_map_given &&
+       g_peer_on_map && g_connected;
+```
+
+`g_peer_on_map` становится true только после map-mode Hello клиента (`phase ==
+0xfe`) с текущим `map_epoch`. Между `g_map_given` (save уже передан launcher'у)
+и этим Hello неизбежно есть окно скачивания и запуска отдельного `opgame`.
+Нажатие host Next Turn в этом окне шло в оригинальный `g_next_turn`, а не в
+`press_next_turn()`. Результат в логах точно соответствует этому пути: host
+немедленно продвинул operation, а поздний joiner увидел уже battle.
+
+Это не проблема transport Vitals, object numbers, intelligence persistence или
+renderer. Это один ошибочный предикат перехода, расположенный до самой игровой
+кнопки Next Turn.
+
+## Что дополнительные tactical logs говорят о crash
+
+В присланных `basic_network_*.log` нет записи exception, access violation,
+fatal error или crash. `vitals: basic_render invalid-child crash guards armed`
+— это только startup-status включённой защиты, а не сообщение о новом вылете.
+
+`basic_network_tacgame_9916.log` один раз записывает
+`vitals: skipped an invalid recursive basic_render node ...; parent material
+used`. Это подтверждает, что прежний узкий invalid-child guard действительно
+встретил его доказанный плохой node и безопасно выбрал штатный parent material.
+Он не является evidence stale transform-cache write-AV из minidump и не
+объясняет operation-map race.
+
+Большие счётчики `not loaded (render handles differ)` также ожидаемы: MiusPlayer
+намеренно не переносит локальные render handles между независимыми движками.
+Несколько старых сессий показывают Steam `error 4`/`connection lost`, но в PID
+32004/15436 непосредственная последовательность уже завершилась до запуска
+map-mode клиента; это не конкурирующая причина немедленного Next Turn.
+
+Все эти логи содержат старую строку только с invalid-child guards и не содержат
+v7.2.1 `basic_render cache-lifetime repair ... armed`. Следовательно, они не
+тестировали опубликованный v7.2.1 renderer DLL и тем более не могут подтвердить
+v7.2.2 до установки полного одинакового архива на обеих машинах.
+
+## Исправление v7.2.2
+
+В обеих rebased main/`nostart` вариациях проверен и изменён ровно один участок
+кода release v20:
+
+- `basic_network+0x15a77`, исходные байты:
+  `38 0d bc 5d 04 00 74 13`;
+- они были сравнением `g_peer_on_map` и его conditional branch внутри
+  `next_turn_hook()`;
+- v7.2.2 требует точного совпадения этих байтов и заменяет только их на восемь
+  `NOP`.
+
+Следующее сравнение `g_connected`, предшествующие проверки host / non-tactical /
+`g_map_given` и все условия collection остаются неизменными. Поэтому после выдачи
+карты активному lobby joiner host click теперь вызывает `press_next_turn()` и
+логирует ожидание. Он не объявляет peer готовым, не запускает merge и не вызывает
+turn worker. `begin_collect()` по-прежнему требует и `g_peer_on_map`, и
+`g_peer_turn_done`; это происходит только когда map-mode joiner реально
+запустился, подтвердил текущий epoch и сам нажал Next Turn.
+
+Патч не устанавливает таймер и не маскирует ошибку: disconnected peer сохраняет
+штатный solo path, поскольку `g_connected` остаётся обязательным. Каждый этап
+проверяем воспроизводимо:
+
+- `rebase_3598_1.py` принимает только SHA-256 оригинального v20, asserts старые
+  восемь байтов и emits known hashes;
+- `patch_import.py` принимает только эти exact raw artifacts и обратимо удаляет
+  import;
+- `verify_artifacts.py` asserts `+0x36b30`, verified handler signature и ровно
+  восемь `NOP` в main/`nostart`.
+
+## Ожидаемый живой тест v7.2.2
+
+Оба игрока должны установить **один и тот же полный v7.2.2 INSTALL-архив**. В
+присланных логах нет строки v7.2.1 renderer repair
+`basic_render cache-lifetime repair and invalid-child guards armed`; это
+подтверждает, что там работал прежний DLL/kit, а не опубликованный v7.2.1.
+Нельзя проверять новую карту на смешанном наборе файлов.
+
+После `map: shared with ...` host намеренно может нажать Next Turn, пока joiner
+ещё запускает карту. Правильная последовательность:
+
+```text
+host:   map: this player has ended the turn, waiting for <peer>
+joiner: net: joining ...
+joiner: map: this player's side of the operational map; the turn ends when both players have pressed next turn
+```
+
+До click joiner не должно быть `map: ending the turn` и не должна стартовать
+следующая tactical battle. После click обоих ожидаются request/return map,
+`map: ending the turn - asking ... for his moves`, merge и новая карта с новым
+epoch. Если последовательность не получается, сохраните полные
+`basic_network_opgame_*.log` с обеих сторон и `build_report.txt`; нужны также
+точный hash installed `basic_network.codelib` и `mp_vitals.dll`.
+
+## Сохраняющиеся границы
+
+Этот fix исправляет только переход host в ожидание пока уже выданная карта
+запускается. Он не доказывает обработку произвольной новой structural row
+подкрепления: текущий `opsave::merge_moves` структурно добавляет только
+`user_orders`. Он также не создаёт отдельный Vitals final-result ACK barrier при
+быстром окончании tactical battle. Оба вопроса требуют отдельного engine-backed
+живого теста, а не широкого catch или догадочного binary patch.

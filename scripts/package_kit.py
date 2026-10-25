@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create or validate the exact downloadable MiusVitals v7.2.1 kit.
+"""Create or validate the exact downloadable MiusVitals v7.2.2 kit.
 
 The repository deliberately contains development files as well as the kit.  This
 script is the allow-list between the two: no manifest, verifier, workflow, cache,
@@ -14,7 +14,7 @@ from pathlib import Path
 import sys
 import zipfile
 
-VERSION = "7.2.1"
+VERSION = "7.2.2"
 # `development/kit-source` contains the editable source and verification helpers.
 # It is deliberately not named `MiusVitals`, so a repository checkout is not mistaken
 # for the player install. The generated archive still has the required game root.
@@ -123,7 +123,7 @@ def verify(repo: Path, archive_path: Path) -> None:
             raise SystemExit(f"ZIP CRC failed: {bad}")
         names = tuple(archive.namelist())
         if names != wanted:
-            raise SystemExit("ZIP tree differs from v7.2.1 allow-list:\n"
+            raise SystemExit("ZIP tree differs from v7.2.2 allow-list:\n"
                              f"  expected: {list(wanted)}\n  got: {list(names)}")
         for info in archive.infolist():
             if info.date_time != ZIP_TIME:

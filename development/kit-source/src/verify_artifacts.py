@@ -6,11 +6,14 @@ import struct
 from pathlib import Path
 
 EXPECTED_MODULES = {
-    "files/basic_network.codelib": "4c91874c4b62db424ecca36586121bcb3b4cc7849cc900285e68de5151eddc36",
-    "files/alt/basic_network_nostart.codelib": "f0766bec48696869d59d4a654a04f20bd7baf9f73adb6fbf139e7da31dfc1f4f",
+    "files/basic_network.codelib": "485b655662bd062e16278f9d699a3097b49a08de1948d2500dd589703a3102a3",
+    "files/alt/basic_network_nostart.codelib": "e4317e630a21198a55e0e86be4aa29c71fcada6065824c858acd0e2bdef8adf9",
     "files/alt/basic_network_v5_norebase.codelib": "d2e34581b42d0573547e221873d7538b64a413267e8ed388abeb46dd42b630d2",
 }
 EXPECTED_DLL = "f978c2caa28429a0a4c6648cbdf9368001a683d12aa33b5bc5f9b7ad98f0df08"
+V20_SHA256 = "8108bd1e9af8080ef8b1050512b8311848f5a336acb49a7479388733b4ae5723"
+REBASED_MAIN_SHA256 = "f8c89ed083fee9c94576abdb7be67ec7c17a556e5c1224448fa7c2e0ab1907ae"
+REBASED_NOSTART_SHA256 = "affe19a1f2fa20636b05e13515ca85a62c8a905ab77d2cede422d26b7c010aeb"
 # Steam 3598/1 moves the operation Next Turn handler from +0x36b40 to +0x36b30.
 # The rebased main variants must contain both the target address and its strict signature;
 # otherwise basic_network deliberately disables shared operation turns at runtime.
@@ -18,6 +21,11 @@ MAP_NEXT_TURN_IMM_RVA = 0x1A327
 MAP_NEXT_TURN_RVA = 0x36B30
 MAP_NEXT_TURN_SIGNATURE_RVA = 0x48DA0
 MAP_NEXT_TURN_SIGNATURE = bytes.fromhex("40534883ec404c8b81d8010000488bd9")
+# In next_turn_hook(), a shared map used to require g_peer_on_map before the
+# client had time to launch its separate map process.  This exact NOP sequence
+# removes only that one predicate; the following g_connected predicate remains.
+MAP_JOIN_LAUNCH_RACE_RVA = 0x15A77
+MAP_JOIN_LAUNCH_RACE_PATCH = b"\x90" * 8
 KERNEL32_IMPORTS = {
     "AddVectoredExceptionHandler", "DisableThreadLibraryCalls", "EnterCriticalSection", "FlushInstructionCache", "GetCurrentProcess",
     "GetEnvironmentVariableA", "GetModuleHandleA", "GetTickCount", "InitializeCriticalSection",
@@ -119,6 +127,26 @@ def check_module(path, require_operation_map):
         actual_signature = data[rva_to_offset(MAP_NEXT_TURN_SIGNATURE_RVA):rva_to_offset(MAP_NEXT_TURN_SIGNATURE_RVA) + len(MAP_NEXT_TURN_SIGNATURE)]
         if actual_signature != MAP_NEXT_TURN_SIGNATURE:
             raise ValueError("operation Next Turn signature is not the verified Steam 3598/1 handler")
+        race_fix = data[rva_to_offset(MAP_JOIN_LAUNCH_RACE_RVA):rva_to_offset(MAP_JOIN_LAUNCH_RACE_RVA) + len(MAP_JOIN_LAUNCH_RACE_PATCH)]
+        if race_fix != MAP_JOIN_LAUNCH_RACE_PATCH:
+            raise ValueError("operation-map join-launch Next Turn wait is absent")
+
+
+def check_rebase_reproducibility(kit):
+    # The norebase alternative is an import-only v20 artifact.  Recover that
+    # exact input and regenerate both rebased variants in memory, so the small
+    # operation-map race edit is verified as a source transformation as well
+    # as by the installed-artifact byte assertion above.
+    import patch_import
+    import rebase_3598_1
+
+    original = patch_import.unpatch((kit / "files/alt/basic_network_v5_norebase.codelib").read_bytes())
+    if sha256(original) != V20_SHA256:
+        raise ValueError("the import-only module does not restore the v20 input")
+    main = rebase_3598_1.rebase(original, start=True)
+    nostart = rebase_3598_1.rebase(original, start=False)
+    if sha256(main) != REBASED_MAIN_SHA256 or sha256(nostart) != REBASED_NOSTART_SHA256:
+        raise ValueError("rebased operation-map modules are not reproducible from v20")
 
 
 def check_dll(path):
@@ -147,6 +175,11 @@ def main():
         except (ValueError, struct.error, UnicodeDecodeError) as error:
             raise SystemExit(f"{relative}: invalid PE/import layout: {error}")
         print(f"OK {relative}: {actual}")
+    try:
+        check_rebase_reproducibility(kit)
+    except (ValueError, struct.error, UnicodeDecodeError) as error:
+        raise SystemExit(f"rebased codelibs: not reproducible: {error}")
+    print("OK rebased codelibs: reproduced from the exact v20 input, including join-launch wait")
     dll = kit / "files/mp_vitals.dll"
     actual_dll = sha256(dll.read_bytes())
     if actual_dll != EXPECTED_DLL:
