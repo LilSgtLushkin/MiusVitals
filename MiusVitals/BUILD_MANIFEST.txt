@@ -1,4 +1,4 @@
-MiusVitals v7.0.0 build manifest
+MiusVitals v7.0.1 build manifest
 Built: 2026-10-25
 
 Input: MiusPlayer v20 basic_network.codelib
@@ -10,8 +10,8 @@ Build toolchain:
 
 Output files:
   files/mp_vitals.dll
-    SHA-256: 497cbe706e80d57d374836c6f2d7f823ad7dba3d6fedbe79e7a049504740bcad
-    imports: KERNEL32.dll only
+    SHA-256: efac50b82ff75e968c2305de2e54390798fae5d4cbc9db755655c014ea6fb808
+    imports: KERNEL32.dll only (including AddVectoredExceptionHandler)
     exports: MpVitalsInit only
   files/basic_network.codelib
     SHA-256: 7caf36cddabf7eb388a3c6c393b05733e051955d63d32ef13531ce88004dcfba

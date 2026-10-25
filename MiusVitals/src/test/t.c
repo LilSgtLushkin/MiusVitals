@@ -300,6 +300,23 @@ int main(void)
         patch_idle(code); assert(g_idle_msg == -1 && code[RVA_IDLE + IDLE_IMM8] == 0x1e);   // not the expected code: left alone
         printf("idle patch: OK\n");
     }
+    // ---- 13. v7.0.1: the render guard accepts only the exact corrupt recursive-child read and resumes through the normal epilogue.
+    {
+        static u8 render[0x14000]; EXCEPTION_RECORD er; CONTEXT cx; EXCEPTION_POINTERS xp = { &er, &cx };
+        memset(&er, 0, sizeof er); memset(&cx, 0, sizeof cx);
+        g_render = render; g_render_recoveries = 0;
+        er.ExceptionCode = EXCEPTION_ACCESS_VIOLATION; er.NumberParameters = 2; er.ExceptionInformation[0] = 0;
+        cx.Rip = (u64)(render + RVA_RENDER_BAD_READ); cx.Rsi = 0x123456780ull; cx.R8 = 0x400; cx.Rdi = 0x3456;
+        er.ExceptionAddress = render + RVA_RENDER_BAD_READ; er.ExceptionInformation[1] = cx.Rsi + 0x38;
+        assert(render_fault_guard(&xp) == EXCEPTION_CONTINUE_EXECUTION && cx.Rip == (u64)(render + RVA_RENDER_FALLBACK) && g_render_recoveries == 1);
+        // A valid child index, a write fault, a different instruction, or an unusable parent fallback must pass on unchanged.
+        cx.Rip = (u64)(render + RVA_RENDER_BAD_READ); cx.R8 = 0x3ff; assert(render_fault_guard(&xp) == EXCEPTION_CONTINUE_SEARCH && cx.Rip == (u64)(render + RVA_RENDER_BAD_READ));
+        cx.R8 = 0x400; er.ExceptionInformation[0] = 1; assert(render_fault_guard(&xp) == EXCEPTION_CONTINUE_SEARCH);
+        er.ExceptionInformation[0] = 0; cx.Rip = (u64)(render + RVA_RENDER_BAD_READ + 1); assert(render_fault_guard(&xp) == EXCEPTION_CONTINUE_SEARCH);
+        cx.Rip = (u64)(render + RVA_RENDER_BAD_READ); cx.Rdi = 0x1000000; assert(render_fault_guard(&xp) == EXCEPTION_CONTINUE_SEARCH);
+        g_render = 0;
+        printf("render crash guard: OK\n");
+    }
     printf("ALL OK\n");
     return 0;
 }

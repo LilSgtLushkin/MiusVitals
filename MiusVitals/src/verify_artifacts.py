@@ -11,7 +11,7 @@ EXPECTED_MODULES = {
     "files/alt/basic_network_v5_norebase.codelib": "d2e34581b42d0573547e221873d7538b64a413267e8ed388abeb46dd42b630d2",
 }
 KERNEL32_IMPORTS = {
-    "DisableThreadLibraryCalls", "EnterCriticalSection", "FlushInstructionCache", "GetCurrentProcess",
+    "AddVectoredExceptionHandler", "DisableThreadLibraryCalls", "EnterCriticalSection", "FlushInstructionCache", "GetCurrentProcess",
     "GetEnvironmentVariableA", "GetModuleHandleA", "GetTickCount", "InitializeCriticalSection",
     "LeaveCriticalSection", "VirtualAlloc", "VirtualFree", "VirtualProtect", "VirtualQuery",
 }
