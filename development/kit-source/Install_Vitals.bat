@@ -1,5 +1,5 @@
 @echo off
-rem MiusVitals v7.2.0: operation-map and Vitals synchronization for the Steam release (v20) of the Mius-Front multiplayer.
+rem MiusVitals v7.2.1: operation-map and Vitals synchronization for the Steam release (v20) of the Mius-Front multiplayer.
 rem Puts two files into the game: mp_vitals.dll (game folder) and the exact checked basic_network.codelib
 rem rebase for Steam 3598/1. The original is kept in state\ and Uninstall_Vitals.bat puts it back.
 rem Both players must do this. Put the MiusVitals folder into the game folder (next to mpmod1).
@@ -20,7 +20,7 @@ if /i "%~1"=="nostart" set "MOD=%KIT%\files\alt\basic_network_nostart.codelib"
 if /i "%~1"=="norebase" set "MOD=%KIT%\files\alt\basic_network_v5_norebase.codelib"
 set "RC=0"
 echo.
-echo  MiusVitals v7.2.0 - operation-map and Vitals synchronization
+echo  MiusVitals v7.2.1 - operation-map and Vitals synchronization
 echo.
 if not exist "%GAME%\starter_x64.exe" goto :no_game
 if not exist "%GAME%\bin\rel\x64\basic_network.codelib" goto :no_mp

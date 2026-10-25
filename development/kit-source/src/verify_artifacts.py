@@ -10,7 +10,7 @@ EXPECTED_MODULES = {
     "files/alt/basic_network_nostart.codelib": "f0766bec48696869d59d4a654a04f20bd7baf9f73adb6fbf139e7da31dfc1f4f",
     "files/alt/basic_network_v5_norebase.codelib": "d2e34581b42d0573547e221873d7538b64a413267e8ed388abeb46dd42b630d2",
 }
-EXPECTED_DLL = "8f336d5645c01a394b7be776fda704e0910adb949083c16fea6ba25df7294f3e"
+EXPECTED_DLL = "f978c2caa28429a0a4c6648cbdf9368001a683d12aa33b5bc5f9b7ad98f0df08"
 # Steam 3598/1 moves the operation Next Turn handler from +0x36b40 to +0x36b30.
 # The rebased main variants must contain both the target address and its strict signature;
 # otherwise basic_network deliberately disables shared operation turns at runtime.

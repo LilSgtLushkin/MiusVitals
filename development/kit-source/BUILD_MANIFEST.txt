@@ -1,4 +1,4 @@
-MiusVitals v7.2.0 build manifest
+MiusVitals v7.2.1 build manifest
 Built: 2026-10-25
 
 Input: MiusPlayer v20 basic_network.codelib
@@ -16,7 +16,7 @@ Operation-map target verification (Steam 3598/1 actual adv_opgame.codelib):
 
 Output files:
   files/mp_vitals.dll
-    SHA-256: 8f336d5645c01a394b7be776fda704e0910adb949083c16fea6ba25df7294f3e
+    SHA-256: f978c2caa28429a0a4c6648cbdf9368001a683d12aa33b5bc5f9b7ad98f0df08
     imports: KERNEL32.dll only (including AddVectoredExceptionHandler)
     exports: MpVitalsInit only
   files/basic_network.codelib
@@ -27,8 +27,8 @@ Output files:
     SHA-256: d2e34581b42d0573547e221873d7538b64a413267e8ed388abeb46dd42b630d2
 
 Only player-installable archive:
-  ../../MiusVitals_v7.2.0_INSTALL.zip
-    SHA-256: 6ae6d3410e2233491fb4a7dd7371c3895ced571293052fa737f78dfdbf83fd09
+  ../../MiusVitals_v7.2.1_INSTALL.zip
+    SHA-256: fc908837770e56b3cab6f269acf400156bffaec8c191205befb33824ae97dcb9
     exact player kit: 16 files under one MiusVitals/ root directory
 
 Validation:

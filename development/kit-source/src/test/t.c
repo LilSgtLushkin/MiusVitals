@@ -13,6 +13,7 @@
 #include "../mp_vitals.c"
 #include <assert.h>
 DWORD fake_tick = 100000;
+uintptr_t fake_vq_unmapped_from = UINTPTR_MAX;
 
 #define NS 24
 static char man[NS][0x2500];
@@ -308,11 +309,13 @@ int main(void)
         patch_idle(code); assert(g_idle_msg == -1 && code[RVA_IDLE + IDLE_IMM8] == 0x1e);   // not the expected code: left alone
         printf("idle patch: OK\n");
     }
-    // ---- 14. v7.1.1: two exact basic_render recursive-child read AVs resume only through their own normal epilogues.
+    // ---- 14. Exact basic_render repair: malformed recursive children still return through their normal epilogues,
+    // while a stale transform-cache ID is invalidated before the engine uses it and rebuilt through its own allocator.
     {
-        static u8 render[0x14000]; EXCEPTION_RECORD er; CONTEXT cx; EXCEPTION_POINTERS xp = { &er, &cx };
-        memset(&er, 0, sizeof er); memset(&cx, 0, sizeof cx);
-        g_render = render; g_render_recoveries = 0;
+        static u8 render[0x14000]; static u64 renderer[0x300 / 8], groups[8], record[0x200 / 8];
+        EXCEPTION_RECORD er; CONTEXT cx; EXCEPTION_POINTERS xp = { &er, &cx };
+        memset(&er, 0, sizeof er); memset(&cx, 0, sizeof cx); memset(renderer, 0, sizeof renderer); memset(groups, 0, sizeof groups); memset(record, 0, sizeof record);
+        g_render = render; g_render_recoveries = g_render_cache_repairs = 0; g_render_cache_armed = 1;
         er.ExceptionCode = EXCEPTION_ACCESS_VIOLATION; er.NumberParameters = 2; er.ExceptionInformation[0] = 0;
         // The original material reader returns its valid parent material ID in EDI.
         cx.Rip = (u64)(render + RVA_RENDER_BAD_READ); cx.Rsi = 0x123456780ull; cx.R8 = 0x400; cx.Rdi = 0x3456;
@@ -328,8 +331,26 @@ int main(void)
         er.ExceptionInformation[0] = 0; cx.Rip = (u64)(render + RVA_RENDER_WALK_BAD_READ + 1); assert(render_fault_guard(&xp) == EXCEPTION_CONTINUE_SEARCH);
         cx.Rip = (u64)(render + RVA_RENDER_BAD_READ); cx.Rsi = 0x123456780ull; cx.Rdi = 0x1000000; er.ExceptionAddress = render + RVA_RENDER_BAD_READ; er.ExceptionInformation[1] = cx.Rsi + 0x38;
         assert(render_fault_guard(&xp) == EXCEPTION_CONTINUE_SEARCH);
-        g_render = 0;
-        printf("render crash guards: OK\n");
+
+        // The reported cache has an ordinary source node but an out-of-pool 24-bit matrix slot.  A valid destination leaves it alone;
+        // an unmapped destination atomically becomes the engine's -2 cache-miss sentinel before the original function runs.
+        *(u64 *)((u8 *)renderer + 0x240) = (u64)(size_t)groups; *(u64 *)groups = (u64)(size_t)record;
+        *(u64 *)((u8 *)renderer + 0x168) = 0x7000000000000000ull; *(u32 *)((u8 *)record + 0x34) = 0x200;
+        fake_vq_unmapped_from = UINTPTR_MAX; render_cache_preflight(renderer, 0); assert(*(u32 *)((u8 *)record + 0x34) == 0x200);
+        fake_vq_unmapped_from = 0x7000000000008000ull; render_cache_preflight(renderer, 0);
+        assert(*(u32 *)((u8 *)record + 0x34) == RENDER_CACHE_MISSING && g_render_cache_repairs == 1);
+        fake_vq_unmapped_from = UINTPTR_MAX;
+
+        // If a racing writer changes that field after the preflight, accept only the exact captured `movaps` write and send it to
+        // basic_render's normal cache-rebuild branch; any address mismatch remains the game's own exception.
+        *(u32 *)((u8 *)record + 0x34) = 0x00de741bu; memset(&cx, 0, sizeof cx); er.ExceptionInformation[0] = 1;
+        cx.Rip = (u64)(render + RVA_RENDER_CACHE_WRITE); cx.Rax = 0x1000; cx.Rdx = 0x00de741bu; cx.Rbp = (u64)(size_t)record;
+        er.ExceptionAddress = render + RVA_RENDER_CACHE_WRITE; er.ExceptionInformation[1] = cx.Rax + (((u64)(u32)cx.Rdx & 0xffffffu) << 6);
+        { LONG guarded = render_fault_guard(&xp);
+          assert(guarded == EXCEPTION_CONTINUE_EXECUTION && cx.Rip == (u64)(render + RVA_RENDER_CACHE_REBUILD) && g_render_cache_repairs == 2); }
+        cx.Rip = (u64)(render + RVA_RENDER_CACHE_WRITE); er.ExceptionInformation[1]++; assert(render_fault_guard(&xp) == EXCEPTION_CONTINUE_SEARCH);
+        fake_vq_unmapped_from = UINTPTR_MAX; g_render_cache_armed = 0; g_render = 0;
+        printf("render cache repair and crash guards: OK\n");
     }
     printf("ALL OK\n");
     return 0;

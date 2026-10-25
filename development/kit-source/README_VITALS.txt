@@ -1,8 +1,8 @@
-MiusVitals v7.2.0 — глобальная карта, Vitals и guard basic_render
+MiusVitals v7.2.1 — глобальная карта, Vitals и guard basic_render
 ====================================================================
 
 ВАЖНО: это комплект только для Steam game build 3598/1 + MiusPlayer v20.
-ОБА игрока должны установить один и тот же MiusVitals v7.2.0.
+ОБА игрока должны установить один и тот же MiusVitals v7.2.1.
 
 Быстрая установка
 -----------------
@@ -26,7 +26,7 @@ MiusVitals v7.2.0 — глобальная карта, Vitals и guard basic_ren
 
   map: unknown game build, ending the turn is not coordinated between the players
 
-v7.2.0 в main/nostart basic_network.codelib содержит проверенное исправление:
+v7.2.1 в main/nostart basic_network.codelib содержит проверенное исправление:
 * указатель Next Turn перенесён на +36b30;
 * embedded signature заменена точным 16-байтным прологом целевой Steam 3598/1
   функции;
@@ -60,7 +60,7 @@ basic_network_opgame_*.log и build_report.txt. Detour должен остава
 Object-number exchange и Vitals
 -------------------------------
 Номера descriptions/objects в operation battle могут быть разными на двух ПК.
-Поэтому Vitals v7.2.0 не считает exchange необязательной диагностикой:
+Поэтому Vitals v7.2.1 не считает exchange необязательной диагностикой:
 
 * пока не появится "object-number lists exchanged: yes", он каждые 3 секунды
   запрашивает нативную передачу таблиц;
@@ -89,16 +89,41 @@ Object-number exchange и Vitals
 по обработанному host save и передаётся joiner целиком на новом map epoch.
 
 Синхронизируются здоровье, смерть и squad record. Этот forced scan проходит через
-обычный ACK/retry Vitals, но v7.2.0 пока НЕ устанавливает отдельный блокирующий
+обычный ACK/retry Vitals, но v7.2.1 пока НЕ устанавливает отдельный блокирующий
 ACK-barrier именно в момент выхода из tactical game. Поэтому запись о final scan
 не доказывает, что peer подтвердил её до аварийно быстрого закрытия боя.
 
 Вид конкретного трупа/ragdoll на карте боя может оставаться локальным
 render/physics результатом движка; он не является источником campaign result.
-v7.2.0 намеренно не пишет guessed offsets в lifecycle render/corpse. Если при
-совпадающем dead клиентское тело не появляется, необходимы логи и проверенные
-engine addresses. Для сравнения проверяйте строки Vitals: после нормального боя
-dead here должен согласовываться, а still apart — быть 0.
+v7.2.1 не пишет guessed offsets в corpse lifecycle. Если при совпадающем dead
+клиентское тело не появляется, необходимы логи и проверенные engine addresses.
+Для сравнения проверяйте строки Vitals: после нормального боя dead here должен
+согласовываться, а still apart — быть 0.
+
+Корень нового basic_render crash и v7.2.1
+------------------------------------------
+Новый minidump доказывает write-AV в basic_render+129a2 при deployment. Это не
+пакет сети: valid node record содержала 24-bit matrix/transform-cache slot,
+который не принадлежит текущему renderer pool. Stock код без проверки делает
+запись pool + slot * 64. Старый deployment crash с другим save произошёл и без
+mp_vitals.dll, поэтому причина — нарушенный инвариант transient renderer cache,
+а не Vitals/object numbers.
+
+На строго проверенном Steam 3598 коде v7.2.1 перед каждым таким use проверяет,
+что slot принадлежит текущему writable Windows allocation matrix pool. Иначе он
+атомарно ставит штатный sentinel -2 в record+34. Затем неизменённый basic_render
+идёт в свой cache-miss allocator, получает свежий slot и сам записывает его в
+record. При редкой гонке exact write fallback направляет только подтверждённый
+movaps в тот же allocator; render operation не пропускается и slot не выдумывается.
+
+Нормальный log после загрузки renderer:
+
+  vitals: basic_render cache-lifetime repair and invalid-child guards armed ...
+
+Запись "rebuilt ... stale basic_render transform cache entries" означает, что
+одна или несколько просроченных cache entries были пересозданы движком. Подробнее
+и точные register/disassembly evidence: docs/RENDER_CACHE_ROOT_CAUSE_2026-10-25.md
+в repository.
 
 Сохранённые меры v7.1.1
 -----------------------
@@ -118,11 +143,11 @@ MP_VEHICLES=0/1/2  выключить / только лог / применять
 MP_STATS=0         не задавать одинаковый seed послебоевой статистики.
 MP_LOG_VITALS=1    писать отдельные Vitals-события.
 MP_IDLE_MS=N       период повторной отправки неподвижных unit в миллисекундах.
-MP_RENDER_GUARD=0  выключить только render guard для диагностики.
+MP_RENDER_GUARD=0  выключить только exact basic_render cache-lifetime repair и invalid-child guards для диагностики.
 
 Контрольные суммы и состав
 --------------------------
-files/mp_vitals.dll                     SHA-256 8F336D5645C01A394B7BE776FDA704E0910ADB949083C16FEA6BA25DF7294F3E
+files/mp_vitals.dll                     SHA-256 F978C2CAA28429A0A4C6648CBDF9368001A683D12AA33B5BC5F9B7AD98F0DF08
 files/basic_network.codelib             SHA-256 4C91874C4B62DB424ECCA36586121BCB3B4CC7849CC900285E68DE5151EDDC36
 files/alt/basic_network_nostart.codelib SHA-256 F0766BEC48696869D59D4A654A04F20BD7BAF9F73ADB6FBF139E7DA31DFC1F4F
 files/alt/basic_network_v5_norebase.codelib SHA-256 D2E34581B42D0573547E221873D7538B64A413267E8ED388ABEB46DD42B630D2

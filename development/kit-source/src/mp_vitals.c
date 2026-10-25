@@ -39,7 +39,7 @@
 // Environment: MP_VITALS 0 off, 1 only compare and log, 2 and 3 apply.
 //              Default: apply in operation battles, compare and log only otherwise.   MP_LOG_VITALS=1 logs every event.
 //              MP_VEHICLES 0 off, 1 only compare and log, 2 apply (default: as MP_VITALS).   MP_STATS 0 leaves the statistics' dice alone.
-//              MP_RENDER_GUARD=0 disables the exact basic_render crash guard. MP_IDLE_MS selects the stationary-unit repeat period.
+//              MP_RENDER_GUARD=0 disables the exact basic_render cache-lifetime and invalid-child guards. MP_IDLE_MS selects the stationary-unit repeat period.
 //
 // v7.1.0: Vitals data uses type 0x34 and an application ACK uses type 0x35, rather than the legacy unacknowledged type 0x32.
 // Each data packet carries a nonzero epoch and sequence. It is retained for an ACK, retried at most 12 times, and applied once only.
@@ -53,6 +53,10 @@
 // foreign object and description numbers their local meaning. Right before end-of-battle statistics, one
 // forced final Vitals scan publishes the last monotonic casualties, and both statistic functions use the
 // existing common RNG seed.
+//
+// v7.2.1: a new Steam 3598 crash dump proves that basic_render can retain a matrix-cache slot from a
+// previous pool. The exact cache-sync function now tests pool ownership and asks the engine's allocator
+// to rebuild a stale entry before the unchecked 64-byte matrix write; it does not invent a render object.
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
@@ -100,7 +104,9 @@ enum {
     RVA_IDLE = 0x19d44, IDLE_IMM8 = 9, IDLE_IMM32 = 19,
     PHYS_GET_MEMBER = 0x9c480,
     GAME_STAT = 0xf80c0, STAT_STEAL = 15, STAT_SEED_OFF = 0x130, STAT_SEED = 0x4d495553,
-    // basic_render.codelib, Steam build 3598: two recursive node walkers and their normal epilogues.
+    // basic_render.codelib, Steam build 3598.  The renderer's transform-cache updater at 12925
+    // stores matrices through a cached 24-bit pool slot; the other two functions walk material nodes.
+    RVA_RENDER_CACHE_SYNC = 0x12925, RVA_RENDER_CACHE_WRITE = 0x129a2, RVA_RENDER_CACHE_REBUILD = 0x129c6,
     RVA_RENDER_WALK_NODE = 0x12fd0, RVA_RENDER_WALK_BAD_READ = 0x12ffd, RVA_RENDER_WALK_FALLBACK = 0x13038,
     RVA_RENDER_NODE = 0x13ab0, RVA_RENDER_BAD_READ = 0x13adb, RVA_RENDER_FALLBACK = 0x13bc9
 };
@@ -137,6 +143,19 @@ static const u8 SIG_RENDER_NODE[46] = {
     0x44,0x8b,0xd2, 0x49,0xc1,0xe2,0x06, 0x4b,0x03,0x34,0x0a, 0x8b,0x4e,0x38
 };
 static const u8 SIG_RENDER_FALLBACK[18] = { 0x48,0x8b,0x6c,0x24,0x38, 0x8b,0xc7, 0x48,0x8b,0x74,0x24,0x40, 0x48,0x83,0xc4,0x20, 0x5f,0xc3 };
+// Render-cache updater observed in the current report.  The first 15 bytes are a whole
+// prologue (safe to trampoline); the second signature reaches the unchecked matrix write.
+static const u8 SIG_RENDER_CACHE_SYNC[15] = { 0x48,0x89,0x6c,0x24,0x10, 0x48,0x89,0x74,0x24,0x18, 0x57, 0x48,0x83,0xec,0x20 };
+static const u8 SIG_RENDER_CACHE_BODY[114] = {
+    0x8b,0xda, 0x48,0x8b,0xf9, 0x83,0xfa,0xff, 0x74,0x1b, 0x8b,0xca, 0x8b,0xc2, 0xc1,0xe9,0x0a,
+    0x48,0xc1,0xe1,0x06, 0x48,0x03,0x8f,0x40,0x02,0,0, 0x25,0xff,0x03,0,0, 0x8b,0xf0, 0xeb,0x21,
+    0x48,0x8b,0x89,0x40,0x02,0,0, 0x48,0xb8,0xc0,0xff,0xff,0xff,0x3f,0,0,0, 0x48,0x03,0xc8,
+    0x8b,0xf3, 0x81,0xe6,0xff,0x03,0,0, 0xb8,0xff,0xff,0xff,0xff, 0x8d,0x2c,0x80, 0xc1,0xe5,0x06,
+    0x48,0x03,0x29, 0x8b,0x55,0x34, 0x83,0xfa,0xfd, 0x77,0x3b, 0x41,0x0f,0x28,0x00,
+    0x81,0xe2,0xff,0xff,0xff,0, 0x48,0x8b,0x87,0x68,0x01,0,0, 0x8b,0xca, 0x48,0xc1,0xe1,0x06,
+    0x0f,0x29,0x04,0x01
+};
+static const u8 SIG_RENDER_CACHE_REBUILD[20] = { 0x48,0x8d,0x8f,0x38,0x01,0,0, 0x49,0x8b,0xd0, 0xe8,0xeb,0x69,0,0, 0x8b,0xd0, 0x89,0x55,0x34 };
 
 // engine layout (adv_physic.codelib; the same in the build of the mod's author and in the current Steam build, read from its code):
 //   i_human +0x7c8 the soldier's own health (float, 1 = unhurt). The hit code: health below 0.5 -> the soldier leaves his squad
@@ -166,6 +185,7 @@ typedef u64 (*FnOwns)(void *obj);
 typedef void (*FnSend)(const void *data, u32 size);
 typedef void (*FnLog)(const char *fmt, ...);
 typedef void (*FnStat)(void *obj, long long a2, char a3);
+typedef void (*FnRenderCache)(void *renderer, u32 node, const void *matrix);
 
 static HMODULE g_mod, g_phys;
 static u32 g_phys_size;
@@ -187,18 +207,30 @@ static const u8 *g_peer;
 static int g_active;                // hooks installed
 static int g_broken;                // something did not match: no more work
 static u8 *g_render;
-static int g_render_tried;
-static u32 g_render_recoveries, g_render_reported;
+static int g_render_tried, g_render_cache_armed;
+static u32 g_render_recoveries, g_render_reported, g_render_cache_repairs, g_render_cache_reported;
 static PVOID g_render_handler;
+static FnRenderCache g_orig_render_cache;
 
 // ------------------------------------------------------------------ small helpers
-static int readable(const void *p, size_t n)
+static int page_has(const void *p, size_t n, int write, MEMORY_BASIC_INFORMATION *out)
 {
     MEMORY_BASIC_INFORMATION mbi;
-    if (!p || !VirtualQuery(p, &mbi, sizeof mbi)) return 0;
+    if (!p || !n || !VirtualQuery(p, &mbi, sizeof mbi)) return 0;
     if (mbi.State != MEM_COMMIT || (mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD))) return 0;
-    return (const char *)p + n <= (const char *)mbi.BaseAddress + mbi.RegionSize;
+    if (write) {
+        DWORD pflags = mbi.Protect & 0xff;
+        if (pflags != PAGE_READWRITE && pflags != PAGE_WRITECOPY && pflags != PAGE_EXECUTE_READWRITE && pflags != PAGE_EXECUTE_WRITECOPY) return 0;
+    }
+    u64 at = (u64)(size_t)p, base = (u64)(size_t)mbi.BaseAddress, end;
+    if (at < base || mbi.RegionSize > ~(u64)0 - base) return 0;
+    end = base + (u64)mbi.RegionSize;
+    if ((u64)n > ~(u64)0 - at || at + (u64)n > end) return 0;
+    if (out) *out = mbi;
+    return 1;
 }
+static int readable(const void *p, size_t n) { return page_has(p, n, 0, 0); }
+static int writable(const void *p, size_t n) { return page_has(p, n, 1, 0); }
 
 static int mode(void)
 {
@@ -219,17 +251,90 @@ static int log_events(void)
 
 static int same(const u8 *at, const u8 *sig, size_t n) { return readable(at, n) && !memcmp(at, sig, n); }
 
-// basic_render's recursive node readers have no bound check on a child node number. Three supplied dumps now
+// `basic_render+12925` has a transient cache in its per-node record.  A report proves that a
+// valid input node (00052006) can carry a stale cache slot (00de741b): the renderer then writes
+// 64 bytes through `renderer->matrix_pool + slot*64` without checking that this pool owns the slot.
+// This is not a network identifier and does not appear in the tacgame image/save; it is renderer
+// lifetime state.  Replacing an out-of-pool cache value with the engine's own -2 sentinel makes
+// the normal allocator at 129c6 rebuild it before it can be used.
+#define RENDER_CACHE_MISSING 0xfffffffeu
+static void *install_detour(u8 *fn, size_t len, void *hook);
+
+static int add_u64(u64 base, u64 off, u64 *out)
+{
+    if (base > ~(u64)0 - off) return 0;
+    *out = base + off; return 1;
+}
+static u32 *render_cache_slot(void *renderer, u32 node)
+{
+    u64 groups, group_at, group, record_at;
+    if (node == 0xffffffffu || !readable((const u8 *)renderer + 0x240, sizeof groups)) return 0;
+    groups = *(const u64 *)((const u8 *)renderer + 0x240);
+    if (!add_u64(groups, ((u64)node >> 10) << 6, &group_at) || !readable((const void *)(size_t)group_at, sizeof group)) return 0;
+    group = *(const u64 *)(size_t)group_at;
+    if (!add_u64(group, ((u64)(node & 0x3ffu)) * 320u, &record_at) || !add_u64(record_at, 0x34, &record_at) || !readable((const void *)(size_t)record_at, sizeof(u32))) return 0;
+    return (u32 *)(size_t)record_at;
+}
+static int render_cache_destination(void *renderer, u32 slot, u64 *out)
+{
+    u64 base, target;
+    if (slot >= RENDER_CACHE_MISSING || !readable((const u8 *)renderer + 0x168, sizeof base)) return 0;
+    base = *(const u64 *)((const u8 *)renderer + 0x168);
+    if (!add_u64(base, ((u64)(slot & 0xffffffu)) << 6, &target)) return 0;
+    *out = target; return 1;
+}
+static int same_writable_allocation(const void *base, const void *target, size_t n)
+{
+    MEMORY_BASIC_INFORMATION a, b;
+    if (!page_has(base, 1, 1, &a) || !page_has(target, n, 1, &b)) return 0;
+    return a.AllocationBase == b.AllocationBase;
+}
+static void render_cache_preflight(void *renderer, u32 node)
+{
+    u32 *cache = render_cache_slot(renderer, node), old, now;
+    u64 target;
+    if (!cache || !writable(cache, sizeof *cache)) return;
+    old = __atomic_load_n(cache, __ATOMIC_ACQUIRE);
+    if (!render_cache_destination(renderer, old, &target) || same_writable_allocation((const void *)(size_t)(*(const u64 *)((const u8 *)renderer + 0x168)), (const void *)(size_t)target, 64)) return;
+    now = old;
+    if (__atomic_compare_exchange_n(cache, &now, RENDER_CACHE_MISSING, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+        __atomic_fetch_add(&g_render_cache_repairs, 1u, __ATOMIC_RELAXED);
+}
+static void hook_render_cache(void *renderer, u32 node, const void *matrix)
+{
+    render_cache_preflight(renderer, node);
+    g_orig_render_cache(renderer, node, matrix);
+}
+
+// basic_render's recursive node readers have no bound check on a child node number. The supplied dumps
 // prove two exact read faults: 13adb has the valid parent material ID in EDI and returns it in EAX; 12ffd has an
 // invalid child-node pointer in RDI and returns void. Both normal epilogues restore the non-volatile registers.
-// This handler only takes those exact read AVs, on this exact verified build, with a corrupt child number in R8.
+// The cache-write branch below is a last-resort race backup for the proactive cache reset above, not a generic AV handler.
 static LONG WINAPI render_fault_guard(EXCEPTION_POINTERS *xp)
 {
     EXCEPTION_RECORD *er;
     CONTEXT *ctx;
     if (!g_render || !xp || !(er = xp->ExceptionRecord) || !(ctx = xp->ContextRecord)) return EXCEPTION_CONTINUE_SEARCH;
-    if (er->ExceptionCode != EXCEPTION_ACCESS_VIOLATION || er->NumberParameters < 2 || er->ExceptionInformation[0] != 0) return EXCEPTION_CONTINUE_SEARCH;
-    if (ctx->R8 <= 0x3ff) return EXCEPTION_CONTINUE_SEARCH;       // a plausible child index is never hidden
+    if (er->ExceptionCode != EXCEPTION_ACCESS_VIOLATION || er->NumberParameters < 2) return EXCEPTION_CONTINUE_SEARCH;
+    if (er->ExceptionInformation[0] == 1 && g_render_cache_armed && ctx->Rip == (u64)(g_render + RVA_RENDER_CACHE_WRITE) &&
+        er->ExceptionAddress == (void *)(g_render + RVA_RENDER_CACHE_WRITE)) {
+        u64 target, cache_at, slot_offset = ((u64)((u32)ctx->Rdx & 0xffffffu)) << 6;
+        u32 *cache;
+        // This is precisely `movaps [rax + (edx & 0xffffff) * 64], xmm0`.  RBP
+        // is the node record and its cache field is at +34; that field still
+        // contains EDX, so branch to the engine's cache allocator, which
+        // overwrites it with a fresh slot before continuing.
+        if (!add_u64(ctx->Rbp, 0x34, &cache_at)) return EXCEPTION_CONTINUE_SEARCH;
+        cache = (u32 *)(size_t)cache_at;
+        if (add_u64(ctx->Rax, slot_offset, &target) && (u64)er->ExceptionInformation[1] == target &&
+            readable(cache, sizeof *cache) && *cache == (u32)ctx->Rdx) {
+            ctx->Rip = (u64)(g_render + RVA_RENDER_CACHE_REBUILD);
+            __atomic_fetch_add(&g_render_cache_repairs, 1u, __ATOMIC_RELAXED);
+            return EXCEPTION_CONTINUE_EXECUTION;
+        }
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    if (er->ExceptionInformation[0] != 0 || ctx->R8 <= 0x3ff) return EXCEPTION_CONTINUE_SEARCH;       // a plausible child index is never hidden
     if (ctx->Rip == (u64)(g_render + RVA_RENDER_BAD_READ) && er->ExceptionAddress == (void *)(g_render + RVA_RENDER_BAD_READ)) {
         if (ctx->Rsi > ~(u64)0 - 0x38 || (u64)er->ExceptionInformation[1] != ctx->Rsi + 0x38 || ctx->Rdi > 0xffffff)
             return EXCEPTION_CONTINUE_SEARCH;
@@ -262,15 +367,26 @@ static void try_render_guard(void)
     stamp = *(const u32 *)(b + pe + 8);
     image = *(const u32 *)(b + pe + 24 + 56);
     if (stamp != RENDER_TIMESTAMP || image <= RVA_RENDER_FALLBACK + sizeof SIG_RENDER_FALLBACK ||
-        image <= RVA_RENDER_WALK_FALLBACK + sizeof SIG_RENDER_WALK_FALLBACK ||
+        image <= RVA_RENDER_WALK_FALLBACK + sizeof SIG_RENDER_WALK_FALLBACK || image <= RVA_RENDER_CACHE_REBUILD + sizeof SIG_RENDER_CACHE_REBUILD ||
         !same(b + RVA_RENDER_NODE, SIG_RENDER_NODE, sizeof SIG_RENDER_NODE) ||
         !same(b + RVA_RENDER_FALLBACK, SIG_RENDER_FALLBACK, sizeof SIG_RENDER_FALLBACK) ||
         !same(b + RVA_RENDER_WALK_NODE, SIG_RENDER_WALK_NODE, sizeof SIG_RENDER_WALK_NODE) ||
-        !same(b + RVA_RENDER_WALK_FALLBACK, SIG_RENDER_WALK_FALLBACK, sizeof SIG_RENDER_WALK_FALLBACK)) goto no;
+        !same(b + RVA_RENDER_WALK_FALLBACK, SIG_RENDER_WALK_FALLBACK, sizeof SIG_RENDER_WALK_FALLBACK) ||
+        !same(b + RVA_RENDER_CACHE_SYNC, SIG_RENDER_CACHE_SYNC, sizeof SIG_RENDER_CACHE_SYNC) ||
+        !same(b + RVA_RENDER_CACHE_SYNC + sizeof SIG_RENDER_CACHE_SYNC, SIG_RENDER_CACHE_BODY, sizeof SIG_RENDER_CACHE_BODY) ||
+        !same(b + RVA_RENDER_CACHE_REBUILD, SIG_RENDER_CACHE_REBUILD, sizeof SIG_RENDER_CACHE_REBUILD)) goto no;
     g_render = (u8 *)b;
     g_render_handler = AddVectoredExceptionHandler(1, render_fault_guard);
     if (!g_render_handler) { g_render = 0; goto no; }
-    if (g_log) g_log("vitals: basic_render invalid-child crash guards armed (rvas %x, %x)", RVA_RENDER_WALK_BAD_READ, RVA_RENDER_BAD_READ);
+    g_orig_render_cache = (FnRenderCache)install_detour(g_render + RVA_RENDER_CACHE_SYNC, sizeof SIG_RENDER_CACHE_SYNC, (void *)hook_render_cache);
+    if (g_orig_render_cache) {
+        g_render_cache_armed = 1;
+        if (g_log) g_log("vitals: basic_render cache-lifetime repair and invalid-child guards armed (rvas %x, %x, %x)", RVA_RENDER_CACHE_WRITE, RVA_RENDER_WALK_BAD_READ, RVA_RENDER_BAD_READ);
+    } else if (g_log) {
+        // Never weaken the two independently verified read guards merely because
+        // this additional entry detour was blocked by the process protection.
+        g_log("vitals: basic_render invalid-child guards armed; cache-lifetime repair could not be installed");
+    }
     return;
 no:
     if (g_log) g_log("vitals: basic_render crash guard not armed (different build or handler unavailable)");
@@ -642,6 +758,11 @@ static void vitals_frame(void *om)
         if (render_recoveries != g_render_reported) {
             g_render_reported = render_recoveries;
             g_log("vitals: skipped an invalid recursive basic_render node (%u time%s); parent material used", g_render_reported, g_render_reported == 1 ? "" : "s");
+        }
+        u32 cache_repairs = __atomic_load_n(&g_render_cache_repairs, __ATOMIC_RELAXED);
+        if (cache_repairs != g_render_cache_reported) {
+            g_render_cache_reported = cache_repairs;
+            g_log("vitals: rebuilt %u stale basic_render transform cache entr%s through the engine allocator", cache_repairs, cache_repairs == 1 ? "y" : "ies");
         }
     }
     int on = *g_connected && *g_tactical && mode() > 0 && *g_have_peer;
