@@ -89,6 +89,21 @@ int memcmp(const void *x, const void *y, size_t n)
     return 0;
 }
 static int str_eq(const char *a, const char *b) { while (*a && *a == *b) { a++; b++; } return *a == *b; }
+static char ascii_lower(char c) { return c >= 'A' && c <= 'Z' ? (char)(c + ('a' - 'A')) : c; }
+static int tactical_program_path(const char *s)
+{
+    static const char name[] = "tacgame.progpack";
+    const char *p;
+    for (p = s; *p; p++) {
+        const char *a = p, *b = name;
+        while (*a && *b && ascii_lower(*a) == ascii_lower(*b)) { a++; b++; }
+        // A filename boundary prevents an unrelated argument merely containing tacgame.progpack from
+        // opting a skirmish/custom launcher into the operation policy.
+        if (!*b && (p == s || p[-1] == '\\' || p[-1] == '/') &&
+            (!*a || *a == ',' || *a == ' ' || *a == '\t' || *a == '"')) return 1;
+    }
+    return 0;
+}
 static const char *last_us(const char *s) { const char *r = 0; for (; *s; s++) if (*s == '_') r = s; return r; }
 static u32 hex_of(const char *s)
 {
@@ -101,6 +116,39 @@ static u32 hex_of(const char *s)
     return v;
 }
 static int num_of(const char *s) { int v = 0; while (*s >= '0' && *s <= '9') v = v * 10 + (*s++ - '0'); return v; }
+
+// A tactical operation is named by the game as YYYY_MM_campaign:battle.  The native module normally
+// receives MP_HOST_MODE=operation from opgame; a direct tactical launch can lose that inherited setting
+// and incorrectly activate full-object replication.  Its objects contain operation-local formation
+// references, so this is both unsupported and enormously expensive.  Recognise only that exact tactical
+// command-line form; skirmishes and custom missions retain their native state policy.
+static int operation_tactical_command(const char *cmd)
+{
+    const char *p;
+    if (!cmd || !tactical_program_path(cmd)) return 0;
+    // Arguments are comma-delimited by starter_x64.  Advance full fields rather than scanning every
+    // character, so malformed/truncated command lines cannot make a token cross a delimiter.
+    for (p = cmd; *p;) {
+        const char *q;
+        while (*p == ' ' || *p == '\t' || *p == '"') p++;
+        if (p[0] == '1' && p[1] == '9' && p[2] >= '0' && p[2] <= '9' && p[3] >= '0' && p[3] <= '9' && p[4] == '_' &&
+            p[5] >= '0' && p[5] <= '9' && p[6] >= '0' && p[6] <= '9' && p[7] == '_') {
+            for (q = p + 8; *q && *q != ','; q++) if (*q == ':') return 1;
+        }
+        while (*p && *p != ',') p++;
+        if (*p == ',') p++;
+    }
+    return 0;
+}
+
+// Do not override an explicit diagnostic/user choice.  This function runs during DLL attach, before
+// basic_network reads MP_SYNC_STATE for the tactical session.
+static int default_operation_state_policy(void)
+{
+    if (!operation_tactical_command(GetCommandLineA())) return 0;
+    if (GetEnvironmentVariableA("MP_SYNC_STATE", 0, 0)) return 0;
+    return SetEnvironmentVariableA("MP_SYNC_STATE", "0") ? 1 : -1;
+}
 
 // ------------------------------------------------------------------ the build this is made for
 #define V20_TIMESTAMP   0x6acfaa3du
@@ -824,6 +872,9 @@ static void drain_mailbox(void)
 
 // ------------------------------------------------------------------ the frame (after the module's own frame, so its replayed hits are done)
 static int g_on;
+// 1 means attach selected the safe native position-only policy for a detected tactical operation;
+// it becomes 2 once the normal module logger is available and the fact has been recorded.
+static int g_operation_state_policy;
 static void *g_om;
 static int g_veh_checked;
 static u16 g_vb_off;                // status bytes that are on in many vehicles from the start: not event flags, not synchronised
@@ -874,6 +925,10 @@ static void vitals_frame(void *om)
     try_hook_stat();
     try_render_guard();
     if (g_log) {
+        if (g_operation_state_policy == 1) {
+            g_log("vitals: tactical operation detected; full object-state replication is disabled (native position, shots, hits and Vitals remain)");
+            g_operation_state_policy = 2;
+        }
         if (g_idle_msg == 0) { g_log("net: units that stand still are sent on every tick (MP_IDLE_MS=0 override)"); g_idle_msg = -2; }
         else if (g_idle_msg > 0) { g_log("net: units that stand still are sent every %d ms (patched at start)", g_idle_msg); g_idle_msg = -2; }
         u32 render_recoveries = __atomic_load_n(&g_render_recoveries, __ATOMIC_RELAXED);
@@ -1110,7 +1165,7 @@ static void vitals_frame(void *om)
                   g_s_sent_delta, g_s_sent_digest, g_s_rx, g_s_killed, g_s_notice, g_s_dropped, g_s_rec_ok, g_s_rec_bad,
                   g_why[1], g_why[2], g_why[3], g_why[4], g_why[5], g_why[6], g_why[7], g_why[8],
                   g_s_veh, g_s_veh_flag, g_s_veh_peer, g_s_veh_set, g_s_veh_note);
-            g_log("vitals: state channel v7.4: packets sent %u, acked %u, retried %u, replaced %u, pending %d; received %u, duplicates %u, inbox full %u, ACK sent %u, unmatched ACK %u; final scans %u",
+            g_log("vitals: state channel v7.5: packets sent %u, acked %u, retried %u, replaced %u, pending %d; received %u, duplicates %u, inbox full %u, ACK sent %u, unmatched ACK %u; final scans %u",
                   g_s_vtx, g_s_vack, g_s_vretry, g_s_vreplace, vitals_pending(), g_s_vrx, g_s_vdup, g_s_vfull, g_s_vack_sent, g_s_vack_unknown, g_s_final_scans);
             char tl[400]; int n = 0; tl[0] = 0;
             for (int t = 0; t < 64 && n < 360; t++) if (g_rx_type[t]) n += wsprintfA_lite(tl + n, t, g_rx_type[t], g_rx_size[t]);
@@ -1282,6 +1337,9 @@ static void attach(void)
     if (!same(b + RVA_SESSION_FRAME, SIG_FRAME, sizeof SIG_FRAME) || !same(b + RVA_ON_PACKET - 10, SIG_PACKET_HEAD, sizeof SIG_PACKET_HEAD) ||
         !same(b + RVA_ON_PACKET, SIG_PACKET, sizeof SIG_PACKET) || !same(b + RVA_OWNS, SIG_OWNS, sizeof SIG_OWNS) ||
         !same(b + RVA_SEND_PEER, SIG_SEND, sizeof SIG_SEND) || !same(b + RVA_LOG, SIG_LOG, sizeof SIG_LOG)) return;
+    // The module has now passed every v20 signature check, but session_start has not read MP_SYNC_STATE yet.
+    // Correct only the missing operation default; an explicit caller value is never changed.
+    g_operation_state_policy = default_operation_state_policy();
     g_owns = (FnOwns)(b + RVA_OWNS);
     g_send = (FnSend)(b + RVA_SEND_PEER);
     g_log = (FnLog)(b + RVA_LOG);

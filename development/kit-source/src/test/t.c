@@ -14,7 +14,7 @@
 #include <assert.h>
 DWORD fake_tick = 100000;
 uintptr_t fake_vq_unmapped_from = UINTPTR_MAX;
-const char *fake_env_idle;
+const char *fake_env_idle, *fake_env_state, *fake_cmd;
 
 #define NS 24
 static char man[NS][0x2500];
@@ -81,7 +81,7 @@ static void setup(void)
     num_ready = 1; num_flag = 0;
     g_num_ready = &num_ready; g_num_flag = &num_flag;
     g_orig_frame = fake_orig_frame; during = 0; g_on = 0; g_broken = 0; g_send = fake_send; g_log = fake_log; g_orig_packet = fake_orig_packet;
-    g_num_complete = g_num_peer_set = 0; g_idle_msg = -1; fake_env_idle = 0;
+    g_num_complete = g_num_peer_set = 0; g_idle_msg = -1; fake_env_idle = fake_env_state = fake_cmd = 0; g_operation_state_policy = 0;
     g_phys = 0; g_phys_size = 0; memset(g_why, 0, sizeof g_why);
     vitals_transport_reset(); vitals_transport_begin(fake_tick);
     g_s_vtx = g_s_vack = g_s_vretry = g_s_vreplace = g_s_vrx = g_s_vdup = g_s_vfull = g_s_vack_sent = g_s_vack_unknown = 0;
@@ -136,6 +136,21 @@ static int dead_entries_sent(u32 id)
 int main(void)
 {
     setvbuf(stdout, 0, _IONBF, 0);
+    // ---- 0. Operation tactical launches default to the native position-only policy.  The recogniser
+    // requires both the tactical program and the game's YYYY_MM_campaign:battle token; it cannot affect
+    // opgame, a custom mission, or an explicit MP_SYNC_STATE user choice.
+    assert(operation_tactical_command("starter_x64.exe root\\programs\\tacgame.progpack, data\\common\\shared\\config\\tacgame_image.cfgpack, users\\profiles, Zefir, 1942_07_Voronezh:04_06_07_shilovo_na_ger, 2, 13"));
+    assert(operation_tactical_command("starter_x64.exe ROOT\\PROGRAMS\\TACGAME.PROGPACK, users\\profiles, Zefir, 1942_07_Voronezh:04_06_07_shilovo_na_ger, 2, 13"));
+    assert(!operation_tactical_command("starter_x64.exe root\\programs\\opgame.progpack, Zefir, 1942_07_Voronezh:04_06_07_shilovo_na_ger, 2, 13"));
+    assert(!operation_tactical_command("starter_x64.exe root\\programs\\notacgame.progpack, Zefir, 1942_07_Voronezh:04_06_07_shilovo_na_ger, 2, 13"));
+    assert(!operation_tactical_command("starter_x64.exe root\\programs\\tacgame.progpack, data\\mission.cfgpack, users\\profiles, Zefir, custom_battle, 2, 13"));
+    assert(!operation_tactical_command("starter_x64.exe root\\programs\\tacgame.progpack, "));
+    fake_cmd = "starter_x64.exe root\\programs\\tacgame.progpack, data\\common\\shared\\config\\tacgame_image.cfgpack, users\\profiles, Zefir, 1942_07_Voronezh:04_06_07_shilovo_na_ger, 2, 13";
+    fake_env_state = 0; assert(default_operation_state_policy() == 1 && str_eq(fake_env_state, "0"));
+    fake_env_state = "2"; assert(default_operation_state_policy() == 0 && str_eq(fake_env_state, "2"));
+    fake_cmd = "starter_x64.exe root\\programs\\tacgame.progpack, data\\mission.cfgpack, users\\profiles, Zefir, custom_battle, 2, 13";
+    fake_env_state = 0; assert(default_operation_state_policy() == 0 && !fake_env_state);
+
     // ---- 1. a soldier dies here: told at once, once; listed again by the digest
     setup(); RUN(300);
     assert(sent_n == 0);

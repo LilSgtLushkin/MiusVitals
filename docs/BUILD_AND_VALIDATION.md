@@ -1,4 +1,4 @@
-# Сборка и проверка MiusVitals v7.4.0
+# Сборка и проверка MiusVitals v7.5.0
 
 ## Воспроизводимые входы и артефакты
 
@@ -10,22 +10,15 @@
 | Main | rebase 3598/1, verified operation Next Turn, join-launch wait, импорт DLL | `485b655662bd062e16278f9d699a3097b49a08de1948d2500dd589703a3102a3` |
 | `nostart` | тот же rebase без Start group, join-launch wait, импорт DLL | `e4317e630a21198a55e0e86be4aa29c71fcada6065824c858acd0e2bdef8adf9` |
 | `norebase` | только импорт DLL; диагностический вариант | `d2e34581b42d0573547e221873d7538b64a413267e8ed388abeb46dd42b630d2` |
-| `mp_vitals.dll` | Zig 0.17.0, no CRT, KERNEL32 only | `d22e931575a119136cce9f40622ee90f8919ebd250f2738e3e50d7561c4fc486` |
+| `mp_vitals.dll` | Zig 0.17.0, no CRT, KERNEL32 only | `71a1bf3a37923bbe6c8ee84448d0b91705c2bff7382b647f990b9d671ee224df` |
 
-Main и `nostart` изменяют три связанных элемента operation-map detour только после строгой сверки исходного v20:
+В v7.5.0 codelib-варианты не изменены: release script воспроизводимо получает те же main/`nostart`/`norebase` байты, а изменение находится только в `mp_vitals.dll`. Поэтому текущая проблема global map не выдаётся за исправленную и не является критерием этого выпуска. `verify_artifacts.py` продолжает проверять их exact hashes, DLL-import и сохранённые operation-map signatures, чтобы выпуск случайно не регрессировал существующий artifact.
 
-1. immediate по RVA `basic_network+0x1a327`: `adv_opgame+0x36b40` → `+0x36b30`;
-2. проверяемую 16-байтную сигнатуру по `basic_network+0x48da0`;
-3. уже ранее rebased worker (`+0x76510`) и save routine (`+0xd6080`);
-4. ровно восемь байтов по RVA `+0x15a77`: исключается только inlined ветка
-   `g_peer_on_map` из host Next Turn gate. Следующая проверка `g_connected`
-   остаётся штатной.
-
-`verify_artifacts.py` проверяет не только хэш, импорт `mp_vitals.dll!MpVitalsInit` и PE surface, но и operation Next Turn target/signature и exact eight-byte join-launch fix в main/nostart. Таким образом artifact не может выглядеть валидным, если map detour снова окажется отключённым старой проверкой или вернётся прежний переход host в stock Next Turn до запуска карты joiner.
+Новый DLL допускает только KERNEL32 imports, включая `GetCommandLineA` и `SetEnvironmentVariableA`. Во время dependency attach (до кэширования state policy в `basic_network`) он устанавливает отсутствующий `MP_SYNC_STATE=0` исключительно для strict operation-tactical command line; explicit environment setting не меняется. Ни `g_host_mode`, ни map state, ни codelib не записываются.
 
 ## Exact downloadable kit
 
-`development/kit-source/` — редактируемая development структура, не каталог установки. `scripts/package_kit.py` — allow-list единственного installable download: `MiusVitals_v7.4.0_INSTALL.zip`. В архив попадают ровно эти 16 файлов под единственным `MiusVitals/` root:
+`development/kit-source/` — редактируемая development структура, не каталог установки. `scripts/package_kit.py` — allow-list единственного installable download: `MiusVitals_v7.5.0_INSTALL.zip`. В архив попадают ровно эти 16 файлов под единственным `MiusVitals/` root:
 
 ```text
 Check_Build.ps1
@@ -49,9 +42,9 @@ files/alt/basic_network_v5_norebase.codelib
 ZIP использует фиксированный timestamp 2026-10-25 00:00:00, явный порядок записей, фиксированные mode bits и deflate level 9. `--verify` проверяет CRC, дерево, timestamp и точную byte identity со входами kit.
 
 ```sh
-python3 scripts/package_kit.py --output MiusVitals_v7.4.0_INSTALL.zip
-python3 scripts/package_kit.py --verify MiusVitals_v7.4.0_INSTALL.zip
-sha256sum MiusVitals_v7.4.0_INSTALL.zip
+python3 scripts/package_kit.py --output MiusVitals_v7.5.0_INSTALL.zip
+python3 scripts/package_kit.py --verify MiusVitals_v7.5.0_INSTALL.zip
+sha256sum MiusVitals_v7.5.0_INSTALL.zip
 ```
 
 ## Локальная проверка
@@ -63,6 +56,7 @@ scripts/verify_release.sh
 
 Native harness запускается с ASan/UBSan. Помимо прежних тестов смертей/ранений/техники, ACK/retry, duplicate mailbox и transparent type 10/11, он утверждает:
 
+- strict classifier принимает только `tacgame.progpack` + отдельный `19YY_MM_campaign:battle` token (case-insensitive path), отвергает opgame и custom mission; absent-only policy sets `MP_SYNC_STATE=0`, while an explicit value remains byte-for-byte unchanged;
 - Vitals state не уходит, не помещается в mailbox и не ACK-ается, пока первый object-number exchange не готов;
 - запрос exchange начинается через три секунды и повторяется до первого success;
 - success latched для tactical session: последующий raw-ready=0 не создаёт nudge, не закрывает state sync и не отбрасывает receive; disconnect обязательно сбрасывает latch и снова требует exchange;
@@ -86,4 +80,4 @@ scripts/verify_release.sh
 
 Скрипт регенерирует все варианты codelib, собирает DLL, проверяет hashes/PE/map detour и создаёт exact install ZIP. Он не устанавливает ничего в игровую папку.
 
-Нативные и static проверки не заменяют живую пару Graviteam. Первый тест после релиза должен включать: обмен карты, приказы обоих игроков, оба Next Turn, передачу следующего map epoch, существующее и появляющееся во время turn подкрепление, а затем тактический бой с `object-number lists exchanged: yes` на обеих машинах. Текущий merge гарантированно добавляет новые `user_orders`, но не доказан для произвольной новой structural row подкрепления. Финальный forced scan проверен нативно, но это ещё не отдельный блокирующий ACK-barrier при выходе из tactical game: его нельзя считать доказанным без живой проверки перехода карты.
+Нативные и static проверки не заменяют живую пару Graviteam. До заявления, что FPS-причина устранена, нужен two-peer **operational tactical** battle: на обоих ПК должен быть `object-number lists exchanged: yes`, один startup log новой policy, отсутствие `state:` saved-state traffic после exchange и рабочие transforms, shots, damage/death Vitals. Global map сознательно не тестируется и не изменяется в этом выпуске. Финальный forced scan проверен нативно, но это ещё не отдельный блокирующий ACK-barrier при выходе из tactical game: его нельзя считать доказанным без отдельной живой проверки перехода карты, если работа с картой будет вновь разрешена.

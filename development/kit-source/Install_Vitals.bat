@@ -1,5 +1,5 @@
 @echo off
-rem MiusVitals v7.4.0: operation-map and Vitals synchronization for the Steam release (v20) of the Mius-Front multiplayer.
+rem MiusVitals v7.5.0: tactical Vitals state-policy correction for the Steam v20 Mius-Front multiplayer.
 rem Puts two files into the game: mp_vitals.dll (game folder) and the exact checked basic_network.codelib
 rem rebase for Steam 3598/1. The original is kept in state\ and Uninstall_Vitals.bat puts it back.
 rem Both players must do this. Put the MiusVitals folder into the game folder (next to mpmod1).
@@ -8,7 +8,7 @@ set "KIT=%~dp0"
 set "KIT=%KIT:~0,-1%"
 for %%I in ("%KIT%\..") do set "GAME=%%~fI"
 set "V20=8108BD1E9AF8080EF8B1050512B8311848F5A336ACB49A7479388733B4AE5723"
-set "DLL_SHA=D22E931575A119136CCE9F40622EE90F8919EBD250F2738E3E50D7561C4FC486"
+set "DLL_SHA=71A1BF3A37923BBE6C8EE84448D0B91705C2BFF7382B647F990B9D671EE224DF"
 set "PATCHED=485B655662BD062E16278F9D699A3097B49A08DE1948D2500DD589703A3102A3"
 set "PATCHED_PREVIOUS=4C91874C4B62DB424ECCA36586121BCB3B4CC7849CC900285E68DE5151EDDC36"
 set "PATCHED_OLDER=7CAF36CDDABF7EB388A3C6C393B05733E051955D63D32EF13531CE88004DCFBA"
@@ -26,7 +26,7 @@ if /i "%~1"=="norebase" set "MOD=%KIT%\files\alt\basic_network_v5_norebase.codel
 if /i "%~1"=="norebase" set "TARGET_SHA=%PATCHED_OLD%"
 set "RC=0"
 echo.
-echo  MiusVitals v7.4.0 - operation-map and Vitals synchronization
+echo  MiusVitals v7.5.0 - tactical Vitals state-policy correction
 echo.
 if not exist "%GAME%\starter_x64.exe" goto :no_game
 if not exist "%GAME%\bin\rel\x64\basic_network.codelib" goto :no_mp

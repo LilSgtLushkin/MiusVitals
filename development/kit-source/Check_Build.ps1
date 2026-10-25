@@ -37,21 +37,21 @@ if (Test-Path $network) {
     $networkHash = (Get-FileHash -LiteralPath $network -Algorithm SHA256).Hash.ToUpper()
     $lines.Add("basic_network.codelib installed SHA-256: $networkHash")
     if ($networkHash -eq '485B655662BD062E16278F9D699A3097B49A08DE1948D2500DD589703A3102A3') {
-        $lines.Add('MiusVitals operation-map main variant: current v7.4.0 (required shared-map fixes present)')
+        $lines.Add('MiusVitals retained main codelib variant: current v7.5.0 (global-map behaviour is not changed/tested by this release)')
     } elseif ($networkHash -eq 'E4317E630A21198A55E0E86BE4AA29C71FCADA6065824C858ACD0E2BDEF8ADF9') {
-        $lines.Add('MiusVitals operation-map nostart variant: current v7.4.0 (use only if normal Start is known to fail)')
+        $lines.Add('MiusVitals retained nostart codelib variant: current v7.5.0 (use only if normal Start is known to fail; global-map scope unchanged)')
     } elseif ($networkHash -eq '7CAF36CDDABF7EB388A3C6C393B05733E051955D63D32EF13531CE88004DCFBA') {
-        $lines.Add('WARNING: older MiusVitals module detected; install v7.4.0 on BOTH players before testing the operation map')
+        $lines.Add('WARNING: older MiusVitals module detected; install v7.5.0 on BOTH players before testing tactical FPS policy')
     } else {
-        $lines.Add('WARNING: not a current v7.4.0 main/nostart module; operation-map ownership and Next Turn are not a valid test')
+        $lines.Add('WARNING: not a retained v7.5.0 main/nostart baseline; do not mix it with this tactical FPS test')
     }
 } else { $lines.Add('basic_network.codelib: MISSING (enable MiusPlayer before installing MiusVitals)') }
 $dll = Join-Path $game 'mp_vitals.dll'
 if (Test-Path $dll) {
     $dllHash = (Get-FileHash -LiteralPath $dll -Algorithm SHA256).Hash.ToUpper()
     $lines.Add("mp_vitals.dll installed SHA-256: $dllHash")
-    if ($dllHash -eq 'D22E931575A119136CCE9F40622EE90F8919EBD250F2738E3E50D7561C4FC486') { $lines.Add('MiusVitals renderer guard DLL: current v7.4.0') }
-    else { $lines.Add('WARNING: mp_vitals.dll is not the current v7.4.0 DLL; reinstall the complete archive') }
+    if ($dllHash -eq '71A1BF3A37923BBE6C8EE84448D0B91705C2BFF7382B647F990B9D671EE224DF') { $lines.Add('MiusVitals renderer guard DLL: current v7.5.0') }
+    else { $lines.Add('WARNING: mp_vitals.dll is not the current v7.5.0 DLL; reinstall the complete archive') }
 } else { $lines.Add('mp_vitals.dll: not installed') }
 $lines | Set-Content -Encoding UTF8 $out
 $lines | ForEach-Object { Write-Host $_ }

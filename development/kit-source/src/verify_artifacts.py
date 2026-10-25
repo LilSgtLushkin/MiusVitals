@@ -10,7 +10,7 @@ EXPECTED_MODULES = {
     "files/alt/basic_network_nostart.codelib": "e4317e630a21198a55e0e86be4aa29c71fcada6065824c858acd0e2bdef8adf9",
     "files/alt/basic_network_v5_norebase.codelib": "d2e34581b42d0573547e221873d7538b64a413267e8ed388abeb46dd42b630d2",
 }
-EXPECTED_DLL = "d22e931575a119136cce9f40622ee90f8919ebd250f2738e3e50d7561c4fc486"
+EXPECTED_DLL = "71a1bf3a37923bbe6c8ee84448d0b91705c2bff7382b647f990b9d671ee224df"
 V20_SHA256 = "8108bd1e9af8080ef8b1050512b8311848f5a336acb49a7479388733b4ae5723"
 REBASED_MAIN_SHA256 = "f8c89ed083fee9c94576abdb7be67ec7c17a556e5c1224448fa7c2e0ab1907ae"
 REBASED_NOSTART_SHA256 = "affe19a1f2fa20636b05e13515ca85a62c8a905ab77d2cede422d26b7c010aeb"
@@ -27,9 +27,9 @@ MAP_NEXT_TURN_SIGNATURE = bytes.fromhex("40534883ec404c8b81d8010000488bd9")
 MAP_JOIN_LAUNCH_RACE_RVA = 0x15A77
 MAP_JOIN_LAUNCH_RACE_PATCH = b"\x90" * 8
 KERNEL32_IMPORTS = {
-    "AddVectoredExceptionHandler", "DisableThreadLibraryCalls", "EnterCriticalSection", "FlushInstructionCache", "GetCurrentProcess",
-    "GetEnvironmentVariableA", "GetModuleHandleA", "GetTickCount", "InitializeCriticalSection",
-    "LeaveCriticalSection", "VirtualAlloc", "VirtualFree", "VirtualProtect", "VirtualQuery",
+    "AddVectoredExceptionHandler", "DisableThreadLibraryCalls", "EnterCriticalSection", "FlushInstructionCache", "GetCommandLineA",
+    "GetCurrentProcess", "GetEnvironmentVariableA", "GetModuleHandleA", "GetTickCount", "InitializeCriticalSection",
+    "LeaveCriticalSection", "SetEnvironmentVariableA", "VirtualAlloc", "VirtualFree", "VirtualProtect", "VirtualQuery",
 }
 
 

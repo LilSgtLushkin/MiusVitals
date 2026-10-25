@@ -1,8 +1,8 @@
-MiusVitals v7.4.0 — глобальная карта, Vitals и guard basic_render
+MiusVitals v7.5.0 — тактический FPS, Vitals и guard basic_render
 ====================================================================
 
 ВАЖНО: это комплект только для Steam game build 3598/1 + MiusPlayer v20.
-ОБА игрока должны установить один и тот же MiusVitals v7.4.0.
+ОБА игрока должны установить один и тот же MiusVitals v7.5.0.
 
 Быстрая установка
 -----------------
@@ -18,79 +18,46 @@ MiusVitals v7.4.0 — глобальная карта, Vitals и guard basic_ren
 Откат: закройте игру и запустите Uninstall_Vitals.bat. Не удаляйте state
 до отката.
 
-Глобальная карта: что изменено
-------------------------------
-В Steam 3598/1 обработчик кнопки Next Turn в adv_opgame.codelib начинается
-на +36b30. Предыдущий MiusPlayer-код проверял старый +36b40, поэтому безопасно
-отказывался включать shared map turn и писал:
+Глобальная карта: без изменений в v7.5.0
+------------------------------------------
+Пользователь по-прежнему наблюдает несинхронизированные ходы на глобальной карте.
+Поэтому эта версия сознательно НЕ меняет `adv_opgame`, `basic_network.codelib`,
+map-mode, ownership или Next Turn. Оба codelib-варианта сохранены байт-в-байт;
+main SHA-256 остаётся
 
-  map: unknown game build, ending the turn is not coordinated between the players
+  485B655662BD062E16278F9D699A3097B49A08DE1948D2500DD589703A3102A3
 
-v7.4.0 в main/nostart basic_network.codelib содержит проверенное исправление:
-* указатель Next Turn перенесён на +36b30;
-* embedded signature заменена точным 16-байтным прологом целевой Steam 3598/1
-  функции;
-* адреса worker Next Turn (+76510) и operation save (+d6080) уже соответствуют
-  этой сборке и также проходят свои строгие проверки.
+Не используйте карту как тест этого тактического исправления и не подменяйте
+codelib вручную. Когда исследование карты будет разрешено вновь, нужны оба full
+`basic_network_opgame_*.log`, оба `MiusVitals\build_report.txt` и `.opsave`,
+созданный после hand-off.
 
-При точном совпадении включается штатная логика MiusPlayer:
-* хост передаёт клиенту зеркальную копию operation save;
-* оба игрока одновременно отдают приказы и двигают свои formations/battle groups;
-* клиент отдаёт свою карту назад; хост объединяет его numeric changes и новые
-  user_orders с собственной картой, обрабатывает ход и присылает клиенту полную
-  карту следующего epoch.
+Только installer и DLL обновлены в этом релизе; у обоих игроков должны совпадать
+выбранный main/nostart codelib и новый DLL:
 
-v7.4.0 устраняет конкретную гонку между выдачей карты и запуском отдельного
-opgame клиента. Раньше host gate Next Turn требовал уже полученный map-mode Hello
-(phase 0xfe). Но карта уже была выдана, а joiner ещё мог скачивать save/стартовать.
-В это окно Next Turn хоста шёл в stock handler: ход сразу проигрывался, а клиент
-попадал в следующую tactical battle вместо своей карты.
+  mp_vitals.dll  71A1BF3A37923BBE6C8EE84448D0B91705C2BFF7382B647F990B9D671EE224DF
 
-Теперь убрана только эта ранняя проверка map-mode Hello. Host ждёт, если карта уже
-выдана и соединение ещё живо; он НЕ считает клиента готовым и НЕ делает merge,
-пока не получит настоящий Hello с совпадающим epoch и Next Turn клиента. То есть
-это не задержка по таймеру и не поддельное подтверждение — только устранение
-неправильного перехода в stock Next Turn во время запуска уже выданной карты.
+Тактический FPS: operation state policy
+-------------------------------------
+В slow tactical logs operational battle запускался с full saved-object state
+replication, хотя native operation semantics требует positions/shots/hits/Vitals,
+не object snapshots. Это даёт тысячи `state:` объектов и работу remote transforms
+каждые 5 секунд; это не решается throttle.
 
-Проверка после запуска operation:
-* на host: "map: the turn ends when both players have pressed next turn...";
-* если host нажал Next Turn до появления карты у joiner: "map: this player has
-  ended the turn, waiting for ..."; не должно быть "map: ending the turn";
-* на joiner: "net: joining ...", затем "map: this player's side of the
-  operational map...";
-* только после Next Turn обоих допустимо "map: ending the turn - asking ...".
+До кэширования native policy DLL распознаёт только command line с
+`tacgame.progpack` и отдельным token `19YY_MM_campaign:battle`. Только когда
+`MP_SYNC_STATE` отсутствует, она задаёт process default `MP_SYNC_STATE=0`.
+Skirmish, custom mission, `opgame` и любое явно заданное MP_SYNC_STATE остаются
+нетронутыми. DLL не пишет g_host_mode, map state и codelib.
 
-`map: unknown game build, ending the turn is not coordinated between the players`
-означает, что detour не включился и требует полного лога/build_report. Напротив,
-`map: unknown game build, what the other player's intelligence finds out is not
-kept for him` относится только к persistence разведданных: он не отключает
-корректно установленный Next Turn hook.
+После загрузки log одного operation tactical battle должен содержать ровно:
 
-Подкрепления не отправляются отдельным неполным списком: существующие состояния
-formations/groups входят в полную operation save и её числовой merge. Но текущий
-merge структурно добавляет только новые строки user_orders; появление новой строки
-подкрепления во время совместного turn ещё не подтверждено живой парой игроков.
-Не обещайте такое новое reinforcement до этого теста.
+  vitals: tactical operation detected; full object-state replication is disabled (native position, shots, hits and Vitals remain)
 
-Важно о сообщении «за вторым человеком действует бот»: supplied host log уже
-показывает `391 formations and battle groups turned round`. Именно это меняет
-operation command tags на USER для joiner; `AI commander switched off` в
-тактическом log — другой механизм. Однако в том же host log за весь `opgame`
-нет ни одной строки `vitals:`; у joiner такая строка есть. `mp_vitals.dll`
-загружается только импортом проверенного `basic_network.codelib`, поэтому это
-доказательство разных/неполно установленных модулей на двух ПК, а не повод
-писать догадочный ownership patch.
-
-v7.4.0 Install_Vitals.bat теперь сверяет после copy **оба** файла. У ОБОИХ
-игроков должны совпасть main/nostart variant и строки:
-
-  basic_network.codelib 485B655662BD062E16278F9D699A3097B49A08DE1948D2500DD589703A3102A3
-  mp_vitals.dll          D22E931575A119136CCE9F40622EE90F8919EBD250F2738E3E50D7561C4FC486
-
-Только после этого лог карты является валидным тестом. Если при этих hash и
-строках `vitals:` на обоих ПК симптом остаётся, нужны обе full opgame logs,
-оба build_report.txt и created-after-hand-off .opsave; не подменяйте module
-вручную и не используйте `norebase` для normal Steam 3598/1.
+Перед заявлением исправления обязателен живой two-peer operation test: после
+object-number exchange `state:` saved-state traffic отсутствует, а transforms,
+shots и Vitals работают у обоих игроков. Native tests доказывают только
+command-line classifier и absent-only/explicit-override policy.
 
 Object-number exchange и Vitals
 -------------------------------
@@ -127,18 +94,18 @@ Object-number exchange и Vitals
 по обработанному host save и передаётся joiner целиком на новом map epoch.
 
 Синхронизируются здоровье, смерть и squad record. Этот forced scan проходит через
-обычный ACK/retry Vitals, но v7.4.0 пока НЕ устанавливает отдельный блокирующий
+обычный ACK/retry Vitals, но v7.5.0 пока НЕ устанавливает отдельный блокирующий
 ACK-barrier именно в момент выхода из tactical game. Поэтому запись о final scan
 не доказывает, что peer подтвердил её до аварийно быстрого закрытия боя.
 
 Вид конкретного трупа/ragdoll на карте боя может оставаться локальным
 render/physics результатом движка; он не является источником campaign result.
-v7.4.0 не пишет guessed offsets в corpse lifecycle. Если при совпадающем dead
+v7.5.0 не пишет guessed offsets в corpse lifecycle. Если при совпадающем dead
 клиентское тело не появляется, необходимы логи и проверенные engine addresses.
 Для сравнения проверяйте строки Vitals: после нормального боя dead here должен
 согласовываться, а still apart — быть 0.
 
-Корень нового basic_render crash и v7.4.0
+Корень нового basic_render crash и v7.5.0
 ------------------------------------------
 Новый minidump доказывает write-AV в basic_render+129a2 при deployment. Это не
 пакет сети: valid node record содержала 24-bit matrix/transform-cache slot,
@@ -147,7 +114,7 @@ v7.4.0 не пишет guessed offsets в corpse lifecycle. Если при со
 mp_vitals.dll, поэтому причина — нарушенный инвариант transient renderer cache,
 а не Vitals/object numbers.
 
-На строго проверенном Steam 3598 коде v7.4.0 перед каждым таким use проверяет,
+На строго проверенном Steam 3598 коде v7.5.0 перед каждым таким use проверяет,
 что slot принадлежит текущему writable Windows allocation matrix pool. Иначе он
 атомарно ставит штатный sentinel -2 в record+34. Затем неизменённый basic_render
 идёт в свой cache-miss allocator, получает свежий slot и сам записывает его в
@@ -164,7 +131,7 @@ movaps в тот же allocator; render operation не пропускается 
 Текущий, отдельный read-AV был в basic_render+39b52 (`movups xmm9,[rax+rsi]`).
 В dump `RAX=FAAEC630` уже является 32-bit index/stride-derived offset, а
 `RSI+RAX` точно совпадает с invalid address. Stock triangle reader не проверяет
-границы index-derived vertex/attribute address. v7.4.0 перед входом именно в эту
+границы index-derived vertex/attribute address. v7.5.0 перед входом именно в эту
 проверенную функцию сверяет весь index array и каждый будущий 16-byte primary и
 optional attribute read. Если geometry некорректна, функция возвращает только
 свой штатный no-hit (`false`, query+0xa4=0), не выполняя invalid load.
@@ -205,7 +172,7 @@ MP_RENDER_GUARD=0  выключить только exact basic_render cache-life
 
 Контрольные суммы и состав
 --------------------------
-files/mp_vitals.dll                     SHA-256 D22E931575A119136CCE9F40622EE90F8919EBD250F2738E3E50D7561C4FC486
+files/mp_vitals.dll                     SHA-256 71A1BF3A37923BBE6C8EE84448D0B91705C2BFF7382B647F990B9D671EE224DF
 files/basic_network.codelib             SHA-256 485B655662BD062E16278F9D699A3097B49A08DE1948D2500DD589703A3102A3
 files/alt/basic_network_nostart.codelib SHA-256 E4317E630A21198A55E0E86BE4AA29C71FCADA6065824C858ACD0E2BDEF8ADF9
 files/alt/basic_network_v5_norebase.codelib SHA-256 D2E34581B42D0573547E221873D7538B64A413267E8ED388ABEB46DD42B630D2
