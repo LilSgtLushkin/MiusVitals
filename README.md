@@ -10,7 +10,13 @@
 
 `Enable_Multiplayer.bat` может сообщить число отличий от historical full-file hash list. Для актуального Steam **6.00 build 3598/1** это предупреждение не блокирует установку; installer всё равно отказывается заменить неизвестный active multiplayer module, а engine-specific hooks запускаются только после собственных точных runtime signature checks.
 
-> Не устанавливайте [`development/`](development/). Это расширенная рабочая область: source MiusPlayer/MiusVitals, manifest и проверки. Для игры подходит только единый INSTALL-архив. Для редактирования/полной source rebuild цепочки см. [`development/merged-source/`](development/merged-source/).
+### Отдельный beta_FPS_fix installer
+
+Для контролируемого двухpeer FPS-теста доступен второй архив [`MiusMultiplayer_beta_FPS_fix_INSTALL.zip`](MiusMultiplayer_beta_FPS_fix_INSTALL.zip), SHA-256 `cf8425cc44fc55d05093dbf8cc24ecdd14d0a0da9d37db6d768f161b4081a099`.
+
+Это **не** замена стабильного unified archive и не compatibility release. Beta автоматически заменяет только `bin\\rel\\x64\\basic_network.codelib`, сохраняет распознанный предыдущий module и возвращает его через `Disable_Beta_FPS_Fix.bat`. Оба игрока должны установить один и тот же beta archive. Candidate собран дважды VS2022 `/Brepro` и имеет SHA-256 `78e2718383bc0679154118415189d1c1ee05ed0179a0a924455c22cb4ae2916e`, но ещё не прошёл Windows/two-peer gameplay certification. Он не использует released `mp_vitals.dll` import/RVA profile: не проверяйте им Vitals health/renderer guards и перед возвратом к stable archive сначала запустите beta disable script.
+
+> Не устанавливайте [`development/`](development/). Это расширенная рабочая область: source MiusPlayer/MiusVitals, manifest и проверки. Для игры подходит только stable unified archive либо явно помеченный beta installer для ограниченного FPS-теста. Для редактирования/полной source rebuild цепочки см. [`development/merged-source/`](development/merged-source/).
 
 Оба игрока должны установить один и тот же v1.0.0 archive. Откат: после закрытия игры запустите `MiusMultiplayer\Disable_Multiplayer.bat`.
 

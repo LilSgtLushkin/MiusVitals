@@ -56,6 +56,19 @@ python3 scripts/package_unified_mod.py --verify MiusMultiplayer_v1.0.0_INSTALL.z
 sha256sum MiusMultiplayer_v1.0.0_INSTALL.zip
 ```
 
+## Отдельный beta_FPS_fix archive
+
+`MiusMultiplayer_beta_FPS_fix_INSTALL.zip` — второй, явно experimental installer для controlled two-peer FPS comparison. Это не замена stable unified MiusPlayer + Vitals archive. Его единственный runtime payload — reproducible VS2022 `/Brepro` source candidate `basic_network.codelib`, SHA-256 `78e2718383bc0679154118415189d1c1ee05ed0179a0a924455c22cb4ae2916e`.
+
+Workflow `.github/workflows/build-fps-beta-codelib.yml` применяет reviewed transform-write-elision patch к disposable checkout, собирает candidate дважды и требует `fc /b` byte identity, прежде чем сохранить codelib и hash в `development/fps-beta-build/`. `scripts/package_fps_beta.py` допускает только этот exact x64 PE candidate, отдельный allow-list и fixed ZIP metadata.
+
+Beta installer автоматически сохраняет recognised active codelib и заменяет его candidate; `Disable_Beta_FPS_Fix.bat` восстанавливает ранее сохранённый module. После beta disable можно снова применять normal stable installer/remover. Candidate не несёт released `mp_vitals.dll` import/RVA profile: им нельзя проверять Vitals health synchronization или renderer guards. До Windows/two-peer gameplay certification это FPS test candidate, не compatibility release.
+
+```sh
+python3 scripts/package_fps_beta.py --output MiusMultiplayer_beta_FPS_fix_INSTALL.zip
+python3 scripts/package_fps_beta.py --verify MiusMultiplayer_beta_FPS_fix_INSTALL.zip
+```
+
 ## Локальная проверка
 
 ```sh

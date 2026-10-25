@@ -23,3 +23,9 @@ python3 development/merged-source/verify_workspace.py
 Единственный installable archive: [`../MiusMultiplayer_v1.0.0_INSTALL.zip`](../MiusMultiplayer_v1.0.0_INSTALL.zip). Он содержит один `MiusMultiplayer/` root с runtime MiusPlayer assets, проверенным `basic_network.codelib` и `mp_vitals.dll`; отдельные `mpmod1`/`MiusVitals` archives больше не устанавливаются.
 
 Архив создаётся и проверяется `../scripts/package_unified_mod.py`. `kit-source/` сохраняется как implementation layer и test input, а не как отдельная player install directory.
+
+## Отдельный FPS beta candidate
+
+`fps-beta-build/` хранит только reproducible Windows VS2022 candidate `basic_network.codelib`, автоматически созданный workflow `../.github/workflows/build-fps-beta-codelib.yml` из закреплённого public source и transform-write-elision patch. `fps-beta-kit-source/` и `../scripts/package_fps_beta.py` создают второй, явно experimental installer `MiusMultiplayer_beta_FPS_fix_INSTALL.zip`: он автоматически меняет только codelib и умеет восстановить предыдущий recognised module.
+
+Это не runtime replacement для stable MiusPlayer + Vitals: candidate не несёт released `mp_vitals.dll` import/RVA profile и до Windows/two-peer gameplay certification предназначен лишь для FPS comparison. Не смешивайте его installer/remover со stable installer: сначала используйте `Disable_Beta_FPS_Fix.bat`.
