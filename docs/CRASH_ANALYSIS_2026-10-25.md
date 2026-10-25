@@ -16,7 +16,7 @@ The dump has a normal first-chance-unhandled read access violation:
 | Fault address | `0x000000010b5f22f8` |
 | `RDI` | `0x000000010b5f22c0` |
 | `R8` | `0x000000003f800000` |
-| `basic_render` timestamp | `0x66f2d710` (supported Steam 3598 image) |
+| `basic_render` timestamp | `0x66f2d710` (supported Steam 3598/1 image) |
 | `mp_vitals.dll` | loaded in the crashing process |
 
 The caller constructs `RDI` from a recursive child-node number and reads its node flags at `+0x38`. `R8 = 0x3f800000` is not a plausible node number, so the calculated node address is invalid. This is an engine-side invalid recursive-child read, not a Vitals packet or native reliable-stream failure.
@@ -63,4 +63,4 @@ The host operation log also says `map: unknown game build, ending the turn is no
 
 ## Limits
 
-This is a targeted mitigation for the exact dump shape and known Steam 3598 binary. It is not a claim that all `basic_render` crashes have this cause, and a real two-player run remains required to establish gameplay behaviour after recovery.
+This is a targeted mitigation for the exact dump shape and known Steam 3598/1 binary. It is not a claim that all `basic_render` crashes have this cause, and a real two-player run remains required to establish gameplay behaviour after recovery.

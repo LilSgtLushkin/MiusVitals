@@ -1,7 +1,7 @@
 MiusMultiplayer v1.0.0 — единый мод для Mius-Front multiplayer
 =================================================================
 
-Это ОДИН install-kit для Steam Graviteam Tactics: Mius-Front 6.00 build 3598.
+Это ОДИН install-kit для Steam Graviteam Tactics: Mius-Front 6.00 build 3598/1.
 Он уже содержит:
 
   * multiplayer basic_network.codelib (MiusPlayer v20 base + проверенные MiusVitals fixes);
@@ -24,7 +24,7 @@ MiusMultiplayer v1.0.0 — единый мод для Mius-Front multiplayer
 4. Запустите сначала Check_Install.bat, затем Enable_Multiplayer.bat.
 5. Второй игрок должен поставить этот же архив и также запустить Enable_Multiplayer.bat.
 
-Установщик проверяет Steam build 3598, не перезаписывает неизвестный active
+Установщик проверяет Steam build 3598/1, не перезаписывает неизвестный active
 basic_network.codelib и копирует DLL ДО module, который её импортирует. После
 копирования проверяются SHA-256 всех шести runtime files.
 

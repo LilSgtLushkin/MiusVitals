@@ -109,7 +109,7 @@ v7.5.0 не пишет guessed offsets в corpse lifecycle. Если при со
 mp_vitals.dll, поэтому причина — нарушенный инвариант transient renderer cache,
 а не Vitals/object numbers.
 
-На строго проверенном Steam 3598 коде v7.5.0 перед каждым таким use проверяет,
+На строго проверенном Steam 3598/1 коде v7.5.0 перед каждым таким use проверяет,
 что slot принадлежит текущему writable Windows allocation matrix pool. Иначе он
 атомарно ставит штатный sentinel -2 в record+34. Затем неизменённый basic_render
 идёт в свой cache-miss allocator, получает свежий slot и сам записывает его в

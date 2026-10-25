@@ -33,7 +33,7 @@
 // diagnostic opt-in override for that native cadence; without it this DLL leaves the sender untouched.
 //
 // v7.0.1: two crash dumps, including one taken before this DLL was present, stop in the same basic_render recursive node walk. The child node
-// number is corrupt there, and the engine reads outside the node table. On the exact checked Steam 3598 basic_render image, a tiny vectored
+// number is corrupt there, and the engine reads outside the node table. On the exact checked Steam 3598/1 basic_render image, a tiny vectored
 // exception guard turns only that read fault back into the already-valid parent material. It leaves every other exception alone.
 //
 // Environment: MP_VITALS 0 off, 1 only compare and log, 2 and 3 apply.
@@ -47,7 +47,7 @@
 // Native type 10 (reliable records) and type 11 (its ACK) are deliberately only observed in diagnostics and always pass to MiusPlayer.
 //
 // v7.1.1: the verified basic_render guard also skips the second observed recursive invalid-child read at RVA 0x12ffd.
-// It runs only after exact signatures for both reader/epilogue pairs on the checked Steam 3598 image.
+// It runs only after exact signatures for both reader/epilogue pairs on the checked Steam 3598/1 image.
 //
 // v7.2: Vitals will neither send nor apply a tactical state before the native object-number exchange says
 // it is complete. This prevents a Vitals repair from getting ahead of the very translation table that gives
@@ -55,7 +55,7 @@
 // forced final Vitals scan publishes the last monotonic casualties, and both statistic functions use the
 // existing common RNG seed.
 //
-// v7.2.1: a new Steam 3598 crash dump proves that basic_render can retain a matrix-cache slot from a
+// v7.2.1: a new Steam 3598/1 crash dump proves that basic_render can retain a matrix-cache slot from a
 // previous pool. The exact cache-sync function now tests pool ownership and asks the engine's allocator
 // to rebuild a stale entry before the unchecked 64-byte matrix write; it does not invent a render object.
 //
@@ -158,7 +158,7 @@ enum {
     RVA_IDLE = 0x19d44, IDLE_IMM8 = 9, IDLE_IMM32 = 19,
     PHYS_GET_MEMBER = 0x9c480,
     GAME_STAT = 0xf80c0, STAT_STEAL = 15, STAT_SEED_OFF = 0x130, STAT_SEED = 0x4d495553,
-    // basic_render.codelib, Steam build 3598.  The renderer's transform-cache updater at 12925
+    // basic_render.codelib, Steam build 3598/1.  The renderer's transform-cache updater at 12925
     // stores matrices through a cached 24-bit pool slot; the two next functions walk material nodes.
     // 39a40 is the triangle-query routine: it returns false through 39de5 if none of its triangles hits.
     RVA_RENDER_CACHE_SYNC = 0x12925, RVA_RENDER_CACHE_WRITE = 0x129a2, RVA_RENDER_CACHE_REBUILD = 0x129c6,

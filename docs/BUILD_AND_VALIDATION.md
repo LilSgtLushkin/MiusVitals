@@ -39,7 +39,7 @@ Check_Install.bat
 Check_Install.ps1
 README.txt
 LICENSE_CC0.txt
-game_build_3598.sha256
+game_build_3598_1.sha256
 files/bin/rel/x64/basic_network.codelib
 files/mp_vitals.dll
 files/mp_join.exe
@@ -48,7 +48,7 @@ files/root/programs/tacgame.progpack
 files/steam_appid.txt
 ```
 
-Install script проверяет Steam 3598, принимает только stock/известные предыдущие multiplayer modules, сохраняет foreign program/utility files, копирует DLL до importing codelib и сверяет hashes после copy. `Disable_Multiplayer.bat` удаляет только exact unified hashes и восстанавливает сохранённые файлы.
+Install script проверяет Steam 3598/1, принимает только stock/известные предыдущие multiplayer modules, сохраняет foreign program/utility files, копирует DLL до importing codelib и сверяет hashes после copy. `Disable_Multiplayer.bat` удаляет только exact unified hashes и восстанавливает сохранённые файлы.
 
 ```sh
 python3 scripts/package_unified_mod.py --output MiusMultiplayer_v1.0.0_INSTALL.zip

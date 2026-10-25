@@ -9,7 +9,7 @@ transform-cache reports:
 | --- | --- |
 | `gt3_crashreport.zip` | `a73bd1da29e21bc6a909fe6e45160ec1f048d8218014bb6a8f8b62fdd443c881` |
 | `minidump.dmp` inside it | `01051fc8ea6a1ca9dbb5da72acbd55c6bfe1a09577b0ee1891b0abae0edda2c7` |
-| checked Steam 3598 `basic_render.codelib` | `ba8d68cf2b84b890dd88f6f3035c8c070070248e22c86c7481ba1262f8a3db11` |
+| checked Steam 3598/1 `basic_render.codelib` | `ba8d68cf2b84b890dd88f6f3035c8c070070248e22c86c7481ba1262f8a3db11` |
 
 The report starts a tactical battle and logs that the older Vitals renderer
 measures were armed. It nevertheless terminates in a new `basic_render` routine.
@@ -37,7 +37,7 @@ The exception stream supplies the exception-thread x64 `CONTEXT` directly:
 32-bit arithmetic before the load, so the failure is not an arbitrary CPU
 register change at the load itself.
 
-The fully disassembled Steam 3598 triangle-query routine begins at `+0x39a40`:
+The fully disassembled Steam 3598/1 triangle-query routine begins at `+0x39a40`:
 
 ```asm
 mov rsi, [rcx+78]       ; vertex base
@@ -83,7 +83,7 @@ memory range the loop can load:
    attribute buffer.
 
 The entry detour is installed only after five independent byte signatures match
-the supported Steam 3598 image: query entry, index/vertex loop, both attribute
+the supported Steam 3598/1 image: query entry, index/vertex loop, both attribute
 blocks, and the engine's no-hit epilogue. Any module mismatch leaves the feature
 off.
 

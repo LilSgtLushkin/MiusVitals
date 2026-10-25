@@ -1,5 +1,5 @@
 @echo off
-rem MiusMultiplayer v1.0.0: one checked MiusPlayer + MiusVitals install for Steam 3598.
+rem MiusMultiplayer v1.0.0: one checked MiusPlayer + MiusVitals install for Steam 3598/1.
 rem It installs the multiplayer module, program packs and Vitals DLL together; no separate mpmod1 or MiusVitals install is needed.
 setlocal EnableExtensions DisableDelayedExpansion
 set "MOD=%~dp0"
@@ -33,7 +33,7 @@ if not exist "%MOD%\files\root\programs\tacgame.progpack" goto :incomplete
 tasklist /fi "imagename eq starter_x64.exe" /nh 2>nul | find /i "starter_x64.exe" >nul && goto :running
 
 set "ODD=0"
-for /f "usebackq tokens=1,*" %%A in ("%MOD%\game_build_3598.sha256") do call :check_game %%A "%%B"
+for /f "usebackq tokens=1,*" %%A in ("%MOD%\game_build_3598_1.sha256") do call :check_game %%A "%%B"
 if not "%ODD%"=="0" goto :wrong_game
 
 call :known_network
@@ -119,7 +119,7 @@ echo  The game is running. Close it, then run this again.
 set "RC=4"
 goto :finish
 :wrong_game
-echo  This kit requires the final Steam game version 6.00 build 3598. Nothing was changed.
+echo  This kit requires the final Steam game version 6.00 build 3598/1. Nothing was changed.
 set "RC=2"
 goto :finish
 :foreign_network

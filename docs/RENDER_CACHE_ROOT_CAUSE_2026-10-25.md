@@ -6,7 +6,7 @@
 
 ## Вывод
 
-Новый crash не является ещё одним вариантом Vitals packet, object-number exchange или native type 10/11. Это конкретное нарушение инварианта времени жизни в Steam 3598 `basic_render.codelib`: **в корректной node record остаётся старый 24-битный номер matrix/transform cache slot от другого renderer pool**. Код движка использует это число как смещение без проверки, и пытается записать матрицу за пределы текущего pool.
+Новый crash не является ещё одним вариантом Vitals packet, object-number exchange или native type 10/11. Это конкретное нарушение инварианта времени жизни в Steam 3598/1 `basic_render.codelib`: **в корректной node record остаётся старый 24-битный номер matrix/transform cache slot от другого renderer pool**. Код движка использует это число как смещение без проверки, и пытается записать матрицу за пределы текущего pool.
 
 Это отличается от двух ранее зарегистрированных read-AV в recursive material walkers. Все три случая происходят в `basic_render`, но новый dump впервые показывает источник недопустимого индекса и штатный путь, который корректно его пересоздаёт.
 
@@ -28,7 +28,7 @@
 | cached slot from record (`EDX`) | `0x00de741b` |
 | `RBP` | valid record address `0x00000000ab3f1080` |
 | source node (`EBX`) | `0x00052006` — normal group/index encoding |
-| renderer binary | Steam 3598 timestamp `0x66f2d710` |
+| renderer binary | Steam 3598/1 timestamp `0x66f2d710` |
 
 Disassembly captured directly in the dump gives the relevant data flow:
 
@@ -66,7 +66,7 @@ The proven root defect is therefore that the renderer treats every non-sentinel 
 
 The accompanying source change is intentionally not a generic vectored-exception patch:
 
-1. It detours only the exact `basic_render+0x12925` cache-sync function after timestamp and 149 bytes of function/rebuild signatures match the dump-verified Steam 3598 image.
+1. It detours only the exact `basic_render+0x12925` cache-sync function after timestamp and 149 bytes of function/rebuild signatures match the dump-verified Steam 3598/1 image.
 2. For every cache use, it resolves the same node record as the engine and asks `VirtualQuery` whether `matrix_pool + (slot & 0xffffff) * 64` is writable **and is in the same Windows allocation as the current pool base**.
 3. If this invariant fails, it atomically writes the engine's existing `-2` cache-miss sentinel to `record+0x34`.
 4. The untouched engine code follows its normal `+0x129c6` allocator branch, writes a new slot back to the record, and then continues its ordinary recursive renderer flow.

@@ -28,5 +28,10 @@
     "path_in_upstream": "_mp_research/basic_network/build/basic_network.codelib",
     "sha256": "eff7ae12c5f440dc91d0fccc9d9578022a383b0485da58793bffd217922f7af5",
     "warning": "It does not equal the published release module. Therefore a local public-source rebuild is a candidate for analysis, never an installable artifact until it has its own reviewed binary mapping and two-peer validation."
+  },
+  "target_game": {
+    "title": "Graviteam Tactics: Mius-Front",
+    "steam_version": "6.00 build 3598/1",
+    "note": "3598/1 is the supported final Steam build identifier. Upstream source wording that says 3598 is retained verbatim as vendored provenance, not the MiusMultiplayer support setting."
   }
 }

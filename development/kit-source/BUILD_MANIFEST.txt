@@ -16,11 +16,11 @@ Runtime composition:
 
 Player-facing artifact (the only install archive):
   ../../MiusMultiplayer_v1.0.0_INSTALL.zip
-    SHA-256: 2723ef1d109353041632802ecbfb9b292540b2597341472be2d374e6da51333a
+    SHA-256: 40a4ab0b7abca5fed80e0ec642ebd81e7a3bbf297fa86385e657b1f225f82210
     exact tree: 13 files under one MiusMultiplayer/ root directory
 
 Install invariant:
-  Enable_Multiplayer.bat verifies Steam 3598, refuses an unknown active
+  Enable_Multiplayer.bat verifies Steam 3598/1, refuses an unknown active
   basic_network.codelib, preserves foreign program/utility files, copies the
   Vitals DLL before importing basic_network, and hashes every copied runtime file.
   Disable_Multiplayer.bat removes only exact unified hashes and restores backups.
