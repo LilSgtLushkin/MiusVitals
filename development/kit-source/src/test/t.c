@@ -139,16 +139,16 @@ int main(void)
     // ---- 0. Operation tactical launches default to the native position-only policy.  The recogniser
     // requires both the tactical program and the game's YYYY_MM_campaign:battle token; it cannot affect
     // opgame, a custom mission, or an explicit MP_SYNC_STATE user choice.
-    assert(operation_tactical_command("starter_x64.exe root\\programs\\tacgame.progpack, data\\common\\shared\\config\\tacgame_image.cfgpack, users\\profiles, Zefir, 1942_07_Voronezh:04_06_07_shilovo_na_ger, 2, 13"));
-    assert(operation_tactical_command("starter_x64.exe ROOT\\PROGRAMS\\TACGAME.PROGPACK, users\\profiles, Zefir, 1942_07_Voronezh:04_06_07_shilovo_na_ger, 2, 13"));
-    assert(!operation_tactical_command("starter_x64.exe root\\programs\\opgame.progpack, Zefir, 1942_07_Voronezh:04_06_07_shilovo_na_ger, 2, 13"));
-    assert(!operation_tactical_command("starter_x64.exe root\\programs\\notacgame.progpack, Zefir, 1942_07_Voronezh:04_06_07_shilovo_na_ger, 2, 13"));
-    assert(!operation_tactical_command("starter_x64.exe root\\programs\\tacgame.progpack, data\\mission.cfgpack, users\\profiles, Zefir, custom_battle, 2, 13"));
+    assert(operation_tactical_command("starter_x64.exe root\\programs\\tacgame.progpack, data\\common\\shared\\config\\tacgame_image.cfgpack, users\\profiles, operation_profile, 1942_07_Voronezh:04_06_07_shilovo_na_ger, 2, 13"));
+    assert(operation_tactical_command("starter_x64.exe ROOT\\PROGRAMS\\TACGAME.PROGPACK, users\\profiles, operation_profile, 1942_07_Voronezh:04_06_07_shilovo_na_ger, 2, 13"));
+    assert(!operation_tactical_command("starter_x64.exe root\\programs\\opgame.progpack, operation_profile, 1942_07_Voronezh:04_06_07_shilovo_na_ger, 2, 13"));
+    assert(!operation_tactical_command("starter_x64.exe root\\programs\\notacgame.progpack, operation_profile, 1942_07_Voronezh:04_06_07_shilovo_na_ger, 2, 13"));
+    assert(!operation_tactical_command("starter_x64.exe root\\programs\\tacgame.progpack, data\\mission.cfgpack, users\\profiles, operation_profile, custom_battle, 2, 13"));
     assert(!operation_tactical_command("starter_x64.exe root\\programs\\tacgame.progpack, "));
-    fake_cmd = "starter_x64.exe root\\programs\\tacgame.progpack, data\\common\\shared\\config\\tacgame_image.cfgpack, users\\profiles, Zefir, 1942_07_Voronezh:04_06_07_shilovo_na_ger, 2, 13";
+    fake_cmd = "starter_x64.exe root\\programs\\tacgame.progpack, data\\common\\shared\\config\\tacgame_image.cfgpack, users\\profiles, operation_profile, 1942_07_Voronezh:04_06_07_shilovo_na_ger, 2, 13";
     fake_env_state = 0; assert(default_operation_state_policy() == 1 && str_eq(fake_env_state, "0"));
     fake_env_state = "2"; assert(default_operation_state_policy() == 0 && str_eq(fake_env_state, "2"));
-    fake_cmd = "starter_x64.exe root\\programs\\tacgame.progpack, data\\mission.cfgpack, users\\profiles, Zefir, custom_battle, 2, 13";
+    fake_cmd = "starter_x64.exe root\\programs\\tacgame.progpack, data\\mission.cfgpack, users\\profiles, operation_profile, custom_battle, 2, 13";
     fake_env_state = 0; assert(default_operation_state_policy() == 0 && !fake_env_state);
 
     // ---- 1. a soldier dies here: told at once, once; listed again by the digest
