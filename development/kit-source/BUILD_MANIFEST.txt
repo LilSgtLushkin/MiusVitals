@@ -1,4 +1,4 @@
-MiusVitals v7.3.0 build manifest
+MiusVitals v7.4.0 build manifest
 Built: 2026-10-25
 
 Input: MiusPlayer v20 basic_network.codelib
@@ -29,7 +29,7 @@ Renderer target verification (Steam 3598 basic_render.codelib):
 
 Output files:
   files/mp_vitals.dll
-    SHA-256: 3a2914ab86924a4220758865a9638e732cd3f2701d0e9f567fd14b9be1a4bd5d
+    SHA-256: d22e931575a119136cce9f40622ee90f8919ebd250f2738e3e50d7561c4fc486
     imports: KERNEL32.dll only (including AddVectoredExceptionHandler)
     exports: MpVitalsInit only
   files/basic_network.codelib
@@ -40,8 +40,8 @@ Output files:
     SHA-256: d2e34581b42d0573547e221873d7538b64a413267e8ed388abeb46dd42b630d2
 
 Only player-installable archive:
-  ../../MiusVitals_v7.3.0_INSTALL.zip
-    SHA-256: c253173d62a72a0c20004f7d8c532eba9c1fcbb8c68d4ff91d424c3df5e6a17f
+  ../../MiusVitals_v7.4.0_INSTALL.zip
+    SHA-256: 444f091f64d8ce909b0d0164eb171e4755fd5312319eb64ec3cfa16a8339a228
     exact player kit: 16 files under one MiusVitals/ root directory
 
 Validation:

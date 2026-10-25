@@ -1,4 +1,4 @@
-# Сборка и проверка MiusVitals v7.3.0
+# Сборка и проверка MiusVitals v7.4.0
 
 ## Воспроизводимые входы и артефакты
 
@@ -10,7 +10,7 @@
 | Main | rebase 3598/1, verified operation Next Turn, join-launch wait, импорт DLL | `485b655662bd062e16278f9d699a3097b49a08de1948d2500dd589703a3102a3` |
 | `nostart` | тот же rebase без Start group, join-launch wait, импорт DLL | `e4317e630a21198a55e0e86be4aa29c71fcada6065824c858acd0e2bdef8adf9` |
 | `norebase` | только импорт DLL; диагностический вариант | `d2e34581b42d0573547e221873d7538b64a413267e8ed388abeb46dd42b630d2` |
-| `mp_vitals.dll` | Zig 0.17.0, no CRT, KERNEL32 only | `3a2914ab86924a4220758865a9638e732cd3f2701d0e9f567fd14b9be1a4bd5d` |
+| `mp_vitals.dll` | Zig 0.17.0, no CRT, KERNEL32 only | `d22e931575a119136cce9f40622ee90f8919ebd250f2738e3e50d7561c4fc486` |
 
 Main и `nostart` изменяют три связанных элемента operation-map detour только после строгой сверки исходного v20:
 
@@ -25,7 +25,7 @@ Main и `nostart` изменяют три связанных элемента op
 
 ## Exact downloadable kit
 
-`development/kit-source/` — редактируемая development структура, не каталог установки. `scripts/package_kit.py` — allow-list единственного installable download: `MiusVitals_v7.3.0_INSTALL.zip`. В архив попадают ровно эти 16 файлов под единственным `MiusVitals/` root:
+`development/kit-source/` — редактируемая development структура, не каталог установки. `scripts/package_kit.py` — allow-list единственного installable download: `MiusVitals_v7.4.0_INSTALL.zip`. В архив попадают ровно эти 16 файлов под единственным `MiusVitals/` root:
 
 ```text
 Check_Build.ps1
@@ -49,9 +49,9 @@ files/alt/basic_network_v5_norebase.codelib
 ZIP использует фиксированный timestamp 2026-10-25 00:00:00, явный порядок записей, фиксированные mode bits и deflate level 9. `--verify` проверяет CRC, дерево, timestamp и точную byte identity со входами kit.
 
 ```sh
-python3 scripts/package_kit.py --output MiusVitals_v7.3.0_INSTALL.zip
-python3 scripts/package_kit.py --verify MiusVitals_v7.3.0_INSTALL.zip
-sha256sum MiusVitals_v7.3.0_INSTALL.zip
+python3 scripts/package_kit.py --output MiusVitals_v7.4.0_INSTALL.zip
+python3 scripts/package_kit.py --verify MiusVitals_v7.4.0_INSTALL.zip
+sha256sum MiusVitals_v7.4.0_INSTALL.zip
 ```
 
 ## Локальная проверка
@@ -61,11 +61,12 @@ scripts/test_native.sh
 scripts/verify_release.sh
 ```
 
-Native harness запускается с ASan/UBSan. Помимо прежних тестов смертей/ранений/техники, ACK/retry, duplicate mailbox и transparent type 10/11, он утверждает v7.2 правила:
+Native harness запускается с ASan/UBSan. Помимо прежних тестов смертей/ранений/техники, ACK/retry, duplicate mailbox и transparent type 10/11, он утверждает:
 
-- Vitals state не уходит, не помещается в mailbox и не ACK-ается, пока object-number exchange не готов;
-- запрос exchange начинается через три секунды и повторяется;
-- после `yes` отправляется snapshot и повторённый пакет peer принимается;
+- Vitals state не уходит, не помещается в mailbox и не ACK-ается, пока первый object-number exchange не готов;
+- запрос exchange начинается через три секунды и повторяется до первого success;
+- success latched для tactical session: последующий raw-ready=0 не создаёт nudge, не закрывает state sync и не отбрасывает receive; disconnect обязательно сбрасывает latch и снова требует exchange;
+- default idle policy оставляет оба native immediate нетронутыми, а explicit `MP_IDLE_MS=0`/`500` меняет только проверенные два immediate;
 - перед statistic hook выполняется final forced scan;
 - stale transform-cache slot вне allocation текущего `basic_render` matrix pool становится engine sentinel `-2`, затем штатно пересоздаётся allocator'ом; exact write-race fallback допускает только подтверждённый effective address;
 - dump-shaped malformed third triangle index produces scaled offset `0xfaaec630` and is rejected at the exact triangle-query entry *before* the original renderer executes; valid primary and optional geometry reaches the original function;
