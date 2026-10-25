@@ -1,5 +1,5 @@
 @echo off
-rem MiusVitals v7.2.2: operation-map and Vitals synchronization for the Steam release (v20) of the Mius-Front multiplayer.
+rem MiusVitals v7.3.0: operation-map and Vitals synchronization for the Steam release (v20) of the Mius-Front multiplayer.
 rem Puts two files into the game: mp_vitals.dll (game folder) and the exact checked basic_network.codelib
 rem rebase for Steam 3598/1. The original is kept in state\ and Uninstall_Vitals.bat puts it back.
 rem Both players must do this. Put the MiusVitals folder into the game folder (next to mpmod1).
@@ -18,11 +18,14 @@ set "PATCHED_OLD=D2E34581B42D0573547E221873D7538B64A413267E8ED388ABEB46DD42B630D
 rem   Install_Vitals.bat norebase  puts the module without the address corrections for build 3598/1 (only if the game crashes with the normal one)
 rem   Install_Vitals.bat nostart  the same, but the Start button is left as in the original (use it if the battle cannot be started with the normal one)
 set "MOD=%KIT%\files\basic_network.codelib"
+set "TARGET_SHA=%PATCHED%"
 if /i "%~1"=="nostart" set "MOD=%KIT%\files\alt\basic_network_nostart.codelib"
+if /i "%~1"=="nostart" set "TARGET_SHA=%PATCHED_NOSTART%"
 if /i "%~1"=="norebase" set "MOD=%KIT%\files\alt\basic_network_v5_norebase.codelib"
+if /i "%~1"=="norebase" set "TARGET_SHA=%PATCHED_OLD%"
 set "RC=0"
 echo.
-echo  MiusVitals v7.2.2 - operation-map and Vitals synchronization
+echo  MiusVitals v7.3.0 - operation-map and Vitals synchronization
 echo.
 if not exist "%GAME%\starter_x64.exe" goto :no_game
 if not exist "%GAME%\bin\rel\x64\basic_network.codelib" goto :no_mp
@@ -51,7 +54,12 @@ copy /y "%GAME%\bin\rel\x64\basic_network.codelib" "%KIT%\state\basic_network.co
 rem (the DLL first, the module that asks for it last: a copy that stops half-way leaves a working game)
 copy /y "%KIT%\files\mp_vitals.dll" "%GAME%\mp_vitals.dll" >nul || goto :failed
 copy /y "%MOD%" "%GAME%\bin\rel\x64\basic_network.codelib" >nul || goto :failed
-echo  Installed. Start the game as usual; the other player needs the same.
+set "AFTER="
+for /f "skip=1 delims=" %%X in ('certutil -hashfile "%GAME%\bin\rel\x64\basic_network.codelib" SHA256 2^>nul') do if not defined AFTER set "AFTER=%%X"
+if defined AFTER set "AFTER=%AFTER: =%"
+if /i not "%AFTER%"=="%TARGET_SHA%" goto :failed
+echo  Installed and SHA-256 verified: %TARGET_SHA%
+echo  Start the game as usual; the other player needs the same variant and SHA-256.
 echo  In basic_network_*.log look for the lines that begin with "vitals:".
 echo  Back to the original: Uninstall_Vitals.bat
 goto :finish

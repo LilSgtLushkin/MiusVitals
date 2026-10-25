@@ -3,5 +3,5 @@
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 python3 "$ROOT/development/kit-source/src/verify_artifacts.py" --kit "$ROOT/development/kit-source"
-python3 "$ROOT/scripts/package_kit.py" --verify "$ROOT/MiusVitals_v7.2.2_INSTALL.zip"
+python3 "$ROOT/scripts/package_kit.py" --verify "$ROOT/MiusVitals_v7.3.0_INSTALL.zip"
 "$ROOT/scripts/test_native.sh"

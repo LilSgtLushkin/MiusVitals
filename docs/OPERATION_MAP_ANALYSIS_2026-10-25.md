@@ -1,5 +1,16 @@
 # Операционная карта: причина преждевременного Next Turn — 2026-10-25
 
+> **Итог для v7.3.0:** supplied host evidence `391 formations and battle groups
+> turned round` proves that `opsave::mirror` did execute its USER-tag hand-off;
+> tactical `AI commander switched off` is a different system. The supplied logs
+> do not prove a map-command ownership defect in that function. In contrast,
+> `map: unknown game build, ending the turn is not coordinated between the
+> players` proves an old/incompatible installed `basic_network.codelib` for
+> those runs. The install kit now reports both installed module and DLL hashes,
+> and writes the same checked main module (`485b6556…3102a3`) on both players.
+> A remaining bot symptom with both exact hashes needs paired opgame logs plus
+> the handed-off `.opsave`, not a guessed ownership patch.
+
 ## Итог: два разных дефекта в разных наборах файлов
 
 Логи содержат сессии от нескольких поколений MiusPlayer/MiusVitals. Их нельзя

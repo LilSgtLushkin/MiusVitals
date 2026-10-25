@@ -1,4 +1,8 @@
-# Корневая причина нового GT3 crash — stale transform-cache renderer, 2026-10-25
+# Корневая причина предыдущего GT3 crash — stale transform-cache renderer, 2026-10-25
+
+> **Статус:** этот документ относится к отдельному write-AV `basic_render+0x129a2`.
+> Более поздний supplied dump — read-AV `+0x39b52` — имеет другую geometry/index
+> причину и разобран в [`TRIANGLE_GEOMETRY_ROOT_CAUSE_2026-10-25.md`](TRIANGLE_GEOMETRY_ROOT_CAUSE_2026-10-25.md).
 
 ## Вывод
 

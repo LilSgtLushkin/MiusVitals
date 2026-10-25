@@ -28,6 +28,31 @@ foreach ($n in ($want.Keys | Sort-Object)) {
     }
 }
 $lines.Add("same: $same, different: $diff, missing: $miss")
+
+# This module is intentionally not part of the stock-game hash list: MiusPlayer
+# installs it dynamically. Record its exact identity separately, so a map-side
+# ownership/Next Turn report can distinguish an old module from this kit.
+$network = Join-Path $game 'bin\rel\x64\basic_network.codelib'
+if (Test-Path $network) {
+    $networkHash = (Get-FileHash -LiteralPath $network -Algorithm SHA256).Hash.ToUpper()
+    $lines.Add("basic_network.codelib installed SHA-256: $networkHash")
+    if ($networkHash -eq '485B655662BD062E16278F9D699A3097B49A08DE1948D2500DD589703A3102A3') {
+        $lines.Add('MiusVitals operation-map main variant: current v7.3.0 (required shared-map fixes present)')
+    } elseif ($networkHash -eq 'E4317E630A21198A55E0E86BE4AA29C71FCADA6065824C858ACD0E2BDEF8ADF9') {
+        $lines.Add('MiusVitals operation-map nostart variant: current v7.3.0 (use only if normal Start is known to fail)')
+    } elseif ($networkHash -eq '7CAF36CDDABF7EB388A3C6C393B05733E051955D63D32EF13531CE88004DCFBA') {
+        $lines.Add('WARNING: older MiusVitals module detected; install v7.3.0 on BOTH players before testing the operation map')
+    } else {
+        $lines.Add('WARNING: not a current v7.3.0 main/nostart module; operation-map ownership and Next Turn are not a valid test')
+    }
+} else { $lines.Add('basic_network.codelib: MISSING (enable MiusPlayer before installing MiusVitals)') }
+$dll = Join-Path $game 'mp_vitals.dll'
+if (Test-Path $dll) {
+    $dllHash = (Get-FileHash -LiteralPath $dll -Algorithm SHA256).Hash.ToUpper()
+    $lines.Add("mp_vitals.dll installed SHA-256: $dllHash")
+    if ($dllHash -eq '3A2914AB86924A4220758865A9638E732CD3F2701D0E9F567FD14B9BE1A4BD5D') { $lines.Add('MiusVitals renderer guard DLL: current v7.3.0') }
+    else { $lines.Add('WARNING: mp_vitals.dll is not the current v7.3.0 DLL; reinstall the complete archive') }
+} else { $lines.Add('mp_vitals.dll: not installed') }
 $lines | Set-Content -Encoding UTF8 $out
 $lines | ForEach-Object { Write-Host $_ }
 Write-Host ""
