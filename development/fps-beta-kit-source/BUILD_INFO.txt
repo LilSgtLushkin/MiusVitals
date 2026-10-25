@@ -1,20 +1,35 @@
 MiusMultiplayer beta_FPS_fix build provenance
 
 Candidate codelib SHA-256:
-78e2718383bc0679154118415189d1c1ee05ed0179a0a924455c22cb4ae2916e
-
-Reproducible build run:
-https://github.com/LilSgtLushkin/MiusVitals/actions/runs/40196127196
+7b42a69abe58deb1583d2f5320eebbecd9718ffa27ea08933613e67df1901f67
 
 Builder:
-GitHub Actions windows-2022, VS2022 x64 cl/link /Brepro.
-The candidate was compiled twice and fc /b confirmed byte identity.
+scripts/build_steam_compatible_fps_candidate.py (deterministic Python 3 PE transformation).
 
-Inputs:
-- public MiusPlayer source snapshot 43b2736d3b4a1e208e6c80f45f6ebbdd476de3aa
-- patch 0001-elide-idempotent-remote-transform-writes.patch
-- source commit 1dd623578bfa142557249325545a1080f7c834cc
+Verified base input:
+- released Steam-capable basic_network.codelib for final Steam 6.00 build 3598/1
+- SHA-256 485b655662bd062e16278f9d699a3097b49a08de1948d2500dd589703a3102a3
+
+Reviewed FPS change:
+- inside on_ctrl_tick, the candidate avoids calling session_sim_step when the
+  engine reports a zero-millisecond simulation step;
+- the original call is redirected to a 23-byte .fpsfix PE trampoline;
+- every non-zero step takes the original session_sim_step path unchanged.
+
+Steam compatibility boundary:
+The public MiusPlayer C++ snapshot lacks the Steam friends, rich-presence,
+Join Game callback, and SteamNetworking P2P implementation that exists in the
+verified release module. This candidate therefore deliberately preserves the
+released module and its Steam implementation, rather than pretending the public
+source rebuild contains it. The deterministic verifier requires the runtime
+Steam markers MP_STEAM_PEER, +gtmf_join=, SteamFriends, SteamUser,
+SteamNetworking, SendP2PPacket, ReadP2PPacket, and JoinRequested to remain.
+
+Vitals boundary:
+The released mp_vitals.dll import/signature surface is retained by the candidate;
+this does not replace live two-peer validation.
 
 Status:
-EXPERIMENTAL FPS TEST ONLY. No live Windows/two-peer gameplay certification yet.
-The candidate does not use the released v20 mp_vitals.dll import/RVA profile.
+EXPERIMENTAL FPS TEST ONLY. A real Steam two-PC friends-join regression (host
+rich presence -> friend Join Game -> P2P lobby -> tactical session, both host
+directions) is mandatory before compatibility or FPS certification.

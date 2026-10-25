@@ -17,6 +17,7 @@ MANIFEST = UPSTREAM / "SOURCE_MANIFEST.sha256"
 VITALS = ROOT / "development/kit-source/src/mp_vitals.c"
 SESSION = UPSTREAM / "basic_network/session.cpp"
 TRANSFORM_PATCH = ROOT / "development/merged-source/patches/0001-elide-idempotent-remote-transform-writes.patch"
+OPERATION_PATCH = ROOT / "development/merged-source/patches/0002-ordered-operation-turns-and-network-hygiene.patch"
 
 
 def sha256(path: Path) -> str:
@@ -79,6 +80,27 @@ def verify_transform_candidate() -> None:
             raise SystemExit(f"transform candidate must not change {forbidden}")
 
 
+def verify_ordered_operation_candidate() -> None:
+    patch = OPERATION_PATCH.read_text(encoding="utf-8")
+    for marker in (
+        "operation_turn.h",
+        "MAP_TURN_HOST",
+        "MAP_TURN_CLIENT",
+        "MAP_TURN_COLLECT",
+        "g_map_handoff_pending",
+        "publish_host_map",
+        "begin_map_download",
+        "client-issued orders (including attacks) are merged",
+        "queue_remote_transform",
+        "g_stat_coalesced",
+    ):
+        require(patch, marker, f"ordered-operation candidate: {marker}")
+    # This is a source overlay, not a silent change to the existing runtime packages or transport policy.
+    for forbidden in ("MiusMultiplayer_v1.0.0_INSTALL.zip", "MiusMultiplayer_beta_FPS_fix_INSTALL.zip", "MP_STATE_KBPS", "MP_BG_FPS", "MP_FG_FPS", "k_version = 13"):
+        if forbidden in patch:
+            raise SystemExit(f"ordered-operation candidate must not change {forbidden}")
+
+
 def main() -> None:
     metadata = json.loads((UPSTREAM / "UPSTREAM.json").read_text(encoding="utf-8"))
     if metadata["published_release"]["basic_network_sha256"] != "8108bd1e9af8080ef8b1050512b8311848f5a336acb49a7479388733b4ae5723":
@@ -87,6 +109,7 @@ def main() -> None:
         raise SystemExit("supported game target must remain Steam 6.00 build 3598/1")
     verify_source_manifest()
     verify_transform_candidate()
+    verify_ordered_operation_candidate()
 
     # This makes the causal upstream assumption visible before anyone ports Vitals into C++.
     session = SESSION.read_text(encoding="utf-8")
@@ -102,6 +125,7 @@ def main() -> None:
     print("OK published v20 input", metadata["published_release"]["basic_network_sha256"])
     print("OK upstream operation default + MiusVitals sidecar policy boundary")
     print("OK source-only exact remote-transform write-elision candidate")
+    print("OK source-only ordered-operation and network-hygiene candidate")
 
 
 if __name__ == "__main__":

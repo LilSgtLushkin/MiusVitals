@@ -1,6 +1,6 @@
 @echo off
-rem MiusMultiplayer beta_FPS_fix: source-built remote-transform candidate for Steam 6.00 build 3598/1.
-rem This test installer changes only basic_network.codelib and keeps a restorable backup of the prior module.
+rem MiusMultiplayer beta_FPS_fix: Steam-preserving zero-ms simulation-step candidate for Steam 6.00 build 3598/1.
+rem It starts from the verified Steam-capable codelib, adds one guarded FPS trampoline, and keeps a restorable backup.
 setlocal EnableExtensions DisableDelayedExpansion
 set "MOD=%~dp0"
 set "MOD=%MOD:~0,-1%"
@@ -8,13 +8,14 @@ for %%I in ("%MOD%\..") do set "GAME=%%~fI"
 set "QUIET="
 if /i "%~1"=="/quiet" set "QUIET=1"
 set "RC=0"
-set "CANDIDATE=78E2718383BC0679154118415189D1C1EE05ED0179A0A924455C22CB4AE2916E"
+set "CANDIDATE=7B42A69ABE58DEB1583D2F5320EEBBECD9718FFA27EA08933613E67DF1901F67"
+set "LEGACY_CANDIDATE=78E2718383BC0679154118415189D1C1EE05ED0179A0A924455C22CB4AE2916E"
 set "ACTIVE=%GAME%\bin\rel\x64\basic_network.codelib"
 set "BACKUP=%MOD%\state\backup\bin\rel\x64\basic_network.codelib"
 set "BACKUP_HASH=%MOD%\state\backup\bin\rel\x64\basic_network.codelib.sha256"
 
 echo.
-echo  MiusMultiplayer beta_FPS_fix - experimental FPS candidate
+echo  MiusMultiplayer beta_FPS_fix - Steam-preserving experimental FPS candidate
 echo.
 if not exist "%GAME%\starter_x64.exe" goto :no_game
 if not exist "%MOD%\files\bin\rel\x64\basic_network.codelib" goto :incomplete
@@ -30,10 +31,12 @@ call :copy_checked "%MOD%\files\bin\rel\x64\basic_network.codelib" "%ACTIVE%" "%
 echo  Installed and SHA-256 verified:
 echo    basic_network.codelib %CANDIDATE%
 echo.
-echo  This is an experimental FPS-only source candidate. Both players must use this same beta archive.
+echo  This is an experimental Steam-preserving FPS candidate. Both players must use this same beta archive.
+  Steam friends, rich-presence Join Game, and Steam P2P code are retained from the verified base module.
 echo  The previous codelib, including an unrecognised one, is backed up and can be restored.
 echo  Run Disable_Beta_FPS_Fix.bat before returning to stable MiusMultiplayer.
-echo  Vitals sidecar hooks are intentionally not claimed for this source-built candidate; record FPS and both basic_network logs.
+echo  The released Vitals sidecar import/signature surface is retained, but record FPS and both basic_network logs.
+  Steam friends joining must be regression-tested on two PCs before any compatibility claim.
 goto :finish
 
 :backup_previous
@@ -82,6 +85,7 @@ exit /b 1
 if not exist "%ACTIVE%" exit /b 1
 call :hash_file "%ACTIVE%" ACTIVE_HASH || exit /b 1
 if /i "%ACTIVE_HASH%"=="%CANDIDATE%" exit /b 0
+if /i "%ACTIVE_HASH%"=="%LEGACY_CANDIDATE%" exit /b 0
 exit /b 1
 
 :hash_file

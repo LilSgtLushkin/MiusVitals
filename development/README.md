@@ -29,3 +29,7 @@ python3 development/merged-source/verify_workspace.py
 `fps-beta-build/` хранит только reproducible Windows VS2022 candidate `basic_network.codelib`, автоматически созданный workflow `../.github/workflows/build-fps-beta-codelib.yml` из закреплённого public source и transform-write-elision patch. `fps-beta-kit-source/` и `../scripts/package_fps_beta.py` создают второй, явно experimental installer `MiusMultiplayer_beta_FPS_fix_INSTALL.zip`: он автоматически меняет только codelib, предварительно делает SHA-256-verified backup любого active module (включая unknown) и восстанавливает exact backup через beta remover.
 
 Это не runtime replacement для stable MiusPlayer + Vitals: candidate не несёт released `mp_vitals.dll` import/RVA profile и до Windows/two-peer gameplay certification предназначен лишь для FPS comparison. Не смешивайте его installer/remover со stable installer: сначала используйте `Disable_Beta_FPS_Fix.bat`.
+
+## Separate ordered-operation source candidate
+
+`merged-source/patches/0002-ordered-operation-turns-and-network-hygiene.patch` — отдельный C++ overlay, не включённый в beta archive. Он serializes operational turns `host → client → host resolution`, передаёт authoritative host snapshot перед client input, оставляет client attack в merged orders и coalesces tactical receive bursts во всех battle modes. Подготовка/проверка candidate описана в [`merged-source/README.md`](merged-source/README.md); до rebuild matching codelib + `mp_join.exe` и live two-peer tests это не installable runtime.

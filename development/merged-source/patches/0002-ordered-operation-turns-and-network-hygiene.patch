@@ -1,0 +1,693 @@
+diff --git a/development/upstream/miusplayer-public-43b2736/basic_network/joiner.h b/development/upstream/miusplayer-public-43b2736/basic_network/joiner.h
+index a275007..5a82e14 100644
+--- a/development/upstream/miusplayer-public-43b2736/basic_network/joiner.h
++++ b/development/upstream/miusplayer-public-43b2736/basic_network/joiner.h
+@@ -31,6 +31,7 @@ struct Joiner {
+     bool want_map = false;             // what is being received: the operational map instead of a battle
+     char map_file[96] = "";
+     unsigned map_turns = 0, map_epoch = 0;
++    MapTurnStage map_turn = MAP_TURN_HOST;
+     SOCKET sock = INVALID_SOCKET;
+     sockaddr_in host = {};
+     std::vector<unsigned char> image, have;
+@@ -156,7 +157,8 @@ struct Joiner {
+                     memcpy(map_file, w->map_file, sizeof map_file);
+                     map_file[sizeof map_file - 1] = 0;
+                     map_turns = w->map_turns;
+-                    map_epoch = w->map_flags >> 8;
++                    map_epoch = map_epoch_from_flags(w->map_flags);
++                    map_turn = map_turn_from_flags(w->map_flags);
+                     if (!opsave::safe_file_name(map_file)) { fail("The host sent an invalid operation save."); return; }
+                 }
+                 image.assign(size, 0);
+@@ -256,9 +258,13 @@ struct Joiner {
+         SetEnvironmentVariableA("MP_PEER", address);
+         SetEnvironmentVariableA("MP_MAP", "1");
+         SetEnvironmentVariableA("MP_HOST_MODE", "operation");
+-        char epoch[16];
++        char epoch[16], turn[16], hash[16];
+         sprintf_s(epoch, "%u", map_epoch);
++        sprintf_s(turn, "%u", (unsigned)map_turn);
++        sprintf_s(hash, "%u", image_hash);
+         SetEnvironmentVariableA("MP_MAP_EPOCH", epoch);       // which state of the operation this copy is of
++        SetEnvironmentVariableA("MP_MAP_TURN", turn);          // host phase first, then the client phase
++        SetEnvironmentVariableA("MP_MAP_HASH", hash);          // detects the authoritative host-to-client handoff
+         sprintf_s(cmd, "\"%s\\starter_x64.exe\" root\\programs\\opgame.progpack, %s, %s, 0, %u", root, id, op.c_str(), map_turns ? map_turns : opsave::turns(image));
+         STARTUPINFOA si = { sizeof si };
+         PROCESS_INFORMATION pi;
+diff --git a/development/upstream/miusplayer-public-43b2736/basic_network/operation_turn.h b/development/upstream/miusplayer-public-43b2736/basic_network/operation_turn.h
+new file mode 100644
+index 0000000..b9a4fa1
+--- /dev/null
++++ b/development/upstream/miusplayer-public-43b2736/basic_network/operation_turn.h
+@@ -0,0 +1,46 @@
++// Compact, version-12-compatible operational-map turn state carried in Welcome.map_flags.
++// The wire layout is unchanged: old launchers can still hand the map to a new module;
++// two new modules use bits 2..3 to serialize host then client orders.
++#pragma once
++
++enum MapTurnStage {
++    MAP_TURN_HOST = 0,
++    MAP_TURN_CLIENT = 1,
++    MAP_TURN_COLLECT = 2,
++};
++
++enum {
++    MAP_FLAG_COLLECT = 1u << 0,
++    MAP_FLAG_HOST_DONE = 1u << 1,
++    MAP_FLAG_TURN_SHIFT = 2,
++    MAP_FLAG_TURN_MASK = 3u << MAP_FLAG_TURN_SHIFT,
++    MAP_FLAG_EPOCH_SHIFT = 8,
++};
++
++inline MapTurnStage map_turn_from_value(unsigned value)
++{
++    return value == MAP_TURN_CLIENT ? MAP_TURN_CLIENT : value == MAP_TURN_COLLECT ? MAP_TURN_COLLECT : MAP_TURN_HOST;
++}
++
++inline MapTurnStage map_turn_from_flags(unsigned flags)
++{
++    return map_turn_from_value((flags & MAP_FLAG_TURN_MASK) >> MAP_FLAG_TURN_SHIFT);
++}
++
++inline unsigned map_turn_flags(unsigned epoch, MapTurnStage stage, bool collecting, bool host_done)
++{
++    return (collecting ? MAP_FLAG_COLLECT : 0) |
++           (host_done ? MAP_FLAG_HOST_DONE : 0) |
++           ((unsigned)stage << MAP_FLAG_TURN_SHIFT) |
++           (epoch << MAP_FLAG_EPOCH_SHIFT);
++}
++
++inline unsigned map_epoch_from_flags(unsigned flags)
++{
++    return flags >> MAP_FLAG_EPOCH_SHIFT;
++}
++
++inline bool map_turn_allows_input(bool host, MapTurnStage stage)
++{
++    return host ? stage == MAP_TURN_HOST : stage == MAP_TURN_CLIENT;
++}
+diff --git a/development/upstream/miusplayer-public-43b2736/basic_network/protocol.h b/development/upstream/miusplayer-public-43b2736/basic_network/protocol.h
+index 674e443..cedd6bf 100644
+--- a/development/upstream/miusplayer-public-43b2736/basic_network/protocol.h
++++ b/development/upstream/miusplayer-public-43b2736/basic_network/protocol.h
+@@ -1,6 +1,7 @@
+ // Wire format shared by the game module (session.cpp, statesync.cpp, ui.cpp) and the join launcher
+ // (mp_join.cpp). UDP, little endian.
+ #pragma once
++#include "operation_turn.h"
+
+ enum { PKT_HELLO = 1, PKT_WELCOME, PKT_KEEPALIVE, PKT_IMAGE_REQUEST, PKT_IMAGE_DATA, PKT_STATE, PKT_BYE, PKT_OBJECT, PKT_OBJECT_ACK, PKT_SHOT, PKT_SHOT_ACK };
+ enum { HOST_MODE_SKIRMISH = 1, HOST_MODE_OPERATION = 2, HOST_MODE_MISSION = 3 };       // mission: made in the battle editor
+@@ -40,8 +41,9 @@ struct Welcome {
+     unsigned map_size, map_hash, map_turns;
+     char map_file[96];
+     // bit 0: both players have ended the turn - the joining game sends its map now; bit 1: the host has
+-    // pressed "next turn"; bits 8 and up: a number that changes whenever the operation moves on (a turn
+-    // ended, a battle was fought) - a joining game whose copy of the map carries another number takes the new map
++    // pressed "next turn"; bits 2..3: MAP_TURN_HOST, MAP_TURN_CLIENT, or MAP_TURN_COLLECT; bits 8 and up:
++    // a number that changes whenever the operation moves on (a turn ended, a battle was fought). The
++    // wire layout remains version-12-compatible; the staged turn bits are interpreted only by the new module.
+     unsigned map_flags;
+ };
+ // Head.flags on the two image packets: 0 = battle description, 1 = operation save ("the map")
+diff --git a/development/upstream/miusplayer-public-43b2736/basic_network/session.cpp b/development/upstream/miusplayer-public-43b2736/basic_network/session.cpp
+index 278e328..8a75275 100644
+--- a/development/upstream/miusplayer-public-43b2736/basic_network/session.cpp
++++ b/development/upstream/miusplayer-public-43b2736/basic_network/session.cpp
+@@ -66,9 +66,15 @@ static char g_map_note[120];            // last thing that happened, for the ban
+ static bool g_turn_done, g_peer_turn_done;  // operational map: this player / the other one has pressed "next turn"
+ static bool g_peer_on_map;              // host: the joining game is on its copy of the map
+ static bool g_map_sent;                 // joining game: the host has this player's moves for the turn
++static bool g_map_handoff_pending;      // host ended its phase; wait for the map-mode client before publishing its authoritative copy
++static u32 g_map_known_hash;            // joining game: hash of the operation save currently on screen
++// Exactly one operational-map player owns input at a time: host, then client, then collection/resolution.
++// The state is replicated in Welcome.map_flags without changing the version-12 packet layout.
++static MapTurnStage g_map_turn = MAP_TURN_HOST;
+ // Which state of the operation a copy of the map is of: the host counts up whenever the operation moves on,
+ // a joining game remembers the number of its own copy.
+ static u32 g_map_epoch, g_map_base_epoch, g_map_in_epoch, g_map_in_turns;
++static MapTurnStage g_map_in_turn = MAP_TURN_HOST;
+ static char g_map_in_file[96];
+ static DWORD g_map_reload_at, g_map_battle_at;
+ static unsigned char g_peer_swap_req;
+@@ -84,7 +90,10 @@ struct Sent { float pos[3], rot0[3]; DWORD when; };
+ static std::unordered_map<u64, Sent> g_sent;            // what was last sent per owned unit
+ static std::unordered_map<u64, Object *> g_units;       // local unit per id
+ static u32 g_units_count_seen;
+-static std::vector<UnitRec> g_pending;                  // received, applied before the next simulation step
++// The receive loop can get several datagrams before the next real simulation step. Retain only the newest
++// transform per remote unit; the old code overwrote all but that final record in the same step anyway.
++static std::unordered_map<u64, UnitRec> g_pending;
++static std::vector<u64> g_pending_order;
+ // The last two transforms received per followed unit, with the time each arrived: the unit is shown
+ // between them, a little in the past (see session_sim_step).
+ struct Snap { UnitRec rec; double at; };
+@@ -125,7 +134,7 @@ static bool g_have_host_clock;
+ static u32 g_peer_sim_ms, g_peer_phase;    // host: the joining game's battle clock and phase, and when they were heard
+ static DWORD g_peer_clock_at, g_waiting_since;
+ static bool g_clock_adopted;
+-static u32 g_snapshot, g_stat_sent, g_stat_applied, g_stat_elided, g_stat_packets, g_stat_bytes, g_stat_snaps;
++static u32 g_snapshot, g_stat_sent, g_stat_applied, g_stat_elided, g_stat_coalesced, g_stat_packets, g_stat_bytes, g_stat_snaps;
+ static double g_stat_err_sum;
+ static float g_stat_err_max;
+ static u64 g_sim_ms;
+@@ -134,6 +143,15 @@ static DWORD g_last_phase_step;
+ static DWORD g_host_lost;                  // joining game: when the host went away (0 = it has not)
+ // Both players have to press Start to leave deployment, and again to leave the initial orders.
+ static u32 g_my_ready, g_peer_ready;       // the phase each player has asked to move on to (1 or 2)
++
++static void queue_remote_transform(const UnitRec &rec)
++{
++    u64 key = ((u64)rec.kind << 32) | rec.id;
++    auto pending = g_pending.emplace(key, rec);
++    if (pending.second) g_pending_order.push_back(key);
++    else { pending.first->second = rec; g_stat_coalesced++; }
++}
++
+ typedef u64 (*StartAction)(Object *, u64, u64, u64);
+ typedef void (*InputAction)(Object *, u64, const char *);
+ typedef void (*BoxResult)(Object *, int, u64, u64);
+@@ -211,10 +229,11 @@ const char *session_status(void)
+         else if (g_map_battle_at) sprintf_s(what, "%s has started the battle - entering it", host);
+         else if (g_map_sent && !g_map_in.empty()) sprintf_s(what, "the new turn is arriving");
+         else if (g_map_sent) sprintf_s(what, "the turn is being carried out - the map reloads with the result (orders given now do not count)");
+-        else if (g_map_given) sprintf_s(what, "both players have ended the turn - sending your moves");
+-        else if (g_turn_done) sprintf_s(what, "you have ended the turn - waiting for %s  (next turn again: go on giving orders)", host);
+-        else if (g_peer_turn_done) sprintf_s(what, "%s has ended his turn - press next turn when your orders are given", host);
+-        else sprintf_s(what, "move your own forces; the turn ends when both players have pressed next turn");
++        else if (g_map_given) sprintf_s(what, "both phases are complete - sending the client save to the host");
++        else if (g_map_turn == MAP_TURN_HOST) sprintf_s(what, "%s is issuing orders first - your map waits for the authoritative handoff", host);
++        else if (g_map_turn == MAP_TURN_CLIENT && g_turn_done) sprintf_s(what, "your client phase is complete - waiting for host resolution");
++        else if (g_map_turn == MAP_TURN_CLIENT) sprintf_s(what, "your client phase: move or attack, then press next turn");
++        else sprintf_s(what, "both phases are complete - waiting for host resolution");
+         sprintf_s(g_status, "MULTIPLAYER  -  %s on the operational map  -  %s", g_my_name, what);
+         return g_status;
+     }
+@@ -246,12 +265,14 @@ const char *session_status(void)
+         sprintf_s(state, "connecting to the host");
+     else if (!g_tactical && (g_map_collect || g_map_restart_at || g_end_turn_pending))
+         sprintf_s(state, "ending the turn with %s's moves", peer);
+-    else if (!g_tactical && g_map_given && g_peer_on_map && g_turn_done)
+-        sprintf_s(state, "you have ended the turn - waiting for %s to finish his orders  (next turn again: take it back)", peer);
+-    else if (!g_tactical && g_map_given && g_peer_on_map && g_peer_turn_done)
+-        sprintf_s(state, "%s has finished his orders - press next turn when yours are given", peer);
++    else if (!g_tactical && g_map_given && g_map_handoff_pending)
++        sprintf_s(state, "host phase complete - synchronizing the authoritative map before %s's client phase", peer);
++    else if (!g_tactical && g_map_given && g_map_turn == MAP_TURN_CLIENT && g_peer_turn_done)
++        sprintf_s(state, "%s has completed the client phase - collecting the save before host resolution", peer);
++    else if (!g_tactical && g_map_given && g_map_turn == MAP_TURN_CLIENT)
++        sprintf_s(state, "%s is issuing client-phase orders on the synchronized map", peer);
+     else if (!g_tactical && g_map_given && g_peer_on_map)
+-        sprintf_s(state, "%s is moving his forces on his own map - the turn ends when both have pressed next turn", peer);
++        sprintf_s(state, "host phase is active; %s waits until the authoritative handoff", peer);
+     else if (!g_tactical && g_map_given)
+         sprintf_s(state, "%s is getting his copy of the map", peer);
+     else if (!g_tactical && g_map_note[0])
+@@ -668,13 +689,12 @@ static void snapshot_operation_saves(void)
+ //      writes the operation (adv_opgame+0xd6660), the command tags are turned round (opsave.h) and the
+ //      joining game downloads the result.
+ //   2. The joining game starts the operation program on that save - as the same operation played from the
+-//      other side when the game has one, which gives its player his own territory and fog of war - and
+-//      both players move their own forces at the same time, each on his own map.
+-//   3. The host ends the turn. That is intercepted: the joining game saves and sends its map, the host
+-//      saves its own, the other player's battle groups are copied from his save into the host's
+-//      (opsave::merge_moves), and the host's operation program is restarted on the result and ends the
+-//      turn there. The battles that follow are fought by both as usual; the joining game is back in the
+-//      lobby by then and is taken into them.
++//      other side when the game has one, which gives its player his own territory and fog of war. Input is
++//      serialized: the host moves first; its authoritative save is handed to the client before client input;
++//      then the client moves; only after both phases finish are the saves merged and the turn carried out.
++//   3. The host collects the client's save, merges its player orders (including client-initiated attacks),
++//      restarts the operation on the result, and only then calls the engine's turn worker. The battles that
++//      follow are fought by both as usual; the joining game is back in the lobby and is taken into them.
+ static void *menu_controller_of(ObjMan *om)
+ {
+     Object *og = engine_find(om, "i_opgame", "opgame");
+@@ -707,7 +727,12 @@ bool session_map_arriving(void) { return g_map_collect || g_map_restart_at != 0
+ // stays in view, with the moves being made; nothing is drawn over it.
+ bool session_map_blocking(void)
+ {
+-    if (g_map_mode) return g_map_given && !g_map_sent;
++    // ui_blocks_input() is enforced below raw input and the window procedure, so this is a real ownership
++    // gate rather than an overlay hint. A passive player cannot issue map commands or sneak a stock Next Turn.
++    if (g_map_mode)
++        return !map_turn_allows_input(false, g_map_turn) || !g_map_in.empty() || g_map_reload_at != 0 || (g_map_given && !g_map_sent);
++    if (g_role == ROLE_HOST && !g_tactical && g_host_mode == HOST_MODE_OPERATION && g_map_given && g_connected)
++        return !map_turn_allows_input(true, g_map_turn) || g_map_collect || g_map_restart_at != 0 || g_end_turn_pending || g_turn_fix_at != 0;
+     return g_map_collect || g_map_restart_at != 0 || g_end_turn_pending || g_turn_fix_at != 0;
+ }
+
+@@ -747,34 +772,55 @@ static bool save_operation(ObjMan *om, std::vector<unsigned char> &out, char *fi
+     return true;
+ }
+
++// Save the host's current operation, turn its command tags round for the client, and publish it as the
++// three-way-merge base. This same C++ path is used for the initial share and the host-to-client handoff,
++// so a client never starts its phase from a stale host snapshot.
++static bool publish_host_map(ObjMan *om, unsigned *changed)
++{
++    std::vector<unsigned char> save;
++    char file[96];
++    if (!save_operation(om, save, file, sizeof file)) { strcpy_s(g_map_note, "the operation could not be saved"); return false; }
++    unsigned turned = 0;
++    if (!opsave::mirror(save, &g_map_sidecar, &turned)) {
++        mp_log("map: %s has no formations to hand over", file);
++        strcpy_s(g_map_note, "this operation cannot be handed over");
++        return false;
++    }
++    if (opsave::turn_phase(save) != 0) {                   // the turn is past its orders: nothing for the client to move
++        mp_log("map: not shared, the turn is past its orders phase");
++        return false;
++    }
++    strcpy_s(g_map_file, file);
++    g_map_turns = opsave::turns(save);
++    g_map_out.swap(save);
++    g_map_out_hash = fnv(g_map_out.data(), g_map_out.size());
++    g_map_in.clear();
++    g_map_in_hash = 0;
++    g_map_fetched = false;
++    if (changed) *changed = turned;
++    return true;
++}
++
+ // Host: makes the copy for the joining player. Joining game: saves its map and offers it to the host.
+ void session_map_give(ObjMan *om)
+ {
+     if (g_map_given || !g_connected) return;
+     bool host = g_role == ROLE_HOST && !g_tactical && g_host_mode == HOST_MODE_OPERATION;
+     if (!host && !g_map_mode) return;
+-    std::vector<unsigned char> save;
+-    char file[96];
+-    if (!save_operation(om, save, file, sizeof file)) { strcpy_s(g_map_note, "the operation could not be saved"); return; }
+     unsigned changed = 0;
+     if (host) {
+-        if (!opsave::mirror(save, &g_map_sidecar, &changed)) {
+-            mp_log("map: %s has no formations to hand over", file);
+-            strcpy_s(g_map_note, "this operation cannot be handed over");
+-            return;
+-        }
+-        if (opsave::turn_phase(save) != 0) {               // the turn is past the orders: nothing for him to move
+-            mp_log("map: not shared, the turn is past its orders phase");
+-            return;
+-        }
+-        g_map_turns = opsave::turns(save);
+-        g_map_in.clear();
+-        g_map_in_hash = 0;
+-        g_map_fetched = false;
++        if (!publish_host_map(om, &changed)) return;
++        g_map_turn = MAP_TURN_HOST;
++        g_turn_done = g_peer_turn_done = false;
++        g_map_handoff_pending = false;
++    } else {
++        std::vector<unsigned char> save;
++        char file[96];
++        if (!save_operation(om, save, file, sizeof file)) { strcpy_s(g_map_note, "the operation could not be saved"); return; }
++        strcpy_s(g_map_file, file);
++        g_map_out.swap(save);
++        g_map_out_hash = fnv(g_map_out.data(), g_map_out.size());
+     }
+-    strcpy_s(g_map_file, file);
+-    g_map_out.swap(save);
+-    g_map_out_hash = fnv(g_map_out.data(), g_map_out.size());
+     g_map_given = true;
+     g_map_note[0] = 0;
+     if (host) mp_log("map: shared with %s: %s, %zu bytes, %u formations and battle groups turned round", g_peer_name[0] ? g_peer_name : "the other player", g_map_file, g_map_out.size(), changed);
+@@ -786,6 +832,9 @@ void session_map_take_back(void)
+ {
+     if (g_role != ROLE_HOST || !g_map_given || g_map_restart_at) return;
+     g_map_given = false;
++    g_map_handoff_pending = false;
++    g_map_turn = MAP_TURN_HOST;
++    g_turn_done = g_peer_turn_done = false;
+     g_map_out.clear();
+     g_map_in.clear();
+     mp_log("map: taken back before the other player returned it");
+@@ -861,6 +910,7 @@ static void host_merge_and_restart(ObjMan *om)
+     fclose(f);
+     mp_log("map: %s's moves are in (%u orders, %u changed values, %u of his formations and groups player-led for the turn); restarting the operation to end the turn",
+            peer, orders, groups, led);
++    if (orders) mp_log("map: client-issued orders (including attacks) are merged; the host now resolves any resulting battle after both phases completed");
+     SetEnvironmentVariableA("MP_ENDTURN", "1");
+     char ack[16];
+     sprintf_s(ack, "%u", g_map_ack);
+@@ -879,6 +929,8 @@ static void joiner_back_to_lobby(void)
+     SetEnvironmentVariableA("MP_AUTOJOIN", peer);
+     SetEnvironmentVariableA("MP_ROLE", 0);
+     SetEnvironmentVariableA("MP_MAP", 0);
++    SetEnvironmentVariableA("MP_MAP_TURN", 0);
++    SetEnvironmentVariableA("MP_MAP_HASH", 0);
+     start_program(0);
+     ExitProcess(0);
+ }
+@@ -895,7 +947,8 @@ static void joiner_reload_map(void)
+     strcpy_s(j.map_file, g_map_in_file);
+     j.map_turns = g_map_in_turns;
+     j.map_epoch = g_map_in_epoch;
+-    mp_log("map: the new turn has arrived (%zu bytes); reloading the map", g_map_in.size());
++    j.map_turn = g_map_in_turn;
++    mp_log("map: authoritative %s-phase map arrived (%zu bytes); reloading the map", g_map_in_turn == MAP_TURN_CLIENT ? "client" : "next-turn", g_map_in.size());
+     session_stop();
+     if (j.launch_map(g_root)) ExitProcess(0);
+     mp_log("map: %s", j.error);
+@@ -913,6 +966,8 @@ static void joiner_into_battle(void)
+     SetEnvironmentVariableA("MP_AUTOJOIN", peer);
+     SetEnvironmentVariableA("MP_MAP", 0);
+     SetEnvironmentVariableA("MP_MAP_EPOCH", 0);
++    SetEnvironmentVariableA("MP_MAP_TURN", 0);
++    SetEnvironmentVariableA("MP_MAP_HASH", 0);
+     session_stop();
+     sprintf_s(cmd, "\"%s\\mp_join.exe\" %s", g_root, peer);
+     STARTUPINFOA si = { sizeof si };
+@@ -937,6 +992,12 @@ static bool other_player_on_map(void)
+     return g_role == ROLE_HOST && !g_tactical && g_map_given && g_peer_on_map && g_connected;
+ }
+
++static bool local_map_turn(void)
++{
++    if (g_map_mode) return map_turn_allows_input(false, g_map_turn);
++    return g_role == ROLE_HOST && !g_tactical && map_turn_allows_input(true, g_map_turn);
++}
++
+ // The operation has moved on: whatever copy of the map the other player has is of the past.
+ static void map_moved_on(void)
+ {
+@@ -946,7 +1007,9 @@ static void map_moved_on(void)
+     sprintf_s(v, "%u", g_map_epoch);
+     SetEnvironmentVariableA("MP_MAP_EPOCH", v);
+     g_map_given = false;
+-    g_turn_done = false;
++    g_map_handoff_pending = false;
++    g_map_turn = MAP_TURN_HOST;
++    g_turn_done = g_peer_turn_done = false;
+ }
+
+ // adv_opgame+0x76810(controller, 0, 0, 0): what "next turn" does once confirmed.
+@@ -958,19 +1021,28 @@ static void turn_worker_hook(void *ctrl, char a, void *b, void *c)
+
+ static void begin_collect(void)
+ {
+-    if (g_map_collect) return;
++    if (g_map_collect || g_map_turn != MAP_TURN_COLLECT) return;
+     g_map_collect = true;
+     g_map_collect_since = GetTickCount();
+-    mp_log("map: ending the turn - asking %s for his moves", g_peer_name[0] ? g_peer_name : "the other player");
++    mp_log("map: both phases are complete - asking %s for the client-phase save", g_peer_name[0] ? g_peer_name : "the other player");
+ }
+
+ static void press_next_turn(void)
+ {
+-    const char *peer = g_peer_name[0] ? g_peer_name : "the other player";
+-    g_turn_done = !g_turn_done;
+-    g_last_hello = 0;           // a joining game tells the host at once
+-    if (!g_turn_done) mp_log("map: this player goes on giving orders");
+-    else mp_log("map: this player has ended the turn%s%s", g_peer_turn_done ? "" : ", waiting for ", g_peer_turn_done ? "" : peer);
++    if (!local_map_turn()) return;
++    g_turn_done = true;
++    if (g_map_mode) {
++        // The client cannot reopen its completed phase. The host acknowledges it with MAP_TURN_COLLECT,
++        // then this game saves the client phase for the three-way merge.
++        g_map_turn = MAP_TURN_COLLECT;
++        g_last_hello = 0;       // tell the host at once
++        mp_log("map: client phase complete; waiting for the host to collect the save and resolve attacks");
++    } else {
++        // Do not change g_map_out while the launcher is still downloading it. Keep the client blocked in
++        // MAP_TURN_HOST until host_map_frame publishes the new authoritative copy and then opens its phase.
++        g_map_handoff_pending = true;
++        mp_log("map: host phase complete; preparing the authoritative client handoff");
++    }
+ }
+
+ static void next_turn_hook(void *ctrl, u64 b, const char *event)
+@@ -978,10 +1050,12 @@ static void next_turn_hook(void *ctrl, u64 b, const char *event)
+     bool release = readable(event, 0x10) && *(const float *)(event + 8) < 0;
+     if (g_map_mode) {
+         if (release && !g_map_given && !g_map_sent) press_next_turn();
+-        return;
++        return;                         // never pass a passive client's click to the stock turn worker
+     }
+     if (g_map_collect || g_map_restart_at || g_end_turn_pending || g_turn_fix_at) return;      // the turn is being ended already
+-    if (other_player_on_map()) {
++    // Once the host has shared an operation, its native Next Turn is never allowed to bypass the ordered
++    // protocol, even while the client process is still launching.
++    if (g_role == ROLE_HOST && !g_tactical && g_host_mode == HOST_MODE_OPERATION && g_map_given && g_connected) {
+         if (release) press_next_turn();
+         return;
+     }
+@@ -1002,8 +1076,8 @@ static void install_map_detours(void)
+     g_next_turn = (NextTurn)install_detour((char *)m + 0x36b40, sizeof sig, next_turn_hook);
+     if (host && !memcmp((char *)m + 0x76810, worker_sig, sizeof worker_sig))
+         g_turn_worker = (TurnWorker)install_detour((char *)m + 0x76810, sizeof worker_sig, turn_worker_hook);
+-    if (g_map_mode) mp_log("map: this player's side of the operational map; the turn ends when both players have pressed next turn");
+-    else mp_log("map: the turn ends when both players have pressed next turn; the other player's moves are collected then");
++    if (g_map_mode) mp_log("map: operational turn order is host first, then client; this game waits for its client phase");
++    else mp_log("map: operational turn order is host first, then client; only both completed phases are resolved");
+ }
+
+ // What the map's "next turn" control does once confirmed (adv_opgame+0x76810).
+@@ -1077,6 +1151,23 @@ static void host_map_frame(ObjMan *om, DWORD now)
+         start_program(args);
+         ExitProcess(0);
+     }
++    // The host's map may have changed while the joining launcher was still downloading the initial copy.
++    // Publish the authoritative end-of-host-phase save only after that launcher is safely in map mode; the
++    // client receives/reloads this exact snapshot before input is enabled for its phase.
++    if (g_map_handoff_pending && g_peer_on_map) {
++        unsigned changed = 0;
++        if (publish_host_map(om, &changed)) {
++            g_map_handoff_pending = false;
++            g_map_turn = MAP_TURN_CLIENT;
++            mp_log("map: host phase synchronized to %s (%zu bytes, %u formations and groups retagged); client phase may start",
++                   g_peer_name[0] ? g_peer_name : "the other player", g_map_out.size(), changed);
++        } else {
++            g_map_handoff_pending = false;
++            g_turn_done = false;
++            g_map_turn = MAP_TURN_HOST;
++            mp_log("map: host phase was not published; host input restored and no client phase started");
++        }
++    }
+     if (g_test_save_asked) {
+         g_test_save_asked = false;
+         std::vector<unsigned char> save;
+@@ -1087,18 +1178,20 @@ static void host_map_frame(ObjMan *om, DWORD now)
+     }
+     if (g_end_turn_asked) {                                 // tests: the host presses "next turn"
+         g_end_turn_asked = false;
+-        if (other_player_on_map()) { if (!g_turn_done) press_next_turn(); }
++        if (g_map_given && g_connected) { if (!g_turn_done && local_map_turn()) press_next_turn(); }
+         else end_turn_here(om);
+     }
+-    // both players have ended the turn: now the other player's moves are fetched. No clock runs on either
+-    // player; only a game that has gone away stops being waited for - the host then ends the turn himself,
+-    // with the map's control as usual.
+-    if (g_turn_done && g_peer_turn_done && other_player_on_map() && !g_map_collect && !g_map_restart_at) begin_collect();
+-    if (!g_connected && (g_turn_done || g_map_collect) && !g_map_restart_at) {
+-        mp_log("map: the other player's game is gone; the turn is not ended for him");
+-        g_turn_done = false;
+-        g_map_collect = false;
+-        strcpy_s(g_map_note, "the other player's game is gone - next turn ends the turn without him");
++    // The engine's turn worker is reachable only after the host phase, client phase, and client-save
++    // collection are all complete. Thus an attack ordered by the client is merged and resolved by the host,
++    // while no battle can begin from a partial operation turn.
++    if (g_turn_done && g_peer_turn_done && g_map_turn == MAP_TURN_COLLECT && other_player_on_map() && !g_map_collect && !g_map_restart_at)
++        begin_collect();
++    if (!g_connected && (g_turn_done || g_map_collect || g_map_handoff_pending) && !g_map_restart_at) {
++        mp_log("map: the other player's game is gone; the ordered turn is returned to the host");
++        g_turn_done = g_peer_turn_done = false;
++        g_map_collect = g_map_handoff_pending = false;
++        g_map_turn = MAP_TURN_HOST;
++        strcpy_s(g_map_note, "the other player's game is gone - the host may continue alone");
+     }
+     // A copy for the other player: he is in the lobby and ready, and has none yet. Only while orders are
+     // being given - with battles pending (controller +0x1260 == 2) the map is no place for him: he stays
+@@ -1137,6 +1230,8 @@ void session_start(ObjMan *)
+     if (GetEnvironmentVariableA("MP_SWAP", v, sizeof v)) g_swap = atoi(v) != 0;
+     if (!g_tactical) SetEnvironmentVariableA("MP_SWAPPED", 0);
+     g_map_mode = !g_tactical && GetEnvironmentVariableA("MP_MAP", v, sizeof v) && atoi(v);
++    if (g_map_mode && GetEnvironmentVariableA("MP_MAP_TURN", v, sizeof v)) g_map_turn = map_turn_from_value(strtoul(v, 0, 10));
++    if (g_map_mode && GetEnvironmentVariableA("MP_MAP_HASH", v, sizeof v)) g_map_known_hash = strtoul(v, 0, 10);
+     if (!g_tactical && GetEnvironmentVariableA("MP_ENDTURN", v, sizeof v)) {
+         g_end_turn_pending = true;
+         SetEnvironmentVariableA("MP_ENDTURN", 0);
+@@ -1276,6 +1371,12 @@ static void rebuild_units(ObjMan *om)
+         u64 key;
+         if (unit_key(all[i], &key, 0)) g_units[key] = all[i];
+     }
++    // A battle can spawn and destroy units. Drop transform history for objects that no longer exist instead
++    // of letting long missions grow the replication maps forever.
++    for (auto it = g_held.begin(); it != g_held.end(); )
++        if (g_units.find(it->first) == g_units.end()) it = g_held.erase(it); else ++it;
++    for (auto it = g_sent.begin(); it != g_sent.end(); )
++        if (g_units.find(it->first) == g_units.end()) it = g_sent.erase(it); else ++it;
+     g_units_count_seen = count;
+ }
+
+@@ -1296,8 +1397,10 @@ void session_sim_step(ObjMan *om, u32 sim_ms)
+     // the newest snapshots in that period; do not repeatedly write remote transforms into an engine
+     // that has not advanced. Otherwise each remote unit is written once per rendered frame in deployment.
+     double now_s = seconds_now();
+-    for (const UnitRec &r : g_pending) {
+-        u64 key = ((u64)r.kind << 32) | r.id;
++    for (u64 key : g_pending_order) {
++        auto pending = g_pending.find(key);
++        if (pending == g_pending.end()) continue;
++        const UnitRec &r = pending->second;
+         auto it = g_units.find(key);
+         if (it == g_units.end() || owns_object(it->second)) continue;
+         Held &h = g_held[key];
+@@ -1306,6 +1409,7 @@ void session_sim_step(ObjMan *om, u32 sim_ms)
+         if (!h.have) h.have = 1;
+     }
+     g_pending.clear();
++    g_pending_order.clear();
+     if (!sim_ms) return;
+
+     // Received states wait until this game has been simulating for a while: a battle that has only just
+@@ -1686,6 +1790,25 @@ static void leave_battle_for_menu(void)
+ }
+
+ // ---------------------------------------------------------------- receive
++// Begin one checked map download. Full saves are transferred only at safe ownership boundaries: the client
++// is passive during the host phase, reloads the host-authoritative handoff, then becomes the sole mover.
++static bool begin_map_download(const Welcome *w, u32 epoch, MapTurnStage stage, const char *reason)
++{
++    if (!w->map_size || w->map_size > (64u << 20) || !opsave::safe_file_name(w->map_file) || w->map_hash == g_map_in_hash) return false;
++    g_map_in.assign(w->map_size, 0);
++    g_map_in_hash = w->map_hash;
++    g_map_have.assign((w->map_size + k_chunk - 1) / k_chunk, 0);
++    g_map_asked.assign(g_map_have.size(), 0);
++    g_map_got = 0;
++    g_map_in_epoch = epoch;
++    g_map_in_turns = w->map_turns;
++    g_map_in_turn = stage;
++    memcpy(g_map_in_file, w->map_file, sizeof g_map_in_file);
++    g_map_in_file[sizeof g_map_in_file - 1] = 0;
++    mp_log("map: host offers %s (%u bytes)", reason, w->map_size);
++    return true;
++}
++
+ static void on_packet(const sockaddr_in &from, const unsigned char *data, int size, DWORD now)
+ {
+     const Head *h = (const Head *)data;
+@@ -1720,7 +1843,7 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
+         } else {
+             w.map_hash = g_map_ack;                     // the map this game last took back
+         }
+-        w.map_flags = (g_map_collect ? 1 : 0) | (g_turn_done ? 2 : 0) | (g_map_epoch << 8);
++        w.map_flags = map_turn_flags(g_map_epoch, g_map_turn, g_map_collect, g_turn_done);
+         send_to(from, &w, sizeof w);
+         if (!full) return;                              // the caller reads the version from the reply and gives up
+         char name[24];
+@@ -1733,6 +1856,8 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
+             mp_log("net: player connected from %s:%u (%s)", ip, ntohs(from.sin_port), name[0] ? name : "no name");
+             g_sent.clear();            // a new game needs every unit once
+             g_held.clear();
++            g_pending.clear();
++            g_pending_order.clear();
+             statesync_reset();
+             shots_reset();
+             g_peer_ready = 0;
+@@ -1741,7 +1866,12 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
+         if (name[0]) strcpy_s(g_peer_name, name);
+         g_peer_lobby_ready = in->lobby_ready != 0;
+         g_peer_on_map = in->phase == 0xfe && in->map_epoch == g_map_epoch;
+-        g_peer_turn_done = g_peer_on_map && in->turn_done != 0;
++        bool peer_done = g_peer_on_map && in->turn_done != 0;
++        if (peer_done && !g_peer_turn_done && g_map_turn == MAP_TURN_CLIENT) {
++            g_map_turn = MAP_TURN_COLLECT;
++            mp_log("map: client phase complete; waiting for its save before host resolution");
++        }
++        g_peer_turn_done = peer_done;
+         if (!g_tactical) {
+             // lobby: the joining player's SWAP SIDES presses arrive as a counter
+             if (g_peer_swap_known && in->swap_req != g_peer_swap_req && g_host_mode != HOST_MODE_OPERATION) session_toggle_swap();
+@@ -1803,6 +1933,7 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
+                     g_map_in_hash = 0;
+                     g_map_in.clear();
+                 } else if (g_map_mode) {
++                    g_map_known_hash = g_map_in_hash;
+                     g_map_reload_at = now + 200;
+                 } else {
+                     // let the other game hear that it arrived, then merge and restart
+@@ -1823,35 +1954,35 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
+             memcpy(g_peer_name, w->name, sizeof g_peer_name);
+             g_peer_name[sizeof g_peer_name - 1] = 0;
+             if (g_map_mode) {
+-                u32 epoch = w->map_flags >> 8;
+-                g_peer_turn_done = (w->map_flags & 2) != 0;
+-                if ((w->map_flags & 1) && !g_map_given && !g_map_sent) g_collect_asked = true;
++                u32 epoch = map_epoch_from_flags(w->map_flags);
++                MapTurnStage stage = map_turn_from_flags(w->map_flags);
++                g_peer_turn_done = (w->map_flags & MAP_FLAG_HOST_DONE) != 0;
++                if (epoch == g_map_base_epoch && stage != g_map_turn) {
++                    g_map_turn = stage;
++                    mp_log("map: operational phase is now %s", stage == MAP_TURN_HOST ? "host" : stage == MAP_TURN_CLIENT ? "client" : "collection");
++                }
++                if ((w->map_flags & MAP_FLAG_COLLECT) && !g_map_given && !g_map_sent) g_collect_asked = true;
+                 if (g_map_given && !g_map_sent && !w->map_size && w->map_hash == g_map_out_hash) {
+                     g_map_sent = true;
+                     g_turn_done = false;
+                     mp_log("map: the host has this player's moves; waiting for the turn to be carried out");
+                 }
+-                if (g_map_sent && w->map_size && epoch == g_map_base_epoch && !(w->map_flags & 1) && !w->in_battle) {
++                if (g_map_sent && w->map_size && epoch == g_map_base_epoch && !(w->map_flags & MAP_FLAG_COLLECT) && !w->in_battle) {
+                     // the host is on the map of this same turn again: the turn was not carried out
+                     g_map_sent = g_map_given = g_turn_done = false;
++                    g_map_turn = stage;
+                     g_map_out.clear();
+                     mp_log("map: the host's game did not carry the turn out; this player goes on giving orders");
+                 }
+                 if (w->in_battle) {
+                     if (!g_map_battle_at) g_map_battle_at = now + 300;
+-                } else if (w->map_size && w->map_size <= (64u << 20) && epoch != g_map_base_epoch && w->map_hash != g_map_in_hash &&
+-                           !(w->map_flags & 1) && opsave::safe_file_name(w->map_file)) {
+-                    // the operation has moved on: the map of the new turn
+-                    g_map_in.assign(w->map_size, 0);
+-                    g_map_in_hash = w->map_hash;
+-                    g_map_have.assign((w->map_size + k_chunk - 1) / k_chunk, 0);
+-                    g_map_asked.assign(g_map_have.size(), 0);
+-                    g_map_got = 0;
+-                    g_map_in_epoch = epoch;
+-                    g_map_in_turns = w->map_turns;
+-                    memcpy(g_map_in_file, w->map_file, sizeof g_map_in_file);
+-                    g_map_in_file[sizeof g_map_in_file - 1] = 0;
+-                    mp_log("map: the host offers the map of the next turn (%u bytes)", w->map_size);
++                } else if (w->map_size && epoch == g_map_base_epoch && stage == MAP_TURN_CLIENT &&
++                           w->map_hash != g_map_known_hash && !g_map_given && !g_map_sent && !(w->map_flags & MAP_FLAG_COLLECT)) {
++                    // The host phase ended. Reload its authoritative save before allowing the client phase,
++                    // so the client sees every host unit at its real position before issuing orders/attacks.
++                    begin_map_download(w, epoch, stage, "the authoritative host-to-client handoff");
++                } else if (w->map_size && epoch != g_map_base_epoch && !(w->map_flags & MAP_FLAG_COLLECT)) {
++                    begin_map_download(w, epoch, MAP_TURN_HOST, "the map of the next turn");
+                 }
+             }
+             if (w->host_mode && w->host_mode != g_host_mode) {
+@@ -1886,7 +2017,7 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
+                 g_peer_clock_at = now ? now : 1;
+             }
+             const UnitRec *recs = (const UnitRec *)(sh + 1);
+-            g_pending.insert(g_pending.end(), recs, recs + sh->h.count);
++            for (unsigned i = 0; i < sh->h.count; i++) queue_remote_transform(recs[i]);
+             g_stat_packets++;
+         }
+         break;
+@@ -1992,8 +2123,8 @@ void session_frame(ObjMan *om)
+     if (g_host_lost && now - g_host_lost > 4000) leave_battle_for_menu();
+     if (now - g_last_report >= 5000) {
+         if (g_connected && g_tactical && (g_stat_sent || g_stat_applied)) {
+-            mp_log("net: 5 s: sent %u and applied %u unit transforms (%u already-settled writes elided), mean correction %.2f m, largest %.2f m, %u jumps, %.1f KB/s in total",
+-                   g_stat_sent, g_stat_applied, g_stat_elided, g_stat_applied ? g_stat_err_sum / g_stat_applied : 0.0, g_stat_err_max, g_stat_snaps, g_stat_bytes / 5120.0);
++            mp_log("net: 5 s: sent %u and applied %u unit transforms (%u queued duplicates coalesced, %u already-settled writes elided), mean correction %.2f m, largest %.2f m, %u jumps, %.1f KB/s in total",
++                   g_stat_sent, g_stat_applied, g_stat_coalesced, g_stat_elided, g_stat_applied ? g_stat_err_sum / g_stat_applied : 0.0, g_stat_err_max, g_stat_snaps, g_stat_bytes / 5120.0);
+             statesync_report();
+             shots_report();
+             trench_report();
+@@ -2010,7 +2141,7 @@ void session_frame(ObjMan *om)
+         g_prof_frames = g_prof_steps = g_prof_step_ms = 0;
+         g_prof_save = g_prof_load = 0;
+         g_last_report = now;
+-        g_stat_sent = g_stat_applied = g_stat_elided = g_stat_packets = g_stat_bytes = g_stat_snaps = 0;
++        g_stat_sent = g_stat_applied = g_stat_elided = g_stat_coalesced = g_stat_packets = g_stat_bytes = g_stat_snaps = 0;
+         g_stat_err_sum = 0;
+         g_stat_err_max = 0;
+     }
