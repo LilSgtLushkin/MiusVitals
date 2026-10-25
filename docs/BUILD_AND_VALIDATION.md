@@ -48,7 +48,7 @@ files/root/programs/tacgame.progpack
 files/steam_appid.txt
 ```
 
-Install script проверяет Steam 3598/1, принимает только stock/известные предыдущие multiplayer modules, сохраняет foreign program/utility files, копирует DLL до importing codelib и сверяет hashes после copy. `Disable_Multiplayer.bat` удаляет только exact unified hashes и восстанавливает сохранённые файлы.
+Install script сравнивает Steam 6.00 build 3598/1 с historical full-file reference list, но это диагностическая сводка, а не hard gate: актуальный Steam 3598/1 может отличаться от опубликованного старого catalogue. Он по-прежнему принимает только stock/известные предыдущие multiplayer modules, сохраняет foreign program/utility files, копирует DLL до importing codelib и сверяет runtime hashes после copy. Engine-specific hooks защищены своими exact runtime signatures; `unknown game build` в логах означает, что конкретный hook не включился. `Disable_Multiplayer.bat` удаляет только exact unified hashes и восстанавливает сохранённые файлы.
 
 ```sh
 python3 scripts/package_unified_mod.py --output MiusMultiplayer_v1.0.0_INSTALL.zip

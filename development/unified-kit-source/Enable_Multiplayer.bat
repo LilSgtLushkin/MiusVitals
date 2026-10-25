@@ -32,9 +32,16 @@ if not exist "%MOD%\files\root\programs\opgame.progpack" goto :incomplete
 if not exist "%MOD%\files\root\programs\tacgame.progpack" goto :incomplete
 tasklist /fi "imagename eq starter_x64.exe" /nh 2>nul | find /i "starter_x64.exe" >nul && goto :running
 
+rem The upstream full-file list is a diagnostic fingerprint, not an install gate: the supported
+rem Steam 6.00 build 3598/1 can differ from that historical catalogue. Each engine-sensitive
+rem multiplayer/Vitals hook has its own exact runtime signature guard and stays off if it does not match.
 set "ODD=0"
 for /f "usebackq tokens=1,*" %%A in ("%MOD%\game_build_3598_1.sha256") do call :check_game %%A "%%B"
-if not "%ODD%"=="0" goto :wrong_game
+if "%ODD%"=="0" goto :reference_ok
+echo  Note: %ODD% game files differ from the historical reference hash list.
+echo  This does not block the supported Steam 6.00 build 3598/1 install; exact runtime signatures
+echo  still protect every engine-specific hook. Save both logs if they report "unknown game build".
+:reference_ok
 
 call :known_network
 if errorlevel 1 goto :foreign_network
@@ -76,7 +83,6 @@ if defined H set "H=%H: =%"
 if /i "%H%"=="%~1" exit /b 0
 :check_odd
 set /a ODD+=1
-echo    not as expected: %~2
 exit /b 0
 
 :known_network
@@ -117,10 +123,6 @@ goto :finish
 :running
 echo  The game is running. Close it, then run this again.
 set "RC=4"
-goto :finish
-:wrong_game
-echo  This kit requires the final Steam game version 6.00 build 3598/1. Nothing was changed.
-set "RC=2"
 goto :finish
 :foreign_network
 echo  Nothing was changed: do not overwrite an unknown multiplayer module.

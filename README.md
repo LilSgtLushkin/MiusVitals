@@ -6,7 +6,9 @@
 
 **Устанавливаемый файл только один:** [`MiusMultiplayer_v1.0.0_INSTALL.zip`](MiusMultiplayer_v1.0.0_INSTALL.zip).
 
-Архив содержит единый корень `MiusMultiplayer/` и имеет SHA-256 `40a4ab0b7abca5fed80e0ec642ebd81e7a3bbf297fa86385e657b1f225f82210`. Распакуйте его в корень игры рядом со `starter_x64.exe`, затем выполните `MiusMultiplayer\Check_Install.bat` и `MiusMultiplayer\Enable_Multiplayer.bat`. Не устанавливайте отдельно старые `mpmod1` и `MiusVitals`.
+Архив содержит единый корень `MiusMultiplayer/` и имеет SHA-256 `d027d5b4b1c741bb63d55500de76b4049505353adadca2b88eeb3428b38291fc`. Распакуйте его в корень игры рядом со `starter_x64.exe`, затем выполните `MiusMultiplayer\Check_Install.bat` и `MiusMultiplayer\Enable_Multiplayer.bat`. Не устанавливайте отдельно старые `mpmod1` и `MiusVitals`.
+
+`Enable_Multiplayer.bat` может сообщить число отличий от historical full-file hash list. Для актуального Steam **6.00 build 3598/1** это предупреждение не блокирует установку; installer всё равно отказывается заменить неизвестный active multiplayer module, а engine-specific hooks запускаются только после собственных точных runtime signature checks.
 
 > Не устанавливайте [`development/`](development/). Это расширенная рабочая область: source MiusPlayer/MiusVitals, manifest и проверки. Для игры подходит только единый INSTALL-архив. Для редактирования/полной source rebuild цепочки см. [`development/merged-source/`](development/merged-source/).
 

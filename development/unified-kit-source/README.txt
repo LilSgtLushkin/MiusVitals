@@ -24,9 +24,13 @@ MiusMultiplayer v1.0.0 — единый мод для Mius-Front multiplayer
 4. Запустите сначала Check_Install.bat, затем Enable_Multiplayer.bat.
 5. Второй игрок должен поставить этот же архив и также запустить Enable_Multiplayer.bat.
 
-Установщик проверяет Steam build 3598/1, не перезаписывает неизвестный active
-basic_network.codelib и копирует DLL ДО module, который её импортирует. После
-копирования проверяются SHA-256 всех шести runtime files.
+Установщик сравнивает файлы Steam 6.00 build 3598/1 с historical reference list,
+но эта сводка не блокирует установку: у актуального Steam 3598/1 могут отличаться
+полные file hashes. Он всё равно не перезаписывает неизвестный active
+basic_network.codelib, копирует DLL ДО module, который её импортирует, и после
+copy проверяет SHA-256 всех шести runtime files. Каждый engine-sensitive hook
+дополнительно включает себя только при точной runtime signature; `unknown game build`
+в логе означает, что соответствующий hook остался выключен.
 
 В обоих basic_network_*.log должна появиться строка "vitals:". В operation
 tactical battle после старта ожидается:
