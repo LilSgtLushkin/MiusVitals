@@ -84,13 +84,17 @@ def require_sources(repo: Path) -> None:
     enable = (source / "Enable_Beta_FPS_Fix.bat").read_text(encoding="utf-8")
     disable = (source / "Disable_Beta_FPS_Fix.bat").read_text(encoding="utf-8")
     readme = (source / "README.txt").read_text(encoding="utf-8")
-    for marker in ("%CANDIDATE%", "call :known_network", "call :backup_previous", "call :copy_checked", "Nothing was changed: this beta will not overwrite"):
+    for marker in ("%CANDIDATE%", "call :backup_previous", "call :restore_backup_after_failed_install", "%BACKUP_HASH%", "including an unrecognised one", "Backup verification failed", "stale beta backup", "if /i \"%ACTIVE_HASH%\"==\"%EXPECTED_BACKUP_HASH%\" exit /b 0", "call :copy_checked"):
         if marker not in enable:
-            raise SystemExit(f"FPS beta installer lost required marker: {marker}")
-    for marker in ("%CANDIDATE%", "Restored the codelib", "Nothing was changed"):
+            raise SystemExit(f"FPS beta installer lost required backup/restore marker: {marker}")
+    if "call :known_network" in enable or "will not overwrite an unknown module" in enable:
+        raise SystemExit("FPS beta installer must safely back up and replace unknown codelibs")
+    if "if not exist \"%BACKUP%\" goto :create_backup" not in enable or "if exist \"%BACKUP%\" (" in enable:
+        raise SystemExit("FPS beta installer must compare a saved hash after subroutines, outside a cmd block")
+    for marker in ("%CANDIDATE%", "%BACKUP_HASH%", "if not exist \"%BACKUP%\" goto :remove_candidate", "call :read_backup_hash", "Restored the exact codelib", "Nothing was changed"):
         if marker not in disable:
-            raise SystemExit(f"FPS beta remover lost required marker: {marker}")
-    for marker in ("EXPERIMENTAL", "Vitals", "not a compatibility release", CANDIDATE):
+            raise SystemExit(f"FPS beta remover lost required verified-restore marker: {marker}")
+    for marker in ("EXPERIMENTAL", "Vitals", "not a compatibility release", "including an unknown module", "SHA-256", CANDIDATE):
         if marker not in readme:
             raise SystemExit(f"FPS beta README lost required warning/provenance: {marker}")
 

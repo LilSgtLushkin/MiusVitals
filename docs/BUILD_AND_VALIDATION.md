@@ -62,7 +62,7 @@ sha256sum MiusMultiplayer_v1.0.0_INSTALL.zip
 
 Workflow `.github/workflows/build-fps-beta-codelib.yml` применяет reviewed transform-write-elision patch к disposable checkout, собирает candidate дважды и требует `fc /b` byte identity, прежде чем сохранить codelib и hash в `development/fps-beta-build/`. `scripts/package_fps_beta.py` допускает только этот exact x64 PE candidate, отдельный allow-list и fixed ZIP metadata.
 
-Beta installer автоматически сохраняет recognised active codelib и заменяет его candidate; `Disable_Beta_FPS_Fix.bat` восстанавливает ранее сохранённый module. После beta disable можно снова применять normal stable installer/remover. Candidate не несёт released `mp_vitals.dll` import/RVA profile: им нельзя проверять Vitals health synchronization или renderer guards. До Windows/two-peer gameplay certification это FPS test candidate, не compatibility release.
+Beta installer автоматически сохраняет **любой** active codelib, включая unknown module, с SHA-256 record и затем заменяет его candidate; `Disable_Beta_FPS_Fix.bat` проверяет и восстанавливает exact сохранённый module. Если после незавершённой beta session найден stale backup вместе с другим active module, installer отказывается перезаписывать любой из них. После beta disable можно снова применять normal stable installer/remover. Candidate не несёт released `mp_vitals.dll` import/RVA profile: им нельзя проверять Vitals health synchronization или renderer guards. До Windows/two-peer gameplay certification это FPS test candidate, не compatibility release.
 
 ```sh
 python3 scripts/package_fps_beta.py --output MiusMultiplayer_beta_FPS_fix_INSTALL.zip
