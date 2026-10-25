@@ -36,9 +36,14 @@
 // module's counter forward. It also patches the module's rule 'a unit that has not moved is only sent every 2 s' so that every unit goes
 // out on every tick (MP_IDLE_MS).
 //
+// v7.0.1: two crash dumps, including one taken before this DLL was present, stop in the same basic_render recursive node walk. The child node
+// number is corrupt there, and the engine reads outside the node table. On the exact checked Steam 3598 basic_render image, a tiny vectored
+// exception guard turns only that read fault back into the already-valid parent material. It leaves every other exception alone.
+//
 // Environment: MP_VITALS 0 off, 1 only compare and log, 2 and 3 apply.
 //              Default: apply in operation battles, compare and log only otherwise.   MP_LOG_VITALS=1 logs every event.
 //              MP_VEHICLES 0 off, 1 only compare and log, 2 apply (default: as MP_VITALS).   MP_STATS 0 leaves the statistics' dice alone.
+//              MP_RENDER_GUARD=0 disables the exact basic_render crash guard.
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
@@ -86,8 +91,11 @@ enum {
     RVA_REL_LAST = 0x5d038, RVA_REL_SESS = 0x5d03c,
     RVA_IDLE = 0x19d44, IDLE_IMM8 = 9, IDLE_IMM32 = 19,
     PHYS_GET_MEMBER = 0x9c480,
-    GAME_STAT = 0xf80c0, STAT_STEAL = 15, STAT_SEED_OFF = 0x130, STAT_SEED = 0x4d495553
+    GAME_STAT = 0xf80c0, STAT_STEAL = 15, STAT_SEED_OFF = 0x130, STAT_SEED = 0x4d495553,
+    // basic_render.codelib, Steam build 3598: the recursive material-node walker and its normal epilogue.
+    RVA_RENDER_NODE = 0x13ab0, RVA_RENDER_BAD_READ = 0x13adb, RVA_RENDER_FALLBACK = 0x13bc9
 };
+#define RENDER_TIMESTAMP 0x66f2d710u
 // adv_game.codelib: the end-of-battle statistics function (prologue; its body has three times imul reg,[reg+0x130],0x19660d)
 static const u8 SIG_STAT[] = { 0x48,0x8b,0xc4, 0x44,0x88,0x40,0x18, 0x48,0x89,0x50,0x10, 0x48,0x89,0x48,0x08, 0x55,0x53,0x56,0x57, 0x41,0x54,0x41,0x55,0x41,0x56 };
 static const u8 SIG_STAT_RNG[8] = { 0x30,0x01,0x00,0x00, 0x0d,0x66,0x19,0x00 };
@@ -101,6 +109,14 @@ static const u8 SIG_IDLE[27]   = { 0x8b,0x44,0x24,0x70, 0x83,0xe0,0x0f, 0x6b,0xc
 static const u8 SIG_LOG[7]     = { 0x4c,0x8b,0xdc,0x49,0x89,0x4b,0x08 };
 // adv_physic.codelib: squad->get_member(index) = cmp [rcx+0x190c],edx / jbe / lea eax*5 << 6 + [rcx+0x1900]
 static const u8 SIG_GET_MEMBER[29] = { 0x39,0x91,0x0c,0x19,0,0, 0x76,0x12, 0x8b,0xc2, 0x48,0x8d,0x04,0x80, 0x48,0xc1,0xe0,0x06, 0x48,0x03,0x81,0x00,0x19,0,0, 0xc3, 0x33,0xc0, 0xc3 };
+// The code surrounding the actual fault and the cleanup which returns the parent material. Both signatures are
+// checked before the exception handler is registered; this is deliberately not a generic access-violation handler.
+static const u8 SIG_RENDER_NODE[46] = {
+    0x48,0x89,0x6c,0x24,0x10, 0x48,0x89,0x74,0x24,0x18, 0x57, 0x48,0x83,0xec,0x20,
+    0x4c,0x8b,0x89,0x40,0x02,0,0, 0x43,0x8d,0x34,0x80, 0xc1,0xe6,0x06, 0x48,0x8b,0xe9,
+    0x44,0x8b,0xd2, 0x49,0xc1,0xe2,0x06, 0x4b,0x03,0x34,0x0a, 0x8b,0x4e,0x38
+};
+static const u8 SIG_RENDER_FALLBACK[18] = { 0x48,0x8b,0x6c,0x24,0x38, 0x8b,0xc7, 0x48,0x8b,0x74,0x24,0x40, 0x48,0x83,0xc4,0x20, 0x5f,0xc3 };
 
 // engine layout (adv_physic.codelib; the same in the build of the mod's author and in the current Steam build, read from its code):
 //   i_human +0x7c8 the soldier's own health (float, 1 = unhurt). The hit code: health below 0.5 -> the soldier leaves his squad
@@ -147,6 +163,10 @@ static volatile u32 *g_host_mode;
 static const u8 *g_peer;
 static int g_active;                // hooks installed
 static int g_broken;                // something did not match: no more work
+static u8 *g_render;
+static int g_render_tried;
+static u32 g_render_recoveries, g_render_reported;
+static PVOID g_render_handler;
 
 // ------------------------------------------------------------------ small helpers
 static int readable(const void *p, size_t n)
@@ -175,6 +195,52 @@ static int log_events(void)
 }
 
 static int same(const u8 *at, const u8 *sig, size_t n) { return readable(at, n) && !memcmp(at, sig, n); }
+
+// basic_render's recursive node reader has no bound check on a child node number. In both supplied dumps the
+// recursive child number was corrupt, but RDI still held its valid parent material ID. The normal cleanup at
+// RVA_RENDER_FALLBACK returns that ID in EAX and restores the non-volatile registers. This handler only takes
+// that exact read AV, on this exact verified build, and only with the corrupt-child / valid-parent register shape.
+static LONG WINAPI render_fault_guard(EXCEPTION_POINTERS *xp)
+{
+    EXCEPTION_RECORD *er;
+    CONTEXT *ctx;
+    if (!g_render || !xp || !(er = xp->ExceptionRecord) || !(ctx = xp->ContextRecord)) return EXCEPTION_CONTINUE_SEARCH;
+    if (er->ExceptionCode != EXCEPTION_ACCESS_VIOLATION || er->NumberParameters < 2 || er->ExceptionInformation[0] != 0) return EXCEPTION_CONTINUE_SEARCH;
+    if (ctx->Rip != (u64)(g_render + RVA_RENDER_BAD_READ) || er->ExceptionAddress != (void *)(g_render + RVA_RENDER_BAD_READ)) return EXCEPTION_CONTINUE_SEARCH;
+    if (ctx->Rsi > ~(u64)0 - 0x38 || (u64)er->ExceptionInformation[1] != ctx->Rsi + 0x38) return EXCEPTION_CONTINUE_SEARCH;
+    if (ctx->R8 <= 0x3ff || ctx->Rdi > 0xffffff) return EXCEPTION_CONTINUE_SEARCH;
+    ctx->Rip = (u64)(g_render + RVA_RENDER_FALLBACK);       // EDI is the material ID of the parent recursive node
+    __atomic_fetch_add(&g_render_recoveries, 1u, __ATOMIC_RELAXED);
+    return EXCEPTION_CONTINUE_EXECUTION;
+}
+
+static void try_render_guard(void)
+{
+    if (g_render_tried) return;
+    const u8 *b = (const u8 *)GetModuleHandleA("basic_render.codelib");
+    if (!b) return;                                        // it can load after the first network frame
+    g_render_tried = 1;
+    char v[8];
+    if (GetEnvironmentVariableA("MP_RENDER_GUARD", v, sizeof v) && num_of(v) == 0) {
+        if (g_log) g_log("vitals: basic_render crash guard disabled by MP_RENDER_GUARD=0");
+        return;
+    }
+    if (!readable(b, 0x400) || b[0] != 'M' || b[1] != 'Z') goto no;
+    u32 pe = *(const u32 *)(b + 0x3c), stamp, image;
+    if (pe > 0x300 || !readable(b + pe, 0x108) || *(const u32 *)(b + pe) != 0x4550u) goto no;
+    stamp = *(const u32 *)(b + pe + 8);
+    image = *(const u32 *)(b + pe + 24 + 56);
+    if (stamp != RENDER_TIMESTAMP || image <= RVA_RENDER_FALLBACK + sizeof SIG_RENDER_FALLBACK ||
+        !same(b + RVA_RENDER_NODE, SIG_RENDER_NODE, sizeof SIG_RENDER_NODE) ||
+        !same(b + RVA_RENDER_FALLBACK, SIG_RENDER_FALLBACK, sizeof SIG_RENDER_FALLBACK)) goto no;
+    g_render = (u8 *)b;
+    g_render_handler = AddVectoredExceptionHandler(1, render_fault_guard);
+    if (!g_render_handler) { g_render = 0; goto no; }
+    if (g_log) g_log("vitals: basic_render invalid-child crash guard armed (rva %x)", RVA_RENDER_BAD_READ);
+    return;
+no:
+    if (g_log) g_log("vitals: basic_render crash guard not armed (different build or handler unavailable)");
+}
 
 // find squad->get_member inside adv_physic.codelib: first where this build had it, otherwise by its bytes in the executable sections.
 // Everything found (or not) goes to the log, so that a build that is not known can be looked at from the log alone.
@@ -455,11 +521,17 @@ static void vitals_frame(void *om)
         if (!locate_get_member((const u8 *)g_phys) && g_log) g_log("vitals: get_member not found - the squad's own record is not used, soldiers are killed without it");
     }
     try_hook_stat();
+    try_render_guard();
     if (g_log) {
         if (g_idle_msg == 0) { g_log("net: units that stand still are sent on every tick (patched at start)"); g_idle_msg = -2; }
         else if (g_idle_msg > 0) { g_log("net: units that stand still are sent every %d ms (patched at start)", g_idle_msg); g_idle_msg = -2; }
         if (g_rel_pending) { g_rel_pending = 0; g_log("reliable: the other game's records %u..%u never arrived (stuck for %u ms) - given up so the stream goes on (%u times, %u records in all)",
                                                       g_rel_pending_from, g_rel_pending_to - 1, g_rel_pending_ms, g_rel_heals, g_rel_skipped); }
+        u32 render_recoveries = __atomic_load_n(&g_render_recoveries, __ATOMIC_RELAXED);
+        if (render_recoveries != g_render_reported) {
+            g_render_reported = render_recoveries;
+            g_log("vitals: skipped an invalid recursive basic_render node (%u time%s); parent material used", g_render_reported, g_render_reported == 1 ? "" : "s");
+        }
     }
     int on = *g_connected && *g_tactical && mode() > 0 && *g_have_peer;
     if (!on) { if (g_on) { reset_all(); g_on = 0; } return; }
