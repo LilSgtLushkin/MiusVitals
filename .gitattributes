@@ -1,3 +1,9 @@
 # Store Windows launcher scripts normalized in Git and check them out with CRLF.
 *.bat text eol=crlf
 *.ps1 text eol=crlf
+
+# The vendored public-source snapshot is verified byte-for-byte against its
+# published revision; do not rewrite its upstream build/launcher scripts.
+development/upstream/miusplayer-public-43b2736/basic_network/build.bat -text
+development/upstream/miusplayer-public-43b2736/mpmod1_src/Disable_Multiplayer.bat -text
+development/upstream/miusplayer-public-43b2736/mpmod1_src/Enable_Multiplayer.bat -text

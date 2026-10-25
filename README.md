@@ -8,7 +8,7 @@
 
 Архив содержит ровно 16 файлов в корне `MiusVitals/` и имеет SHA-256 `76ec4286fb5c25517c20025c9eda4fc1685cbceb26161756beba5f38c255a4e6`. Распакуйте его в корень игры, рядом с `starter_x64.exe` и `mpmod1`, затем выполните `MiusVitals\Check_Build.bat` и `MiusVitals\Install_Vitals.bat`.
 
-> Не устанавливайте [`development/kit-source/`](development/kit-source/). Это дерево разработки с manifest, проверками и промежуточными файлами. Для игры подходит только INSTALL-архив.
+> Не устанавливайте [`development/`](development/). Это расширенная рабочая область: source MiusVitals, закреплённый публичный C++ MiusPlayer, manifest и проверки. Для игры подходит только INSTALL-архив. Для редактирования/полной source rebuild цепочки см. [`development/merged-source/`](development/merged-source/).
 
 Оба игрока должны установить один и тот же v7.5.0. Откат: после закрытия игры запустите `MiusVitals\Uninstall_Vitals.bat`.
 
