@@ -92,23 +92,32 @@ def require_sources(repo: Path) -> None:
     disable = (source / "Disable_Multiplayer.bat").read_text(encoding="utf-8")
     check = (source / "Check_Install.ps1").read_text(encoding="utf-8")
     readme = (source / "README.txt").read_text(encoding="utf-8")
+    # The installer must replace every runtime file unconditionally. The markers below are the
+    # unconditional write path; the forbidden markers are the old gates that could abort the
+    # install (or leave it half done) and thereby leave the main menu without MULTIPLAYER.
     for marker in (
-        "v1.0.1", f"NETWORK={FPS_HASH.upper()}", "NETWORK_STABLE=485B655", "NETWORK_WITHDRAWN_BETA=78E271",
-        "%NETWORK_STABLE%", "%NETWORK_WITHDRAWN_BETA%", "Steam 3598/1", "diagnostic fingerprint",
-        "does not block", "game_build_3598_1.sha256", "call :known_network", "call :backup_if_foreign",
-        "files\\mp_vitals.dll", "call :copy_checked", "Steam friends/P2P", "zero-ms ctrl_tick",
+        "v1.0.1", f"NETWORK={FPS_HASH.upper()}", "Steam 3598/1", "force-replaced",
+        "call :keep", "call :put", ":overwrite", "state\\installed.txt", "call :unblock",
+        "files\\mp_vitals.dll", "MpVitalsInit", "NOT REPLACED:",
     ):
         if marker not in enable:
             raise SystemExit(f"unified FPS installer lost required marker: {marker}")
-    if "goto :wrong_game" in enable or "not as expected:" in enable:
-        raise SystemExit("historical full-file reference differences must not abort the 3598/1 installer")
-    for marker in ("v1.0.1", FPS_HASH.upper(), "call :remove_ours", "call :restore", "left changed file"):
+    for gate in (
+        "certutil", "known_network", "copy_checked", "foreign_network", "ODD", "goto :wrong_game",
+        "not as expected:", "SHA-256 verification failed", "game_build_3598_1.sha256", 'if /i "%H%"',
+    ):
+        if gate in enable:
+            raise SystemExit(f"unified FPS installer must not contain the replacement gate: {gate}")
+    for marker in ("v1.0.1", FPS_HASH.upper(), "call :drop", "call :restore", "installed.txt", "left changed file"):
         if marker not in disable:
             raise SystemExit(f"unified FPS uninstaller lost required marker: {marker}")
     for marker in ("v1.0.1", FPS_HASH.upper()):
         if marker not in check:
             raise SystemExit(f"unified FPS checker lost required marker: {marker}")
-    for marker in ("v1.0.1", FPS_HASH, ".fpsfix", "Steam Friends", "SteamNetworking", "mp_vitals.dll", "zero-ms"):
+    for marker in (
+        "v1.0.1", FPS_HASH, ".fpsfix", "Steam Friends", "SteamNetworking", "mp_vitals.dll", "zero-ms",
+        "MULTIPLAYER", "mp_vitals.dll!MpVitalsInit", "basic_network_opgame",
+    ):
         if marker not in readme:
             raise SystemExit(f"unified FPS README lost required provenance or behavior: {marker}")
 

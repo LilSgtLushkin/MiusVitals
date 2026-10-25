@@ -88,16 +88,18 @@ def require_sources(repo: Path) -> None:
     disable = (source / "Disable_Beta_FPS_Fix.bat").read_text(encoding="utf-8")
     check = (source / "Check_Beta_FPS_Fix.bat").read_text(encoding="utf-8")
     readme = (source / "README.txt").read_text(encoding="utf-8")
-    for marker in ("%CANDIDATE%", "%LEGACY_CANDIDATE%", "LEGACY_CANDIDATE=78E271", "call :backup_previous", "call :restore_backup_after_failed_install", "%BACKUP_HASH%", "including an unrecognised one", "Backup verification failed", "stale beta backup", "if /i \"%ACTIVE_HASH%\"==\"%EXPECTED_BACKUP_HASH%\" exit /b 0", "call :copy_checked"):
+    for marker in ("%CANDIDATE%", "call :temp_copy", "installed.txt", "Unblock-File", "including an unrecognised one", "No hash, allow-list or copy verification"):
         if marker not in enable:
-            raise SystemExit(f"FPS beta installer lost required backup/restore marker: {marker}")
-    if "call :known_network" in enable or "will not overwrite an unknown module" in enable:
-        raise SystemExit("FPS beta installer must safely back up and replace unknown codelibs")
-    if "if not exist \"%BACKUP%\" goto :create_backup" not in enable or "if exist \"%BACKUP%\" (" in enable:
-        raise SystemExit("FPS beta installer must compare a saved hash after subroutines, outside a cmd block")
-    for marker in ("%CANDIDATE%", "%LEGACY_CANDIDATE%", "LEGACY_CANDIDATE=78E271", "%BACKUP_HASH%", "if not exist \"%BACKUP%\" goto :remove_candidate", "call :read_backup_hash", "Restored the exact codelib", "Nothing was changed"):
+            raise SystemExit(f"FPS beta installer lost required unconditional-replacement marker: {marker}")
+    for gate in ("certutil", "hash_file", "copy_checked", "stale beta backup", "Backup verification failed", "will not overwrite an unknown module", "call :known_network"):
+        if gate in enable:
+            raise SystemExit(f"FPS beta installer must not contain the replacement gate: {gate}")
+    for marker in ("%CANDIDATE%", "%LEGACY_CANDIDATE%", "LEGACY_CANDIDATE=78E271", "call :drop", "call :is_candidate", "installed.txt", "Restored the codelib", "Nothing was changed"):
         if marker not in disable:
-            raise SystemExit(f"FPS beta remover lost required verified-restore marker: {marker}")
+            raise SystemExit(f"FPS beta remover lost required record-based removal marker: {marker}")
+    for gate in ("copy_checked", "SHA-256 verification failed", "read_backup_hash"):
+        if gate in disable:
+            raise SystemExit(f"FPS beta remover must not contain the removal gate: {gate}")
     for marker in ("LEGACY_CANDIDATE=78E271", "WITHDRAWN public-source beta candidate", "lacks Steam friends/P2P support"):
         if marker not in check:
             raise SystemExit(f"FPS beta checker lost required legacy Steam-regression repair marker: {marker}")

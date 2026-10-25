@@ -1,23 +1,16 @@
 @echo off
-rem MiusMultiplayer v1.0.1: one checked MiusPlayer + MiusVitals install for Steam 3598/1.
-rem It installs the Steam-preserving FPS module, program packs and Vitals DLL together; no separate mpmod1 or MiusVitals install is needed.
+rem MiusMultiplayer v1.0.1: one unconditional MiusPlayer + MiusVitals install for Steam 3598/1.
+rem Every runtime file is force-replaced. No file hash, game-build fingerprint, module allow-list
+rem or copy verification can stop a replacement or abort the install half-way.
 setlocal EnableExtensions DisableDelayedExpansion
 set "MOD=%~dp0"
 set "MOD=%MOD:~0,-1%"
-for %%I in ("%MOD%\..") do set "GAME=%%~fI"
 set "QUIET="
 if /i "%~1"=="/quiet" set "QUIET=1"
 set "RC=0"
-set "V20=8108BD1E9AF8080EF8B1050512B8311848F5A336ACB49A7479388733B4AE5723"
+set "FAILN=0"
+set "FAILED="
 set "NETWORK=7B42A69ABE58DEB1583D2F5320EEBBECD9718FFA27EA08933613E67DF1901F67"
-set "NETWORK_STABLE=485B655662BD062E16278F9D699A3097B49A08DE1948D2500DD589703A3102A3"
-set "NETWORK_WITHDRAWN_BETA=78E2718383BC0679154118415189D1C1EE05ED0179A0A924455C22CB4AE2916E"
-set "NETWORK_PREVIOUS=4C91874C4B62DB424ECCA36586121BCB3B4CC7849CC900285E68DE5151EDDC36"
-set "NETWORK_OLDER=7CAF36CDDABF7EB388A3C6C393B05733E051955D63D32EF13531CE88004DCFBA"
-set "NETWORK_NOSTART=E4317E630A21198A55E0E86BE4AA29C71FCADA6065824C858ACD0E2BDEF8ADF9"
-set "NETWORK_NOSTART_PREVIOUS=F0766BEC48696869D59D4A654A04F20BD7BAF9F73ADB6FBF139E7DA31DFC1F4F"
-set "NETWORK_NOSTART_OLDER=2FB049B9B465DE2E05BD9BBE7D5573A772319CC4D65FB20BB146E648A7CDF8EC"
-set "NETWORK_NOREBASE=D2E34581B42D0573547E221873D7538B64A413267E8ED388ABEB46DD42B630D2"
 set "VITALS=71A1BF3A37923BBE6C8EE84448D0B91705C2BFF7382B647F990B9D671EE224DF"
 set "JOIN=6AA417CF6E1F01480C997446F2691A58AB55B90FA36E1FF511945989AADFEEAA"
 set "OPGAME=ECA75B740F7B11D9E13F2E2001F1B2B133427D0860FB3770220B89B0B8909535"
@@ -27,96 +20,143 @@ set "APPID=1A43840CA36F1401C85FF5F6E6981088927CFE09B23D155A9C4301DD13CA9610"
 echo.
 echo  MiusMultiplayer v1.0.1 - unified multiplayer and Vitals install
 echo.
-if not exist "%GAME%\starter_x64.exe" goto :no_game
+rem ---- the game folder: the nearest parent with starter_x64.exe
+rem (so an archive unzipped one level too deep still installs into the right game)
+set "GAME="
+for %%I in ("%MOD%\..") do if exist "%%~fI\starter_x64.exe" set "GAME=%%~fI"
+if defined GAME goto :have_game
+for %%I in ("%MOD%\..\..") do if exist "%%~fI\starter_x64.exe" set "GAME=%%~fI"
+if defined GAME goto :have_game
+for %%I in ("%MOD%\..\..\..") do if exist "%%~fI\starter_x64.exe" set "GAME=%%~fI"
+if not defined GAME goto :no_game
+:have_game
+echo  Game: %GAME%
 if not exist "%MOD%\files\bin\rel\x64\basic_network.codelib" goto :incomplete
 if not exist "%MOD%\files\mp_vitals.dll" goto :incomplete
 if not exist "%MOD%\files\root\programs\opgame.progpack" goto :incomplete
 if not exist "%MOD%\files\root\programs\tacgame.progpack" goto :incomplete
+if not exist "%MOD%\files\steam_appid.txt" goto :incomplete
 tasklist /fi "imagename eq starter_x64.exe" /nh 2>nul | find /i "starter_x64.exe" >nul && goto :running
 
-rem The upstream full-file list is a diagnostic fingerprint, not an install gate: the supported
-rem Steam 6.00 build 3598/1 can differ from that historical catalogue. Each engine-sensitive
-rem multiplayer/Vitals hook has its own exact runtime signature guard and stays off if it does not match.
-set "ODD=0"
-for /f "usebackq tokens=1,*" %%A in ("%MOD%\game_build_3598_1.sha256") do call :check_game %%A "%%B"
-if "%ODD%"=="0" goto :reference_ok
-echo  Note: %ODD% game files differ from the historical reference hash list.
-echo  This does not block the supported Steam 6.00 build 3598/1 install; exact runtime signatures
-echo  still protect every engine-specific hook. Save both logs if they report "unknown game build".
-:reference_ok
+if not exist "%MOD%\state" mkdir "%MOD%\state" >nul 2>nul
+if not exist "%GAME%\out" mkdir "%GAME%\out" >nul 2>nul
+if not exist "%MOD%\state" echo  Note: MiusMultiplayer\state cannot be created. Files are still replaced, but uninstall will have no removal record.
+if not exist "%MOD%\state\steam_appid_added.txt" if not exist "%GAME%\steam_appid.txt" >"%MOD%\state\steam_appid_added.txt" echo MiusMultiplayer created steam_appid.txt.
+if exist "%MOD%\state\installed.txt" attrib -r -s -h "%MOD%\state\installed.txt" >nul 2>nul
+type nul >"%MOD%\state\installed.txt"
 
-call :known_network
-if errorlevel 1 goto :foreign_network
-if not exist "%MOD%\state\" mkdir "%MOD%\state" || goto :failed
-call :backup_if_foreign "root\programs\opgame.progpack" "%MOD%\files\root\programs\opgame.progpack" || goto :failed
-call :backup_if_foreign "root\programs\tacgame.progpack" "%MOD%\files\root\programs\tacgame.progpack" || goto :failed
-call :backup_if_foreign "mp_join.exe" "%MOD%\files\mp_join.exe" || goto :failed
-call :backup_if_foreign "mp_vitals.dll" "%MOD%\files\mp_vitals.dll" || goto :failed
+rem ---- keep whatever occupied these names before, so Disable_Multiplayer.bat can put it back.
+rem Best effort only: a failed backup never blocks a replacement.
+call :keep "root\programs\opgame.progpack"
+call :keep "root\programs\tacgame.progpack"
+call :keep "mp_join.exe"
+call :keep "mp_vitals.dll"
+call :keep "steam_appid.txt"
+call :keep "bin\rel\x64\basic_network.codelib"
 
-rem Copy dependencies before the module/program pack that asks the loader for them.
-call :copy_checked "%MOD%\files\mp_vitals.dll" "%GAME%\mp_vitals.dll" "%VITALS%" || goto :failed
-if not exist "%GAME%\bin\rel\x64\" mkdir "%GAME%\bin\rel\x64" || goto :failed
-call :copy_checked "%MOD%\files\bin\rel\x64\basic_network.codelib" "%GAME%\bin\rel\x64\basic_network.codelib" "%NETWORK%" || goto :failed
-call :copy_checked "%MOD%\files\mp_join.exe" "%GAME%\mp_join.exe" "%JOIN%" || goto :failed
-if not exist "%GAME%\root\programs\" mkdir "%GAME%\root\programs" || goto :failed
-call :copy_checked "%MOD%\files\root\programs\opgame.progpack" "%GAME%\root\programs\opgame.progpack" "%OPGAME%" || goto :failed
-call :copy_checked "%MOD%\files\root\programs\tacgame.progpack" "%GAME%\root\programs\tacgame.progpack" "%TACGAME%" || goto :failed
-if not exist "%GAME%\steam_appid.txt" (
-    call :copy_checked "%MOD%\files\steam_appid.txt" "%GAME%\steam_appid.txt" "%APPID%" || goto :failed
-    >"%MOD%\state\steam_appid_added.txt" echo MiusMultiplayer created steam_appid.txt.
-)
+rem ---- force replacement. The DLL and the module are written before the program packs that make
+rem the engine load them, so even an interrupted run never leaves a pack without its module.
+call :put "%MOD%\files\mp_vitals.dll" "%GAME%\mp_vitals.dll" "mp_vitals.dll"
+call :put "%MOD%\files\bin\rel\x64\basic_network.codelib" "%GAME%\bin\rel\x64\basic_network.codelib" "bin\rel\x64\basic_network.codelib"
+call :put "%MOD%\files\mp_join.exe" "%GAME%\mp_join.exe" "mp_join.exe"
+call :put "%MOD%\files\root\programs\opgame.progpack" "%GAME%\root\programs\opgame.progpack" "root\programs\opgame.progpack"
+call :put "%MOD%\files\root\programs\tacgame.progpack" "%GAME%\root\programs\tacgame.progpack" "root\programs\tacgame.progpack"
+call :put "%MOD%\files\steam_appid.txt" "%GAME%\steam_appid.txt" "steam_appid.txt"
+
+rem ---- Windows must not hold an internet mark on the modules it is asked to load
+call :unblock
+
+if not "%FAILN%"=="0" goto :partial
 >"%MOD%\state\enabled.txt" echo MiusMultiplayer v1.0.1 is enabled in this game.
-
-echo  Installed and SHA-256 verified:
-echo    basic_network.codelib %NETWORK%
-echo    mp_vitals.dll          %VITALS%
-echo    mp_join.exe            %JOIN%
-echo    opgame.progpack        %OPGAME%
-echo    tacgame.progpack       %TACGAME%
-echo  Both players need this same archive. This codelib keeps Steam friends/P2P and skips only zero-ms ctrl_tick simulation work.
- echo  Check both basic_network_*.log files for "vitals:" and run the Steam friends regression before campaign use.
+echo  All files replaced:
+echo    bin\rel\x64\basic_network.codelib  %NETWORK%
+echo    mp_vitals.dll                     %VITALS%
+echo    root\programs\opgame.progpack     %OPGAME%
+echo    root\programs\tacgame.progpack    %TACGAME%
+echo    mp_join.exe                       %JOIN%
+echo    steam_appid.txt                   %APPID%
+echo.
+rem ---- basic_network.codelib has a hard import on mp_vitals.dll!MpVitalsInit. Without that DLL, or
+rem without the VC++ x64 runtime, Windows does not load the module at all: the engine then never creates
+rem i_network and the main menu has no MULTIPLAYER entry. Report these preconditions.
+if not exist "%GAME%\mp_vitals.dll" echo  WARNING: mp_vitals.dll is missing; the multiplayer module cannot load.
+if not exist "%SystemRoot%\System32\vcruntime140.dll" echo  WARNING: the Microsoft VC++ 2015-2022 x64 runtime is missing;
+if not exist "%SystemRoot%\System32\vcruntime140.dll" echo           the multiplayer module cannot load without vcruntime140.dll.
+echo  Start the game through Steam. The main menu gets the MULTIPLAYER entry at the top.
+echo  If it does not appear, run Check_Install.bat: it reports which load precondition is missing.
+echo  Both players need this same archive. Check both basic_network_*.log files for "vitals:".
 echo  Back to the original game: Disable_Multiplayer.bat
 goto :finish
 
-:check_game
-set "H="
-if not exist "%GAME%\%~2" goto :check_odd
-for /f "skip=1 delims=" %%X in ('certutil -hashfile "%GAME%\%~2" SHA256 2^>nul') do if not defined H set "H=%%X"
-if defined H set "H=%H: =%"
-if /i "%H%"=="%~1" exit /b 0
-:check_odd
-set /a ODD+=1
+rem ---- %1 = source in the kit, %2 = destination in the game, %3 = relative name for messages
+:put
+if not exist "%~1" (
+    echo  MISSING IN KIT: %~3
+    set "FAILED=%FAILED% %~3"
+    set /a FAILN+=1
+    exit /b 1
+)
+for %%I in ("%~2") do if not exist "%%~dpI" mkdir "%%~dpI" >nul 2>nul
+call :overwrite "%~1" "%~2"
+if not errorlevel 1 goto :put_ok
+rem a second attempt clears a stale read-only or sharing state that has just gone away
+call :overwrite "%~1" "%~2"
+if not errorlevel 1 goto :put_ok
+rem last resort: write a new file next to it and move that over the old name
+copy /y "%~1" "%~2.put" >nul 2>nul
+if not exist "%~2.put" goto :put_failed
+attrib -r -s -h "%~2" >nul 2>nul
+del /f /q "%~2" >nul 2>nul
+move /y "%~2.put" "%~2" >nul 2>nul
+:put_failed
+if not exist "%~2" goto :put_error
+:put_ok
+>>"%MOD%\state\installed.txt" echo %~3
 exit /b 0
-
-:known_network
-if not exist "%GAME%\bin\rel\x64\basic_network.codelib" exit /b 0
-set "H="
-for /f "skip=1 delims=" %%X in ('certutil -hashfile "%GAME%\bin\rel\x64\basic_network.codelib" SHA256 2^>nul') do if not defined H set "H=%%X"
-if defined H set "H=%H: =%"
-for %%X in ("%V20%" "%NETWORK%" "%NETWORK_STABLE%" "%NETWORK_WITHDRAWN_BETA%" "%NETWORK_PREVIOUS%" "%NETWORK_OLDER%" "%NETWORK_NOSTART%" "%NETWORK_NOSTART_PREVIOUS%" "%NETWORK_NOSTART_OLDER%" "%NETWORK_NOREBASE%") do if /i "%H%"==%%~X exit /b 0
-echo  Existing basic_network.codelib is unknown: %H%
+:put_error
+echo  COULD NOT WRITE %~2
+set "FAILED=%FAILED% %~3"
+set /a FAILN+=1
 exit /b 1
 
-:backup_if_foreign
+:overwrite
+attrib -r -s -h "%~2" >nul 2>nul
+del /f /q "%~2" >nul 2>nul
+copy /y "%~1" "%~2" >nul 2>nul
+if errorlevel 1 exit /b 1
+if not exist "%~2" exit /b 1
+exit /b 0
+
+rem ---- save an existing file of somebody else once, so Disable_Multiplayer.bat can put it back
+:keep
 if not exist "%GAME%\%~1" exit /b 0
-fc /b "%~2" "%GAME%\%~1" >nul 2>nul && exit /b 0
 if exist "%MOD%\state\backup\%~1" exit /b 0
-for %%I in ("%MOD%\state\backup\%~1") do if not exist "%%~dpI" mkdir "%%~dpI" || exit /b 1
-copy /y "%GAME%\%~1" "%MOD%\state\backup\%~1" >nul || exit /b 1
-echo    saved existing %~1 in MiusMultiplayer\state\backup
+for %%I in ("%MOD%\state\backup\%~1") do if not exist "%%~dpI" mkdir "%%~dpI" >nul 2>nul
+fc /b "%MOD%\files\%~1" "%GAME%\%~1" >nul 2>nul && exit /b 0
+copy /y "%GAME%\%~1" "%MOD%\state\backup\%~1" >nul 2>nul
+if exist "%MOD%\state\backup\%~1" echo    saved the existing %~1 in MiusMultiplayer\state\backup
 exit /b 0
 
-:copy_checked
-copy /y "%~1" "%~2" >nul || exit /b 1
-set "H="
-for /f "skip=1 delims=" %%X in ('certutil -hashfile "%~2" SHA256 2^>nul') do if not defined H set "H=%%X"
-if defined H set "H=%H: =%"
-if /i "%H%"=="%~3" exit /b 0
-echo  SHA-256 verification failed for %~2
-exit /b 1
+rem ---- remove the Mark of the Web from the kit and the installed modules, so that SmartScreen,
+rem Smart App Control or an application allow-list cannot silently refuse to load them
+:unblock
+where powershell >nul 2>nul
+if errorlevel 1 exit /b 0
+set "MP_UNBLOCK_MOD=%MOD%"
+set "MP_UNBLOCK_FILES=%GAME%\mp_vitals.dll|%GAME%\bin\rel\x64\basic_network.codelib|%GAME%\root\programs\opgame.progpack|%GAME%\root\programs\tacgame.progpack|%GAME%\mp_join.exe|%GAME%\steam_appid.txt"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$m=$env:MP_UNBLOCK_MOD; if($m){Get-ChildItem -LiteralPath $m -Recurse -File -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue}; foreach($f in ($env:MP_UNBLOCK_FILES -split '\|')){if($f){Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue}}" >nul 2>nul
+exit /b 0
 
+:partial
+echo.
+echo  NOT REPLACED:%FAILED%
+echo  These files keep their old content. Close the game, check write access to the game folder
+echo  and run this file again. Nothing else was rolled back.
+set "RC=1"
+goto :finish
 :no_game
 echo  This folder is not inside the game folder. Put the whole MiusMultiplayer folder next to starter_x64.exe.
+echo  (Steam: right-click the game, Manage, Browse local files.)
 set "RC=3"
 goto :finish
 :incomplete
@@ -126,14 +166,6 @@ goto :finish
 :running
 echo  The game is running. Close it, then run this again.
 set "RC=4"
-goto :finish
-:foreign_network
-echo  Nothing was changed: do not overwrite an unknown multiplayer module.
-set "RC=2"
-goto :finish
-:failed
-echo  A file could not be copied or verified. Close the game and run this file again.
-set "RC=1"
 :finish
 echo.
 if not defined QUIET pause

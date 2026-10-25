@@ -38,10 +38,16 @@ It automatically replaces only:
   bin\rel\x64\basic_network.codelib
 
 It backs up any previously installed codelib, including an unknown module, in
-MiusMultiplayer_beta_FPS_fix\state\backup before replacement. The backup receives
-its own SHA-256 record; Disable_Beta_FPS_Fix.bat verifies and restores that exact
-previous file. If a stale beta backup exists while a different external codelib is
-active, the installer stops without changing either file so data cannot be lost.
+MiusMultiplayer_beta_FPS_fix\state\backup before replacement. The replacement
+itself has no gate: no hash, allow-list or copy verification can stop it. A failed
+or missing backup never blocks the swap, and Disable_Beta_FPS_Fix.bat removes the
+file through the install record it wrote, without comparing hashes, then restores
+the saved module. SHA-256 values are printed for provenance only.
+
+If the game instead has no MULTIPLAYER entry after this beta, the codelib was not
+loaded at all: check that mp_vitals.dll is next to starter_x64.exe, that the
+Microsoft VC++ 2015-2022 x64 runtime is installed, and that Smart App Control,
+SmartScreen, antivirus or the Mark of the Web did not block the downloaded file.
 
 Install
 -------

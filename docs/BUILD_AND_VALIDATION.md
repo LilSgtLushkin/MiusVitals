@@ -48,7 +48,7 @@ files/root/programs/tacgame.progpack
 files/steam_appid.txt
 ```
 
-Install script сравнивает Steam 6.00 build 3598/1 с historical full-file reference list, но это диагностическая сводка, а не hard gate: актуальный Steam 3598/1 может отличаться от опубликованного старого catalogue. Он по-прежнему принимает только stock/известные предыдущие multiplayer modules, сохраняет foreign program/utility files, копирует DLL до importing codelib и сверяет runtime hashes после copy. Engine-specific hooks защищены своими exact runtime signatures; `unknown game build` в логах означает, что конкретный hook не включился. `Disable_Multiplayer.bat` удаляет только exact unified hashes и восстанавливает сохранённые файлы.
+Install script не содержит проверок, влияющих на замену: все шесть runtime files заменяются безусловно (`attrib` → `del` → `copy`, повтор, копирование через `*.put` + `move`). Ни historical full-file reference list, ни allow-list известных модулей, ни `certutil`, ни SHA-256 после copy не могут отменить замену или оборвать установку. Порядок копирования сохраняет работоспособность при обрыве: DLL → codelib → `mp_join` → program packs → `steam_appid.txt`. Backup прежних файлов best-effort и не блокирует установку; после copy снимается Mark of the Web. `Disable_Multiplayer.bat` удаляет файлы по записи `state\installed.txt`, без сравнения hash-ей, и восстанавливает сохранённые файлы; hash-режим остался только для установок прежних архивов, где такой записи нет. Engine-specific hooks защищены своими exact runtime signatures; `unknown game build` в логах означает, что конкретный hook не включился. Подробный разбор кнопки MULTIPLAYER: [`MULTIPLAYER_MENU_BUTTON_2026-10-25.md`](MULTIPLAYER_MENU_BUTTON_2026-10-25.md).
 
 ```sh
 python3 scripts/package_unified_mod.py --output MiusMultiplayer_v1.0.0_INSTALL.zip
@@ -65,7 +65,7 @@ sha256sum MiusMultiplayer_v1.0.0_INSTALL.zip
 - `.fpsfix` trampoline skips `session_sim_step` only for zero-ms `ctrl_tick`; a nonzero step uses the original function;
 - the exact Steam Friends, rich-presence, Join Game, SteamNetworking P2P and Vitals import paths are retained from the base module.
 
-`scripts/package_unified_fps_mod.py` rejects a simple binary substitution: it reconstructs and byte-compares the deterministic transformation, checks the PE trampoline plus every required Steam marker, requires byte identity with `development/fps-beta-build/basic_network.codelib`, validates all runtime hashes, both program-pack module references, ZIP allow-list and fixed metadata. The v1.0.1 installer accepts the known v1.0.0 module and withdrawn beta only as migration inputs, but still rejects an unknown active codelib.
+`scripts/package_unified_fps_mod.py` rejects a simple binary substitution: it reconstructs and byte-compares the deterministic transformation, checks the PE trampoline plus every required Steam marker, requires byte identity with `development/fps-beta-build/basic_network.codelib`, validates all runtime hashes, both program-pack module references, ZIP allow-list and fixed metadata. The v1.0.1 installer has no migration allow-list and no replacement gate: any active codelib (v1.0.0, withdrawn beta, another mod or an unknown build) is backed up best-effort and replaced. `docs/MULTIPLAYER_MENU_BUTTON_2026-10-25.md` explains why a skipped or half-applied replacement leaves the main menu without the MULTIPLAYER entry.
 
 ```sh
 python3 scripts/package_unified_fps_mod.py --output MiusMultiplayer_v1.0.1_INSTALL.zip
@@ -83,7 +83,7 @@ sha256sum MiusMultiplayer_v1.0.1_INSTALL.zip
 
 Workflow `.github/workflows/build-fps-beta-codelib.yml` заново выполняет эту deterministic transformation, сравнивает byte-for-byte с checked-in candidate и строит reproducible installer. `scripts/package_fps_beta.py` допускает только exact transformation: проверяет base hash, original call signature, redirected call, `.fpsfix` code, retained Vitals import и Steam runtime markers `MP_STEAM_PEER`, `+gtmf_join=`, SteamFriends, SteamUser, SteamNetworking, `SendP2PPacket`, `ReadP2PPacket`, `JoinRequested`.
 
-Beta installer автоматически сохраняет **любой** active codelib, включая unknown module, с SHA-256 record и затем заменяет его candidate; `Disable_Beta_FPS_Fix.bat` проверяет и восстанавливает exact сохранённый module. Если после незавершённой beta session найден stale backup вместе с другим active module, installer отказывается перезаписывать любой из них. После beta disable можно снова применять normal stable installer/remover. Retained binary surface не заменяет live evidence: до Windows Steam two-peer regression (rich presence host, friends Join Game, P2P lobby, tactical session, reconnect, обе стороны host) candidate остаётся FPS test candidate, не gameplay-certified compatibility release.
+Beta installer автоматически сохраняет **любой** active codelib, включая unknown module, и затем безусловно заменяет его candidate; сбой или отсутствие backup замену не блокируют. `Disable_Beta_FPS_Fix.bat` удаляет файл по записи `state\installed.txt` без сравнения hash-ей и восстанавливает сохранённый module, поэтому stale backup больше не останавливает установку. После beta disable можно снова применять normal stable installer/remover. Retained binary surface не заменяет live evidence: до Windows Steam two-peer regression (rich presence host, friends Join Game, P2P lobby, tactical session, reconnect, обе стороны host) candidate остаётся FPS test candidate, не gameplay-certified compatibility release.
 
 ```sh
 python3 scripts/package_fps_beta.py --output MiusMultiplayer_beta_FPS_fix_INSTALL.zip
@@ -96,6 +96,8 @@ python3 scripts/package_fps_beta.py --verify MiusMultiplayer_beta_FPS_fix_INSTAL
 scripts/test_native.sh
 scripts/verify_release.sh
 ```
+
+`scripts/package_unified_mod.py`, `scripts/package_unified_fps_mod.py` и `scripts/package_fps_beta.py` теперь не только проверяют байты и ZIP tree, но и **запрещают возврат гейтов замены**: если в `Enable_Multiplayer.bat` снова появится `certutil`, `known_network`, `copy_checked`, `foreign_network`, `ODD`, `game_build_3598_1.sha256` или `SHA-256 verification failed`, сборка архива падает. Это превращает «файлы заменяются всегда» в проверяемый инвариант, а не в обещание.
 
 Native harness запускается с ASan/UBSan. Помимо прежних тестов смертей/ранений/техники, ACK/retry, duplicate mailbox и transparent type 10/11, он утверждает:
 

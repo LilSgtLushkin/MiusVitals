@@ -6,11 +6,11 @@
 
 **Актуальный устанавливаемый файл только один:** [`MiusMultiplayer_v1.0.1_INSTALL.zip`](MiusMultiplayer_v1.0.1_INSTALL.zip).
 
-Архив содержит единый корень `MiusMultiplayer/` и имеет SHA-256 `62e690fdaf4e7ca2e837e054ea3e33b9efdcbb7c8751a6934331bb733f91216f`. Распакуйте его в корень игры рядом со `starter_x64.exe`, затем выполните `MiusMultiplayer\\Check_Install.bat` и `MiusMultiplayer\\Enable_Multiplayer.bat` на обоих ПК. Не устанавливайте отдельно старые `mpmod1`, `MiusVitals`, `MiusMultiplayer_v1.0.0` или `beta_FPS_fix`.
+Архив содержит единый корень `MiusMultiplayer/` и имеет SHA-256 `13dd5b317f05ee9f6852cb75671af0f3c847b040e622799b7afb19efe07479b6`. Распакуйте его в корень игры рядом со `starter_x64.exe`, затем выполните `MiusMultiplayer\\Check_Install.bat` и `MiusMultiplayer\\Enable_Multiplayer.bat` на обоих ПК. Не устанавливайте отдельно старые `mpmod1`, `MiusVitals`, `MiusMultiplayer_v1.0.0` или `beta_FPS_fix`.
 
 Внутри v1.0.1 находится `basic_network.codelib` SHA-256 `7b42a69abe58deb1583d2f5320eebbecd9718ffa27ea08933613e67df1901f67`: это Steam-capable 3598/1 module с проверенным `.fpsfix` trampoline. Он пропускает `session_sim_step` только при zero-ms `ctrl_tick` и оставляет original path для non-zero steps. Steam Friends, rich presence, Join Game, SteamNetworking P2P, Vitals import/signature surface и остальные текущие runtime fixes остаются в том же codelib.
 
-`Enable_Multiplayer.bat` принимает known v1.0.0, withdrawn public-source beta и Steam-preserving beta, но отказывается заменить неизвестный active multiplayer module. Historical full-file game hash list остаётся diagnostic fingerprint: для актуального Steam **6.00 build 3598/1** различия не блокируют установку, а engine-specific hooks включаются только после собственных точных runtime signature checks.
+`Enable_Multiplayer.bat` заменяет все шесть runtime files **безусловно**: в установщике больше нет ни allow-list известных модулей, ни `certutil`, ни SHA-256 после copy, ни чтения `game_build_3598_1.sha256`. Любой прежний `basic_network.codelib` (v1.0.0, withdrawn beta, другой мод, неизвестная сборка) сохраняется best-effort и заменяется; сбой backup-а установку не прерывает. Если файл физически не записывается, установщик печатает `NOT REPLACED` и всё равно заменяет остальные. Historical full-file game hash list остался только диагностикой в `Check_Install.bat`, а engine-specific hooks включаются только после собственных точных runtime signature checks. Причина этого изменения и разбор того, почему кнопка MULTIPLAYER может не появиться, — в [`docs/MULTIPLAYER_MENU_BUTTON_2026-10-25.md`](docs/MULTIPLAYER_MENU_BUTTON_2026-10-25.md).
 
 ### Старые archives
 
@@ -21,6 +21,19 @@
 > Не устанавливайте [`development/`](development/). Это расширенная рабочая область: source MiusPlayer/MiusVitals, manifests и проверки. Для игры используйте только `MiusMultiplayer_v1.0.1_INSTALL.zip`; для редактирования/полной source rebuild цепочки см. [`development/merged-source/`](development/merged-source/).
 
 Оба игрока должны установить один и тот же v1.0.1 archive. Откат: после закрытия игры запустите `MiusMultiplayer\\Disable_Multiplayer.bat`, затем при необходимости переустановите выбранный старый kit.
+
+## Кнопка MULTIPLAYER в главном меню
+
+Кнопку рисует сам `basic_network.codelib` внутри главного меню, поэтому она существует только если Windows загрузила модуль и engine создал объект `i_network`. Наиболее частые причины её отсутствия:
+
+- установщик прежней версии отказался заменить `basic_network.codelib` (`existing ... is unknown`) или оборвался на проверке SHA-256 после copy — например, когда `certutil` недоступен, запрещён политикой или не разобрал путь; в результате оставался `codelib` без `root\programs\opgame.progpack` или без `mp_vitals.dll`;
+- нет `mp_vitals.dll` рядом со `starter_x64.exe`: у `basic_network.codelib` **жёсткий статический импорт** `mp_vitals.dll!MpVitalsInit`, и без него Windows не загружает сам модуль;
+- нет Microsoft Visual C++ 2015-2022 x64 runtime (`vcruntime140.dll`, `vcruntime140_1.dll`, `msvcp140.dll`);
+- Smart App Control, SmartScreen, антивирус или Mark of the Web заблокировали загрузку неподписанного модуля (теперь установщик снимает Mark of the Web, а `Check_Install.bat` это диагностирует);
+- `root\programs\opgame.progpack` остался стоковым/чужим: stock-программа сама грузит `basic_network.codelib`, поэтому модуль пишет лог, но её `r_main` не вызывает `on_render`, и кнопка не рисуется;
+- игра другой сборки: смещения главного меню в модуле и program packs рассчитаны на Steam 6.00 build 3598/1.
+
+Диагностика: `Check_Install.bat` (только чтение) печатает все импорты модуля и неразрешённые имена, наличие `mp_vitals.dll` и VC++ runtime, содержимое `opgame.progpack`, Mark of the Web, состояние Smart App Control и последний `out\basic_network_opgame_*.log`. Модуль пишет лог при загрузке, поэтому **нет лога после запуска игры = Windows не загрузила модуль**; лог есть, но нет строки `ui: Direct3D device` = модуль загружен, но render call не вызван (не заменён `opgame.progpack`) или главное меню не распознано (другая сборка игры).
 
 ## Что входит в единый мод
 
