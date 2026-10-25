@@ -16,14 +16,16 @@ Runtime composition:
 
 Player-facing artifact (the only install archive):
   ../../MiusMultiplayer_v1.0.0_INSTALL.zip
-    SHA-256: d027d5b4b1c741bb63d55500de76b4049505353adadca2b88eeb3428b38291fc
+    SHA-256: 67661473d1f8e6bcd67d7cf9117e92e19d30e5adda456dab5ee347aa851fa027
     exact tree: 13 files under one MiusMultiplayer/ root directory
 
 Install invariant:
-  Enable_Multiplayer.bat verifies Steam 3598/1, refuses an unknown active
-  basic_network.codelib, preserves foreign program/utility files, copies the
-  Vitals DLL before importing basic_network, and hashes every copied runtime file.
-  Disable_Multiplayer.bat removes only exact unified hashes and restores backups.
+  Enable_Multiplayer.bat replaces all six runtime files unconditionally: no hash
+  check, build fingerprint or module allow-list can stop a write or abort the run.
+  It copies the Vitals DLL before the importing basic_network, keeps foreign
+  program/utility files as best-effort backups, and records what it wrote in
+  state\installed.txt. Disable_Multiplayer.bat removes exactly that list and
+  restores the saved files; the package verifier rejects any reintroduced gate.
 
 Validation:
   - verify_artifacts.py checks codelib/DLL hashes and PE import/export surface;

@@ -75,15 +75,17 @@ def require_sources(repo: Path) -> None:
             raise SystemExit(f"program pack no longer loads basic_network.codelib: {relative}")
     enable = (source / "Enable_Multiplayer.bat").read_text(encoding="utf-8")
     disable = (source / "Disable_Multiplayer.bat").read_text(encoding="utf-8")
-    for marker in ("Steam 3598/1", "diagnostic fingerprint", "does not block", "game_build_3598_1.sha256", "call :known_network", "call :backup_if_foreign", "files\\mp_vitals.dll", "call :copy_checked"):
+    # Unconditional replacement: no hash, build fingerprint or allow-list gate may stop a write.
+    for marker in ("Steam 3598/1", "force-replaced", "call :keep", "call :put", ":overwrite", "state\\installed.txt", "call :unblock", "files\\mp_vitals.dll", "MpVitalsInit", "NOT REPLACED:"):
         if marker not in enable:
             raise SystemExit(f"unified installer lost required marker: {marker}")
-    if "goto :wrong_game" in enable or "not as expected:" in enable:
-        raise SystemExit("historical full-file reference differences must not abort the 3598/1 installer")
+    for gate in ("certutil", "known_network", "copy_checked", "foreign_network", "ODD", "goto :wrong_game", "not as expected:", "SHA-256 verification failed", "game_build_3598_1.sha256", 'if /i "%H%"'):
+        if gate in enable:
+            raise SystemExit(f"unified installer must not contain the replacement gate: {gate}")
     readme = (source / "README.txt").read_text(encoding="utf-8")
     if "6.00 build 3598/1" not in readme:
         raise SystemExit("unified README lost the supported game version 6.00 build 3598/1")
-    for marker in ("call :remove_ours", "call :restore", "left changed file"):
+    for marker in ("call :drop", "call :restore", "installed.txt", "left changed file"):
         if marker not in disable:
             raise SystemExit(f"unified uninstaller lost safety marker: {marker}")
 
