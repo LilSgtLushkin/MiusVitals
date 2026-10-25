@@ -17,10 +17,12 @@ AddVectoredExceptionHandler
 DisableThreadLibraryCalls
 EnterCriticalSection
 FlushInstructionCache
+GetCommandLineA
 GetCurrentProcess
 GetEnvironmentVariableA
 GetModuleHandleA
 GetTickCount
+SetEnvironmentVariableA
 InitializeCriticalSection
 LeaveCriticalSection
 VirtualAlloc

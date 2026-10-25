@@ -1,4 +1,4 @@
-MiusVitals v7.4.0 build manifest
+MiusVitals v7.5.0 build manifest
 Built: 2026-10-25
 
 Input: MiusPlayer v20 basic_network.codelib
@@ -8,29 +8,32 @@ Build toolchain:
   ziglang Python package 0.17.0
   x86_64-windows-gnu target, no C runtime
 
-Operation-map target verification (Steam 3598/1 actual adv_opgame.codelib):
+Release scope:
+  The main, nostart and norebase codelib artifacts are byte-for-byte unchanged
+  from v7.4.0. This release does not alter global-map/Next Turn logic.
+  The DLL restores the absent native operation tactical state-policy default
+  before basic_network caches it. It requires tacgame.progpack plus a strict
+  19YY_MM_campaign:battle command-line token and does not replace an explicit
+  MP_SYNC_STATE. It does not write g_host_mode, map state or any codelib bytes.
+
+Operation-map artifact verification retained (Steam 3598/1):
   Next Turn entry: +0x36b30
   Signature: 40 53 48 83 ec 40 4c 8b 81 d8 01 00 00 48 8b d9
   End-turn worker: +0x76510
   Operation save: +0xd6080
-  Join-launch race guard: basic_network+0x15a77 is exactly 8 NOP bytes;
-    it removes only the premature g_peer_on_map branch in Next Turn while
-    retaining the following g_connected branch.
+  Join-launch guard: basic_network+0x15a77 is exactly 8 NOP bytes;
+    it retains the following g_connected branch.
 
 Renderer target verification (Steam 3598 basic_render.codelib):
   Timestamp: 0x66f2d710
-  New geometry query entry: +0x39a40
+  Geometry query entry: +0x39a40
   Checked blocks: query entry, index/vertex loop, both optional-attribute
-    blocks, and the native no-hit epilogue at +0x39de5.
-  Fix: validates every index-derived 16-byte geometry read before the original
-    triangle query; a malformed query returns the engine's no-hit result.
-  Race fallback: only 12 exact matching read instructions can reach the same
-    native no-hit epilogue after an already-armed preflight.
+    blocks, and native no-hit epilogue at +0x39de5.
 
 Output files:
   files/mp_vitals.dll
-    SHA-256: d22e931575a119136cce9f40622ee90f8919ebd250f2738e3e50d7561c4fc486
-    imports: KERNEL32.dll only (including AddVectoredExceptionHandler)
+    SHA-256: 71a1bf3a37923bbe6c8ee84448d0b91705c2bff7382b647f990b9d671ee224df
+    imports: KERNEL32.dll only, including GetCommandLineA and SetEnvironmentVariableA
     exports: MpVitalsInit only
   files/basic_network.codelib
     SHA-256: 485b655662bd062e16278f9d699a3097b49a08de1948d2500dd589703a3102a3
@@ -40,14 +43,20 @@ Output files:
     SHA-256: d2e34581b42d0573547e221873d7538b64a413267e8ed388abeb46dd42b630d2
 
 Only player-installable archive:
-  ../../MiusVitals_v7.4.0_INSTALL.zip
-    SHA-256: 444f091f64d8ce909b0d0164eb171e4755fd5312319eb64ec3cfa16a8339a228
+  ../../MiusVitals_v7.5.0_INSTALL.zip
+    SHA-256: 76ec4286fb5c25517c20025c9eda4fc1685cbceb26161756beba5f38c255a4e6
     exact player kit: 16 files under one MiusVitals/ root directory
 
 Validation:
   - main/nostart codelibs are reproduced byte-for-byte from the v20 input;
-  - the operation Next Turn pointer, exact target signature and exact eight-byte join-launch race fix are asserted in main/nostart;
   - every patched codelib contains exactly mp_vitals.dll!MpVitalsInit in .mpimp;
   - the DLL imports only KERNEL32.dll and exports MpVitalsInit only;
-  - package_kit.py verifies the archive CRCs, exact 16-file allow-list, fixed ZIP metadata, and byte identity with kit inputs;
-  - native logic tests pass with AddressSanitizer and UndefinedBehaviorSanitizer, including valid and dump-shaped malformed triangle geometry.
+  - package_kit.py verifies archive CRCs, fixed metadata, the exact 16-file
+    allow-list and byte identity with kit inputs;
+  - native ASan/UBSan tests include strict operation command recognition,
+    absent-only MP_SYNC_STATE=0 setting and explicit override preservation.
+
+Gameplay evidence still required:
+  a real two-peer operational tactical battle must show no saved-object state
+  traffic after the object-number exchange while transforms, shots and Vitals
+  remain functional. Global-map synchronization is explicitly out of scope.
