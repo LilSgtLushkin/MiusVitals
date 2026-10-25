@@ -2,7 +2,7 @@
 
 ## Воспроизводимые входы
 
-`MiusVitals/src/build_release.sh` принимает оригинальный `basic_network.codelib` из MiusPlayer v20 и проверяет его SHA-256 до изменений.
+`development/kit-source/src/build_release.sh` принимает оригинальный `basic_network.codelib` из MiusPlayer v20 и проверяет его SHA-256 до изменений.
 
 | Вариант | Преобразование | SHA-256 |
 | --- | --- | --- |
@@ -11,11 +11,11 @@
 | `nostart` | rebase без группы Start + импорт DLL | `2fb049b9b465de2e05bd9bbe7d5573a772319cc4d65fb20bb146e648a7cdf8ec` |
 | `norebase` | только импорт DLL | `d2e34581b42d0573547e221873d7538b64a413267e8ed388abeb46dd42b630d2` |
 | `mp_vitals.dll` | Zig 0.17.0, no CRT, KERNEL32 only | `83387d8434241773eed6216224cf9bd20ebac61167c5e675fad9a6fb101a5bf0` |
-| `MiusVitals_kit_7.1.0.zip` | fixed-time exact 16-file kit | `7c98cf37188107cd84e80f0adf079f6ee43d24e88596cc720d590d9fff9e881d` |
+| `MiusVitals_v7.1.0_INSTALL.zip` | fixed-time exact 16-file install kit | `7c98cf37188107cd84e80f0adf079f6ee43d24e88596cc720d590d9fff9e881d` |
 
 ## Exact downloadable kit
 
-`MiusVitals/` is also the development-kit directory, so the repository has deliberately more files than the player archive. `scripts/package_kit.py` is the source-of-truth allow-list for the download. It writes only these sixteen files under a single `MiusVitals/` root:
+`development/kit-source/` is the editable development tree and is **not** an install directory. It can contain manifest and verification helpers that deliberately do not reach players. `scripts/package_kit.py` is the source-of-truth allow-list for the only installable download, `MiusVitals_v7.1.0_INSTALL.zip`. It writes only these sixteen files under a single `MiusVitals/` root:
 
 ```text
 Check_Build.ps1
@@ -39,9 +39,9 @@ files/alt/basic_network_v5_norebase.codelib
 The builder fixes every ZIP entry timestamp to 2026-10-25 00:00:00, sorts the explicit tree, fixes permission metadata, and compresses at level 9. `--verify` checks CRCs, the ordered tree (including only required directories), timestamps, and byte-for-byte equality to the kit inputs.
 
 ```sh
-python3 scripts/package_kit.py --output MiusVitals_kit_7.1.0.zip
-python3 scripts/package_kit.py --verify MiusVitals_kit_7.1.0.zip
-sha256sum MiusVitals_kit_7.1.0.zip
+python3 scripts/package_kit.py --output MiusVitals_v7.1.0_INSTALL.zip
+python3 scripts/package_kit.py --verify MiusVitals_v7.1.0_INSTALL.zip
+sha256sum MiusVitals_v7.1.0_INSTALL.zip
 ```
 
 The generated ZIP is committed so it is directly downloadable from the repository; re-running the command with the same checked-in kit must retain the hash above.
@@ -62,8 +62,8 @@ The native harness tests infantry/vehicle state rules, no echo, receiver mailbox
 
 ```sh
 python3 -m venv /tmp/mius-v7-venv
-/tmp/mius-v7-venv/bin/pip install -r MiusVitals/src/requirements-build.txt
-ZIG_PYTHON=/tmp/mius-v7-venv/bin/python MiusVitals/src/build_release.sh \
+/tmp/mius-v7-venv/bin/pip install -r development/kit-source/src/requirements-build.txt
+ZIG_PYTHON=/tmp/mius-v7-venv/bin/python development/kit-source/src/build_release.sh \
   /path/to/mpmod1/files/bin/rel/x64/basic_network.codelib
 scripts/verify_release.sh
 ```

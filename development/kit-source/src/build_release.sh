@@ -5,6 +5,7 @@ set -eu
 
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 KIT=$(CDPATH= cd -- "$HERE/.." && pwd)
+REPO=$(CDPATH= cd -- "$KIT/../.." && pwd)
 PYTHON=${PYTHON:-python3}
 ZIG_PYTHON=${ZIG_PYTHON:-$PYTHON}
 INPUT=${1:?"usage: build_release.sh /path/to/original/basic_network.codelib"}
@@ -20,4 +21,4 @@ mkdir -p "$KIT/files/alt"
 OUT="$KIT/files/mp_vitals.dll" ZIG_PYTHON="$ZIG_PYTHON" "$HERE/build.sh"
 
 "$PYTHON" "$HERE/verify_artifacts.py" --kit "$KIT"
-"$PYTHON" "$KIT/../scripts/package_kit.py" --output "$KIT/../MiusVitals_kit_7.1.0.zip"
+"$PYTHON" "$REPO/scripts/package_kit.py" --output "$REPO/MiusVitals_v7.1.0_INSTALL.zip"

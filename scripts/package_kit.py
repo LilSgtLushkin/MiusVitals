@@ -15,16 +15,20 @@ import sys
 import zipfile
 
 VERSION = "7.1.0"
-ROOT = "MiusVitals"
+# `development/kit-source` contains the editable source and verification helpers.
+# It is deliberately not named `MiusVitals`, so a repository checkout is not mistaken
+# for the player install. The generated archive still has the required game root.
+SOURCE_KIT = Path("development/kit-source")
+ARCHIVE_ROOT = "MiusVitals"
 # This is the complete, ordered, player-visible tree requested for this release.
-DIRS = (
-    "MiusVitals/",
-    "MiusVitals/files/",
-    "MiusVitals/files/alt/",
-    "MiusVitals/src/",
-    "MiusVitals/src/test/",
-    "MiusVitals/src/test/stub/",
-)
+DIRS = tuple(f"{ARCHIVE_ROOT}{suffix}" for suffix in (
+    "/",
+    "/files/",
+    "/files/alt/",
+    "/src/",
+    "/src/test/",
+    "/src/test/stub/",
+))
 FILES = (
     "Check_Build.ps1",
     "Uninstall_Vitals.bat",
@@ -53,11 +57,11 @@ def sha256(data: bytes) -> str:
 
 
 def expected_names() -> tuple[str, ...]:
-    return DIRS + tuple(f"{ROOT}/{relative}" for relative in FILES)
+    return DIRS + tuple(f"{ARCHIVE_ROOT}/{relative}" for relative in FILES)
 
 
 def kit_path(repo: Path) -> Path:
-    return repo / ROOT
+    return repo / SOURCE_KIT
 
 
 def make_info(name: str, directory: bool = False) -> zipfile.ZipInfo:
@@ -87,7 +91,7 @@ def build(repo: Path, output: Path) -> None:
             for name in DIRS:
                 archive.writestr(make_info(name, directory=True), b"")
             for relative in FILES:
-                archive.writestr(make_info(f"{ROOT}/{relative}"), (kit_path(repo) / relative).read_bytes())
+                archive.writestr(make_info(f"{ARCHIVE_ROOT}/{relative}"), (kit_path(repo) / relative).read_bytes())
         os.replace(temporary, output)
     finally:
         temporary.unlink(missing_ok=True)
@@ -112,7 +116,7 @@ def verify(repo: Path, archive_path: Path) -> None:
                 raise SystemExit(f"ZIP timestamp is not reproducible: {info.filename}")
         for relative in FILES:
             source = (kit_path(repo) / relative).read_bytes()
-            packed = archive.read(f"{ROOT}/{relative}")
+            packed = archive.read(f"{ARCHIVE_ROOT}/{relative}")
             if packed != source:
                 raise SystemExit(f"ZIP content differs from kit source: {relative}")
     print(f"OK {archive_path}: {len(FILES)} files, exact v{VERSION} kit tree, sha256 {sha256(archive_path.read_bytes())}")

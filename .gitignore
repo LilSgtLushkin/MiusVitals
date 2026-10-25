@@ -1,8 +1,8 @@
 # Local build and test output
 /build/
 /dist/
-MiusVitals/state/
-MiusVitals/build_report.txt
+development/kit-source/state/
+development/kit-source/build_report.txt
 *.o
 *.obj
 *.lib

@@ -16,6 +16,6 @@ jobs:
       - name: Upload exact downloadable kit
         uses: actions/upload-artifact@v4
         with:
-          name: MiusVitals_kit_7.1.0
-          path: MiusVitals_kit_7.1.0.zip
+          name: MiusVitals_v7.1.0_INSTALL
+          path: MiusVitals_v7.1.0_INSTALL.zip
           if-no-files-found: error
