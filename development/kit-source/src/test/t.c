@@ -73,6 +73,7 @@ static void setup(void)
     for (int i = 0; i < NV; i++) { *(const char **)(veh[i] + 0x48) = "i_techn"; sprintf(veh[i] + 8, "techn_%08x", 0x900 + i); objs[NS + i] = veh[i]; }
     *(u32 *)(om_buf + 0xfc) = NS + NV; *(void ***)(om_buf + 0xf0) = objs;
     g_connected = &conn; g_tactical = &tact; g_have_peer = &have; g_host_mode = &hmode; g_peer = peer;
+    num_ready = 1; num_flag = 0;
     g_num_ready = &num_ready; g_num_flag = &num_flag;
     g_orig_frame = fake_orig_frame; during = 0; g_on = 0; g_broken = 0; g_send = fake_send; g_log = fake_log; g_orig_packet = fake_orig_packet;
     g_phys = 0; g_phys_size = 0; memset(g_why, 0, sizeof g_why);
@@ -236,11 +237,18 @@ int main(void)
     { static char statobj[0x200]; *(u32 *)(statobj + STAT_SEED_OFF) = 0x1234; g_orig_stat = (FnStat)fake_stat; stat_calls = 0;
       hook_stat(statobj, 0, 0);
       printf("stat seed %08x\n", *(u32 *)(statobj + STAT_SEED_OFF));
-      assert(*(u32 *)(statobj + STAT_SEED_OFF) == STAT_SEED && stat_calls == 1); }
+      assert(*(u32 *)(statobj + STAT_SEED_OFF) == STAT_SEED && stat_calls == 1 && g_s_final_scans == 1); }
 
-    // ---- 7f. the object-number lists never arrive: asked again after 15 s, not when they are there
-    setup(); num_ready = 0; num_flag = 0; RUN(5000); assert(num_flag == 0); RUN(12000); assert(num_flag == 1);
-    num_flag = 0; num_ready = 1; RUN(9000); assert(num_flag == 0); num_ready = 0;
+    // ---- 7f. Object numbers are a hard prerequisite: no Vitals state is sent, queued, or ACKed early.
+    // When the native exchange completes, the local complete snapshot starts and a peer retry is accepted.
+    setup(); num_ready = 0; num_flag = 0; RUN(300); *selfhp(12) = 0.2f; sent_n = 0; RUN(300);
+    assert(sent_n == 0 && g_box_n == 0);
+    { Entry early = { 0x10d, E_DEAD, 0, 0 }; from_peer(&early, 1, 1); assert(g_box_n == 0 && sent_n == 0); }
+    RUN(3500); assert(num_flag == 1); RUN(12000); assert(num_flag == 1);
+    num_flag = 0; num_ready = 1; RUN(300); assert(dead_entries_sent(0x10c) == 1);
+    { Entry retry = { 0x10d, E_DEAD, 0, 0 }; from_peer(&retry, 1, 1); assert(g_box_n == 1 && sent_n == 2); }
+    RUN(300); assert(*selfhp(13) == 0.f && !sq_of(13));
+    RUN(9000); assert(num_flag == 0); num_ready = 0;
 
     // ---- 8. the health is not a health: off
     setup(); for (int i = 0; i < NS; i++) *selfhp(i) = 1e9f;

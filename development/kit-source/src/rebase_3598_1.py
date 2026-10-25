@@ -24,7 +24,11 @@ EDITS = [
     # not an address: the cap of the state stream (MP_STATE_KBPS default) 600 -> 1500 KB/s; the logs show ~180 KB/s on average, the first seconds
     # of a battle (all units' full states) are what was held at 600
     ("state stream cap KB/s", 0x320a6, 600, 1500),
-    # adv_opgame.codelib: operation map (end of turn, scouting, saving, menu screens)
+    # adv_opgame.codelib: operation map (end of turn, scouting, saving, menu screens).
+    # On Steam 3598/1 the click handler starts ten bytes earlier; using the former +36b40
+    # enters it after its prologue, so the strict signature check deliberately left cooperative
+    # operation turns off. The target handler at +36b30 is verified below by its own full prologue.
+    ("opgame next-turn handler", 0x1a327, 0x36b40, 0x36b30),
     ("opgame end turn check", 0x101a9, 0x76810, 0x76510), ("opgame end turn hook", 0x101f3, 0x76810, 0x76510), ("opgame turn flow", 0x1a377, 0x76810, 0x76510),
     ("opgame scouting", 0x12b1e, 0x35540, 0x353e0),
     ("opgame save", 0x1983a, 0xd6660, 0xd6080),
@@ -39,6 +43,14 @@ START_EDITS = [
     ("adv_interf start 1 (deploy ends)", 0x123dd, 0x3b3b0, 0x3b320),
     ("adv_interf start 2 (end-deployment event)", 0x123fb, 0x3b4f0, 0x3b460),
     ("adv_interf start 3 (box result)", 0x12405, 0x41700, 0x41630),
+]
+# Signatures embedded in basic_network.codelib and checked before a detour is
+# installed.  They must move together with the target functions; otherwise the
+# checked build correctly leaves the feature disabled.
+TARGET_DATA = [  # (what, RVA in v20's .rdata, bytes v20 expects, bytes of Steam 3598/1)
+    ("expected prologue of opgame next turn", 0x48da0,
+     bytes.fromhex("48895c2408574883ec300f57c0498bd8"),
+     bytes.fromhex("40534883ec404c8b81d8010000488bd9")),
 ]
 START_DATA = [   # (what, RVA in v20's .rdata, bytes v20 expects, bytes of the build 3598/1)
     ("expected prologue of start 2", 0x497a8, bytes.fromhex("48895c2408574883ec50498bd8488bf9"), bytes.fromhex("48895c2408574883ec40498bf8488bd9")),
@@ -71,11 +83,10 @@ def rebase(src, start=True):
         cur, = struct.unpack_from("<I", d, off)
         if cur != old: raise SystemExit("%s: found %x at %x, expected %x" % (what, cur, rva, old))
         struct.pack_into("<I", d, off, new)
-    if start:
-        for what, rva, old, new in START_DATA:
-            off = section_of(d, rva)
-            if bytes(d[off:off + len(old)]) != old: raise SystemExit("%s: bytes at %x are not the expected ones" % (what, rva))
-            d[off:off + len(new)] = new
+    for what, rva, old, new in TARGET_DATA + (START_DATA if start else []):
+        off = section_of(d, rva)
+        if bytes(d[off:off + len(old)]) != old: raise SystemExit("%s: bytes at %x are not the expected ones" % (what, rva))
+        d[off:off + len(new)] = new
     return bytes(d)
 
 if __name__ == "__main__":

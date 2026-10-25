@@ -47,6 +47,12 @@
 //
 // v7.1.1: the verified basic_render guard also skips the second observed recursive invalid-child read at RVA 0x12ffd.
 // It runs only after exact signatures for both reader/epilogue pairs on the checked Steam 3598 image.
+//
+// v7.2: Vitals will neither send nor apply a tactical state before the native object-number exchange says
+// it is complete. This prevents a Vitals repair from getting ahead of the very translation table that gives
+// foreign object and description numbers their local meaning. Right before end-of-battle statistics, one
+// forced final Vitals scan publishes the last monotonic casualties, and both statistic functions use the
+// existing common RNG seed.
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
@@ -429,7 +435,9 @@ static u32 g_s_hurt, g_s_hurt_peer, g_s_merged, g_s_merged_rec, g_s_differ, g_s_
 static int g_veh_broken;
 static u32 g_s_seen, g_s_dead, g_s_peer_dead, g_s_sent_delta, g_s_sent_digest, g_s_rx, g_s_killed, g_s_notice, g_s_dropped, g_s_rec_ok, g_s_rec_bad;
 static u32 g_s_vtx, g_s_vack, g_s_vretry, g_s_vreplace, g_s_vrx, g_s_vdup, g_s_vfull, g_s_vack_sent, g_s_vack_unknown;
+static u32 g_s_final_scans;
 static int g_san_seen, g_san_good, g_rec_samples, g_start_checked;
+static int g_wait_numbers, g_force_scan;
 static DWORD g_on_since;
 
 static void vitals_transport_reset(void)
@@ -532,7 +540,8 @@ static void vitals_take_ack(const VitalsHead *ack)
 
 static void reset_all(void)
 {
-    memset(g_u, 0, sizeof g_u); g_u_n = 0; memset(g_v, 0, sizeof g_v); g_v_n = 0; g_veh_broken = 0; g_num_since = g_num_last = 0;
+    memset(g_u, 0, sizeof g_u); g_u_n = 0; memset(g_v, 0, sizeof g_v); g_v_n = 0; g_veh_broken = 0;
+    g_num_since = g_num_last = g_nudges = 0; g_wait_numbers = 0; g_force_scan = 0;
     vitals_transport_reset();
     EnterCriticalSection(&g_cs); g_box_n = 0; g_box_head = 0; LeaveCriticalSection(&g_cs);
 }
@@ -639,14 +648,15 @@ static void vitals_frame(void *om)
     if (!on) { if (g_on) { reset_all(); g_on = 0; } return; }
     DWORD now = GetTickCount();
     g_last_on = now ? now : 1;
-    {   // v20 loads the other game's unit states only after the lists of object numbers of both games have been exchanged. The guest's logs
-        // never showed that exchange completing; if it has not within 15 s, ask for the lists again (every 6 s, until they are there)
+    {   // v20 loads the other game's unit states only after the lists of object numbers of both games have been exchanged.
+        // This is a prerequisite, not a best-effort diagnostic: request the native list transfer from the
+        // first tactical seconds and repeat it at its normal three-second cadence until it completes.
         if (*g_num_ready) g_num_since = 0;
         else {
             if (!g_num_since) g_num_since = now;
-            if (now - g_num_since > 15000 && now - g_num_last > 6000) {
+            if (now - g_num_last >= 3000) {
                 *g_num_flag = 1; g_num_last = now; g_nudges++;
-                if (g_log && g_nudges <= 5) g_log("vitals: the lists of object numbers have not been exchanged for %u s - sent again", (now - g_num_since) / 1000);
+                if (g_log && g_nudges <= 5) g_log("vitals: requested object-number exchange (waiting %u s)", (now - g_num_since) / 1000);
             }
         }
     }
@@ -657,10 +667,24 @@ static void vitals_frame(void *om)
         g_san_seen = g_san_good = g_rec_samples = g_start_checked = g_veh_checked = 0; g_vb_off = 0; g_veh_samples = 0; g_scan_no = 0;
         if (g_log) g_log("vitals: on (mode %d, vehicles %d)", mode(), veh_mode(mode()));
     }
+    // Every remote saved-state field is expressed in the sender's object/description-number space.
+    // Do not let Vitals get ahead of that exact translation handshake. On the receiver side a pre-ready
+    // Vitals packet is deliberately not ACKed (see hook_packet), so a current peer retains it instead of
+    // silently considering an unsafe state delivered.
+    if (!*g_num_ready) {
+        if (!g_wait_numbers && g_log) g_log("vitals: waiting for object-number exchange before tactical state sync");
+        g_wait_numbers = 1;
+        return;
+    }
+    if (g_wait_numbers) {
+        g_wait_numbers = 0;
+        if (g_log) g_log("vitals: object-number exchange complete; tactical state sync enabled");
+    }
     drain_mailbox();
     vitals_transport_tick(now);
     int m = mode(), vm = veh_mode(m);
-    if (now - last_scan >= 50) {
+    if (g_force_scan || now - last_scan >= 50) {
+        g_force_scan = 0;
         last_scan = now; g_scan_no++;
         int digest = now - last_digest >= 2000;
         if (digest) last_digest = now;
@@ -827,8 +851,8 @@ static void vitals_frame(void *om)
                   g_s_sent_delta, g_s_sent_digest, g_s_rx, g_s_killed, g_s_notice, g_s_dropped, g_s_rec_ok, g_s_rec_bad,
                   g_why[1], g_why[2], g_why[3], g_why[4], g_why[5], g_why[6], g_why[7], g_why[8],
                   g_s_veh, g_s_veh_flag, g_s_veh_peer, g_s_veh_set, g_s_veh_note);
-        if (g_log) g_log("vitals: state channel v7.1: packets sent %u, acked %u, retried %u, replaced %u, pending %d; received %u, duplicates %u, inbox full %u, ACK sent %u, unmatched ACK %u",
-                          g_s_vtx, g_s_vack, g_s_vretry, g_s_vreplace, vitals_pending(), g_s_vrx, g_s_vdup, g_s_vfull, g_s_vack_sent, g_s_vack_unknown);
+        if (g_log) g_log("vitals: state channel v7.2: packets sent %u, acked %u, retried %u, replaced %u, pending %d; received %u, duplicates %u, inbox full %u, ACK sent %u, unmatched ACK %u; final scans %u",
+                          g_s_vtx, g_s_vack, g_s_vretry, g_s_vreplace, vitals_pending(), g_s_vrx, g_s_vdup, g_s_vfull, g_s_vack_sent, g_s_vack_unknown, g_s_final_scans);
         if (g_log) {
             char tl[400]; int n = 0; tl[0] = 0;
             for (int t = 0; t < 64 && n < 360; t++) if (g_rx_type[t]) n += wsprintfA_lite(tl + n, t, g_rx_type[t], g_rx_size[t]);
@@ -837,7 +861,7 @@ static void vitals_frame(void *om)
         }
         memset((void *)g_rx_type, 0, sizeof g_rx_type); memset((void *)g_rx_size, 0, sizeof g_rx_size);
         g_s_sent_delta = g_s_sent_digest = g_s_rx = g_s_killed = g_s_notice = g_s_dropped = g_s_rec_ok = g_s_rec_bad = g_s_merged = g_s_merged_rec = g_s_veh_set = g_s_veh_note = 0;
-        g_s_vtx = g_s_vack = g_s_vretry = g_s_vreplace = g_s_vrx = g_s_vdup = g_s_vfull = g_s_vack_sent = g_s_vack_unknown = 0;
+        g_s_vtx = g_s_vack = g_s_vretry = g_s_vreplace = g_s_vrx = g_s_vdup = g_s_vfull = g_s_vack_sent = g_s_vack_unknown = g_s_final_scans = 0;
         memset(g_why, 0, sizeof g_why);
     }
 }
@@ -866,7 +890,7 @@ static void hook_packet(const void *from, const unsigned char *data, int size, u
         // a full mailbox deliberately leaves the packet unacknowledged so the sender retries it.
         int queued = 0, duplicate = 0;
         if (*g_have_peer && !memcmp(from, g_peer, 16) && size >= (int)sizeof(VitalsHead) && h->count > 0 && h->count <= PER_PACKET &&
-            !(h->flags & ~F_DELTA) && size == (int)(sizeof(VitalsHead) + (size_t)h->count * sizeof(Entry)) && mode() > 0) {
+            !(h->flags & ~F_DELTA) && size == (int)(sizeof(VitalsHead) + (size_t)h->count * sizeof(Entry)) && mode() > 0 && *g_num_ready) {
             const VitalsHead *vh = (const VitalsHead *)data;
             if (vh->epoch && vh->seq) {
                 EnterCriticalSection(&g_cs);
@@ -924,6 +948,15 @@ static int stats_mode(void)
 }
 static void hook_stat(void *obj, long long a2, char a3)
 {
+    // This call is the last common point before operation casualties are rolled up.  Force the normal,
+    // monotonic scan once more so a death or a lower health from the last combat frame is published before
+    // the deterministic statistics seed is used.  It never bypasses the object-number prerequisite.
+    if (!g_broken && g_on && g_om && g_num_ready && *g_num_ready) {
+        g_force_scan = 1;
+        vitals_frame(g_om);
+        g_s_final_scans++;
+        if (g_log) g_log("vitals: final tactical state scan before battle statistics");
+    }
     if (!g_broken && g_last_on && GetTickCount() - g_last_on < 120000 && mode() >= 2 && stats_mode() && readable((char *)obj + STAT_SEED_OFF, 4)) {
         u32 *seed = (u32 *)((char *)obj + STAT_SEED_OFF);
         if (g_log) g_log("vitals: statistics start: their dice were at %08x, now %08x in both games", *seed, (u32)STAT_SEED);
