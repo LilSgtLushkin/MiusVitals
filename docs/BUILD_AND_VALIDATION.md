@@ -1,4 +1,4 @@
-# Сборка и проверка MiusVitals v7.2.0
+# Сборка и проверка MiusVitals v7.2.2
 
 ## Воспроизводимые входы и артефакты
 
@@ -7,22 +7,25 @@
 | Вариант | Преобразование | SHA-256 |
 | --- | --- | --- |
 | Исходный MiusPlayer v20 | входной файл | `8108bd1e9af8080ef8b1050512b8311848f5a336acb49a7479388733b4ae5723` |
-| Main | rebase 3598/1, verified operation Next Turn, импорт DLL | `4c91874c4b62db424ecca36586121bcb3b4cc7849cc900285e68de5151eddc36` |
-| `nostart` | тот же rebase без Start group, импорт DLL | `f0766bec48696869d59d4a654a04f20bd7baf9f73adb6fbf139e7da31dfc1f4f` |
+| Main | rebase 3598/1, verified operation Next Turn, join-launch wait, импорт DLL | `485b655662bd062e16278f9d699a3097b49a08de1948d2500dd589703a3102a3` |
+| `nostart` | тот же rebase без Start group, join-launch wait, импорт DLL | `e4317e630a21198a55e0e86be4aa29c71fcada6065824c858acd0e2bdef8adf9` |
 | `norebase` | только импорт DLL; диагностический вариант | `d2e34581b42d0573547e221873d7538b64a413267e8ed388abeb46dd42b630d2` |
-| `mp_vitals.dll` | Zig 0.17.0, no CRT, KERNEL32 only | `8f336d5645c01a394b7be776fda704e0910adb949083c16fea6ba25df7294f3e` |
+| `mp_vitals.dll` | Zig 0.17.0, no CRT, KERNEL32 only | `f978c2caa28429a0a4c6648cbdf9368001a683d12aa33b5bc5f9b7ad98f0df08` |
 
 Main и `nostart` изменяют три связанных элемента operation-map detour только после строгой сверки исходного v20:
 
 1. immediate по RVA `basic_network+0x1a327`: `adv_opgame+0x36b40` → `+0x36b30`;
 2. проверяемую 16-байтную сигнатуру по `basic_network+0x48da0`;
-3. уже ранее rebased worker (`+0x76510`) и save routine (`+0xd6080`).
+3. уже ранее rebased worker (`+0x76510`) и save routine (`+0xd6080`);
+4. ровно восемь байтов по RVA `+0x15a77`: исключается только inlined ветка
+   `g_peer_on_map` из host Next Turn gate. Следующая проверка `g_connected`
+   остаётся штатной.
 
-`verify_artifacts.py` проверяет не только хэш, импорт `mp_vitals.dll!MpVitalsInit` и PE surface, но и новый operation Next Turn target/signature в main/nostart. Таким образом artifact не может выглядеть валидным, если map detour снова окажется отключённым старой проверкой.
+`verify_artifacts.py` проверяет не только хэш, импорт `mp_vitals.dll!MpVitalsInit` и PE surface, но и operation Next Turn target/signature и exact eight-byte join-launch fix в main/nostart. Таким образом artifact не может выглядеть валидным, если map detour снова окажется отключённым старой проверкой или вернётся прежний переход host в stock Next Turn до запуска карты joiner.
 
 ## Exact downloadable kit
 
-`development/kit-source/` — редактируемая development структура, не каталог установки. `scripts/package_kit.py` — allow-list единственного installable download: `MiusVitals_v7.2.0_INSTALL.zip`. В архив попадают ровно эти 16 файлов под единственным `MiusVitals/` root:
+`development/kit-source/` — редактируемая development структура, не каталог установки. `scripts/package_kit.py` — allow-list единственного installable download: `MiusVitals_v7.2.2_INSTALL.zip`. В архив попадают ровно эти 16 файлов под единственным `MiusVitals/` root:
 
 ```text
 Check_Build.ps1
@@ -46,9 +49,9 @@ files/alt/basic_network_v5_norebase.codelib
 ZIP использует фиксированный timestamp 2026-10-25 00:00:00, явный порядок записей, фиксированные mode bits и deflate level 9. `--verify` проверяет CRC, дерево, timestamp и точную byte identity со входами kit.
 
 ```sh
-python3 scripts/package_kit.py --output MiusVitals_v7.2.0_INSTALL.zip
-python3 scripts/package_kit.py --verify MiusVitals_v7.2.0_INSTALL.zip
-sha256sum MiusVitals_v7.2.0_INSTALL.zip
+python3 scripts/package_kit.py --output MiusVitals_v7.2.2_INSTALL.zip
+python3 scripts/package_kit.py --verify MiusVitals_v7.2.2_INSTALL.zip
+sha256sum MiusVitals_v7.2.2_INSTALL.zip
 ```
 
 ## Локальная проверка
@@ -63,7 +66,10 @@ Native harness запускается с ASan/UBSan. Помимо прежних
 - Vitals state не уходит, не помещается в mailbox и не ACK-ается, пока object-number exchange не готов;
 - запрос exchange начинается через три секунды и повторяется;
 - после `yes` отправляется snapshot и повторённый пакет peer принимается;
-- перед statistic hook выполняется final forced scan.
+- перед statistic hook выполняется final forced scan;
+- stale transform-cache slot вне allocation текущего `basic_render` matrix pool становится engine sentinel `-2`, затем штатно пересоздаётся allocator'ом; exact write-race fallback допускает только подтверждённый effective address.
+
+Доказательство корня renderer crash и границы инварианта: [`RENDER_CACHE_ROOT_CAUSE_2026-10-25.md`](RENDER_CACHE_ROOT_CAUSE_2026-10-25.md).
 
 ## Полная пересборка
 

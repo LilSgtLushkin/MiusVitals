@@ -1,5 +1,5 @@
 @echo off
-rem MiusVitals v7.2.0: operation-map and Vitals synchronization for the Steam release (v20) of the Mius-Front multiplayer.
+rem MiusVitals v7.2.2: operation-map and Vitals synchronization for the Steam release (v20) of the Mius-Front multiplayer.
 rem Puts two files into the game: mp_vitals.dll (game folder) and the exact checked basic_network.codelib
 rem rebase for Steam 3598/1. The original is kept in state\ and Uninstall_Vitals.bat puts it back.
 rem Both players must do this. Put the MiusVitals folder into the game folder (next to mpmod1).
@@ -8,10 +8,12 @@ set "KIT=%~dp0"
 set "KIT=%KIT:~0,-1%"
 for %%I in ("%KIT%\..") do set "GAME=%%~fI"
 set "V20=8108BD1E9AF8080EF8B1050512B8311848F5A336ACB49A7479388733B4AE5723"
-set "PATCHED=4C91874C4B62DB424ECCA36586121BCB3B4CC7849CC900285E68DE5151EDDC36"
-set "PATCHED_PREVIOUS=7CAF36CDDABF7EB388A3C6C393B05733E051955D63D32EF13531CE88004DCFBA"
-set "PATCHED_NOSTART=F0766BEC48696869D59D4A654A04F20BD7BAF9F73ADB6FBF139E7DA31DFC1F4F"
-set "PATCHED_NOSTART_PREVIOUS=2FB049B9B465DE2E05BD9BBE7D5573A772319CC4D65FB20BB146E648A7CDF8EC"
+set "PATCHED=485B655662BD062E16278F9D699A3097B49A08DE1948D2500DD589703A3102A3"
+set "PATCHED_PREVIOUS=4C91874C4B62DB424ECCA36586121BCB3B4CC7849CC900285E68DE5151EDDC36"
+set "PATCHED_OLDER=7CAF36CDDABF7EB388A3C6C393B05733E051955D63D32EF13531CE88004DCFBA"
+set "PATCHED_NOSTART=E4317E630A21198A55E0E86BE4AA29C71FCADA6065824C858ACD0E2BDEF8ADF9"
+set "PATCHED_NOSTART_PREVIOUS=F0766BEC48696869D59D4A654A04F20BD7BAF9F73ADB6FBF139E7DA31DFC1F4F"
+set "PATCHED_NOSTART_OLDER=2FB049B9B465DE2E05BD9BBE7D5573A772319CC4D65FB20BB146E648A7CDF8EC"
 set "PATCHED_OLD=D2E34581B42D0573547E221873D7538B64A413267E8ED388ABEB46DD42B630D2"
 rem   Install_Vitals.bat norebase  puts the module without the address corrections for build 3598/1 (only if the game crashes with the normal one)
 rem   Install_Vitals.bat nostart  the same, but the Start button is left as in the original (use it if the battle cannot be started with the normal one)
@@ -20,7 +22,7 @@ if /i "%~1"=="nostart" set "MOD=%KIT%\files\alt\basic_network_nostart.codelib"
 if /i "%~1"=="norebase" set "MOD=%KIT%\files\alt\basic_network_v5_norebase.codelib"
 set "RC=0"
 echo.
-echo  MiusVitals v7.2.0 - operation-map and Vitals synchronization
+echo  MiusVitals v7.2.2 - operation-map and Vitals synchronization
 echo.
 if not exist "%GAME%\starter_x64.exe" goto :no_game
 if not exist "%GAME%\bin\rel\x64\basic_network.codelib" goto :no_mp
@@ -33,8 +35,10 @@ for /f "skip=1 delims=" %%X in ('certutil -hashfile "%GAME%\bin\rel\x64\basic_ne
 if defined H set "H=%H: =%"
 if /i "%H%"=="%PATCHED%" goto :install
 if /i "%H%"=="%PATCHED_PREVIOUS%" goto :install
+if /i "%H%"=="%PATCHED_OLDER%" goto :install
 if /i "%H%"=="%PATCHED_NOSTART%" goto :install
 if /i "%H%"=="%PATCHED_NOSTART_PREVIOUS%" goto :install
+if /i "%H%"=="%PATCHED_NOSTART_OLDER%" goto :install
 if /i "%H%"=="%PATCHED_OLD%" goto :install
 if /i "%H%"=="%V20%" goto :backup
 goto :unknown

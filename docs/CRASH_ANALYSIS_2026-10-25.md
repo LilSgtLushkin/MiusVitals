@@ -1,5 +1,7 @@
 # GT3 crash analysis: second `basic_render` invalid-child path — 2026-10-25
 
+> **Дополнение после нового dump:** отдельный write-AV `basic_render+0x129a2` выявил stale transform-cache slot и его штатный engine allocator path. Это не третий «угаданный» child guard; полный разбор и инвариантное исправление находятся в [`RENDER_CACHE_ROOT_CAUSE_2026-10-25.md`](RENDER_CACHE_ROOT_CAUSE_2026-10-25.md).
+
 ## Evidence examined
 
 The supplied `gt3_crashreport.zip` was inspected as a ZIP container without broad extraction. Only its `minidump.dmp` and the associated engine metadata were read. The report is the joining tactical game (`mp_guest`); the host-side operational and tactical `basic_network` logs were correlated by the battle start and subsequent connection loss.

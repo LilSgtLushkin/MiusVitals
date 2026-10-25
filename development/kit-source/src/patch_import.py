@@ -24,17 +24,21 @@ DLL, FUNC = b"mp_vitals.dll", b"MpVitalsInit"
 KNOWN_INPUTS = {
     "8108bd1e9af8080ef8b1050512b8311848f5a336acb49a7479388733b4ae5723":
         ("MiusPlayer v20 original", "d2e34581b42d0573547e221873d7538b64a413267e8ed388abeb46dd42b630d2"),
-    # v7.1.1 release inputs remain accepted so its artifacts can still be cleanly
-    # unpatched, but v7.2's release builder produces the two target-verified map
-    # variants immediately below.
+    # Earlier release inputs remain accepted so their artifacts can still be
+    # cleanly unpatched.  The v7.2.2 release builder produces the two
+    # target-verified, join-launch-race-fixed variants below.
     "603fb40567e0094a1dd0136df927196d76efea5dd43a364e7f470664117da272":
         ("v20 rebased for 3598/1 (v7.1.1 with Start)", "7caf36cddabf7eb388a3c6c393b05733e051955d63d32ef13531ce88004dcfba"),
     "c270f40ae49ef6922eeaf837f748ef622ba9a55fbf045b8ae1f92e9af689231d":
         ("v20 rebased for 3598/1 (v7.1.1 without Start)", "2fb049b9b465de2e05bd9bbe7d5573a772319cc4d65fb20bb146e648a7cdf8ec"),
+    "f8c89ed083fee9c94576abdb7be67ec7c17a556e5c1224448fa7c2e0ab1907ae":
+        ("v20 rebased for 3598/1 (v7.2.2 with Start, operation-map detour, and join-launch turn wait)", "485b655662bd062e16278f9d699a3097b49a08de1948d2500dd589703a3102a3"),
+    "affe19a1f2fa20636b05e13515ca85a62c8a905ab77d2cede422d26b7c010aeb":
+        ("v20 rebased for 3598/1 (v7.2.2 without Start, operation-map detour, and join-launch turn wait)", "e4317e630a21198a55e0e86be4aa29c71fcada6065824c858acd0e2bdef8adf9"),
     "af9f67950d04d2323aeb98dfd7beb40ffff1af7e2f211fd2647ccd783282fd1e":
-        ("v20 rebased for 3598/1 (v7.2 with Start and operation-map detour)", "4c91874c4b62db424ecca36586121bcb3b4cc7849cc900285e68de5151eddc36"),
+        ("v20 rebased for 3598/1 (v7.2.1 with Start and operation-map detour)", "4c91874c4b62db424ecca36586121bcb3b4cc7849cc900285e68de5151eddc36"),
     "d16680f50aa31aafcbc4f4e9a8acfaaa3f34f9e34d3514c67ac816c875fc8612":
-        ("v20 rebased for 3598/1 (v7.2 without Start and with operation-map detour)", "f0766bec48696869d59d4a654a04f20bd7baf9f73adb6fbf139e7da31dfc1f4f"),
+        ("v20 rebased for 3598/1 (v7.2.1 without Start and operation-map detour)", "f0766bec48696869d59d4a654a04f20bd7baf9f73adb6fbf139e7da31dfc1f4f"),
 }
 PATCHED_TO_INPUT = {patched: source for source, (_, patched) in KNOWN_INPUTS.items()}
 

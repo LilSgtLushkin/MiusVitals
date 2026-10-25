@@ -1,4 +1,4 @@
-MiusVitals v7.2.0 build manifest
+MiusVitals v7.2.2 build manifest
 Built: 2026-10-25
 
 Input: MiusPlayer v20 basic_network.codelib
@@ -13,27 +13,30 @@ Operation-map target verification (Steam 3598/1 actual adv_opgame.codelib):
   Signature: 40 53 48 83 ec 40 4c 8b 81 d8 01 00 00 48 8b d9
   End-turn worker: +0x76510
   Operation save: +0xd6080
+  Join-launch race guard: basic_network+0x15a77 is exactly 8 NOP bytes;
+    it removes only the premature g_peer_on_map branch in Next Turn while
+    retaining the following g_connected branch.
 
 Output files:
   files/mp_vitals.dll
-    SHA-256: 8f336d5645c01a394b7be776fda704e0910adb949083c16fea6ba25df7294f3e
+    SHA-256: f978c2caa28429a0a4c6648cbdf9368001a683d12aa33b5bc5f9b7ad98f0df08
     imports: KERNEL32.dll only (including AddVectoredExceptionHandler)
     exports: MpVitalsInit only
   files/basic_network.codelib
-    SHA-256: 4c91874c4b62db424ecca36586121bcb3b4cc7849cc900285e68de5151eddc36
+    SHA-256: 485b655662bd062e16278f9d699a3097b49a08de1948d2500dd589703a3102a3
   files/alt/basic_network_nostart.codelib
-    SHA-256: f0766bec48696869d59d4a654a04f20bd7baf9f73adb6fbf139e7da31dfc1f4f
+    SHA-256: e4317e630a21198a55e0e86be4aa29c71fcada6065824c858acd0e2bdef8adf9
   files/alt/basic_network_v5_norebase.codelib
     SHA-256: d2e34581b42d0573547e221873d7538b64a413267e8ed388abeb46dd42b630d2
 
 Only player-installable archive:
-  ../../MiusVitals_v7.2.0_INSTALL.zip
-    SHA-256: 6ae6d3410e2233491fb4a7dd7371c3895ced571293052fa737f78dfdbf83fd09
+  ../../MiusVitals_v7.2.2_INSTALL.zip
+    SHA-256: abf05d993893bfefe3f22731d7a2f32af651d965e241cb2732d2496610c21f6c
     exact player kit: 16 files under one MiusVitals/ root directory
 
 Validation:
   - main/nostart codelibs are reproduced byte-for-byte from the v20 input;
-  - the operation Next Turn pointer and exact target signature are asserted in main/nostart;
+  - the operation Next Turn pointer, exact target signature and exact eight-byte join-launch race fix are asserted in main/nostart;
   - every patched codelib contains exactly mp_vitals.dll!MpVitalsInit in .mpimp;
   - the DLL imports only KERNEL32.dll and exports MpVitalsInit only;
   - package_kit.py verifies the archive CRCs, exact 16-file allow-list, fixed ZIP metadata, and byte identity with kit inputs;
