@@ -1,0 +1,18 @@
+# Local build and test output
+/build/
+/dist/
+MiusVitals/state/
+MiusVitals/build_report.txt
+*.o
+*.obj
+*.lib
+*.pdb
+*.exe
+*.log
+
+# Python / editor noise
+__pycache__/
+*.py[cod]
+.venv/
+.vscode/
+.idea/

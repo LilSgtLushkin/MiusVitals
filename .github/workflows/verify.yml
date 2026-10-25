@@ -1,0 +1,17 @@
+name: Verify MiusVitals v7
+
+on:
+  push:
+    branches: ["arena/33c8e36e-miusvitals"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  native-and-artifact-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify codelib and DLL packaging
+        run: python3 MiusVitals/src/verify_artifacts.py --kit MiusVitals
+      - name: Run native ASan and UBSan tests
+        run: scripts/test_native.sh

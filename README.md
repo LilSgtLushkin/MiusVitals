@@ -1,1 +1,51 @@
-# MiusVitals
+# MiusVitals v7
+
+Надстройка для [MiusPlayer](https://github.com/VampyrCat/MiusPlayer) (мультиплеер для **Graviteam Tactics: Mius-Front**) на Steam-версии игры 6.00, build 3598. Пакет устраняет обнаруженный рассинхрон жизненных состояний пехоты и добавляет защиту от остановки надёжной очереди MiusPlayer.
+
+> **Статус:** бинарная сборка и логика проверены статически и нативными тестами. Запустить игру в Linux-песочнице нельзя, поэтому реальный бой двумя клиентами ещё требуется проверить. Перед установкой сделайте резервную копию папки игры; оба игрока обязаны использовать один и тот же пакет v7.
+
+## Что входит в v7
+
+- синхронизация смерти и ранения пехоты, а также осторожное однонаправленное объединение статусов техники;
+- восстановление зависшей очереди сообщений MiusPlayer типа `10` после 1,5 с и минимум шести подтверждающих пакетов — пропускаются только уже безвозвратно потерянные записи, а последующие выстрелы/завершение боя продолжаются;
+- обновление неподвижных юнитов на каждом сетевом тике (по умолчанию; регулируется `MP_IDLE_MS`);
+- варианты модуля для сборки игры 3598/1, включая откат `nostart` и `norebase`;
+- воспроизводимые скрипты, нативные ASan/UBSan-тесты и CI-проверка.
+
+## Установка
+
+1. Установите оригинальный **MiusPlayer v20** из [upstream-репозитория](https://github.com/VampyrCat/MiusPlayer) и закройте игру.
+2. Скопируйте каталог [`MiusVitals/`](MiusVitals/) в корень игры — рядом с `starter_x64.exe` и `mpmod1`.
+3. Запустите `MiusVitals\Install_Vitals.bat` от обычного пользователя.
+4. Для отката запустите `MiusVitals\Uninstall_Vitals.bat`.
+
+Полная русская инструкция, переменные окружения, контрольные хэши и порядок сбора логов находятся в [`MiusVitals/README_VITALS.txt`](MiusVitals/README_VITALS.txt).
+
+## Сборка и проверка
+
+Сборка требует Python 3 и пакет `ziglang` (`python -m pip install -r MiusVitals/src/requirements-build.txt`), а воспроизводимое формирование codelib — исходный `basic_network.codelib` из MiusPlayer v20:
+
+```sh
+# из корня репозитория
+ZIG_PYTHON=/path/to/python-with-zig MiusVitals/src/build.sh
+MiusVitals/src/build_release.sh /path/to/basic_network.codelib
+scripts/verify_release.sh
+```
+
+`build_release.sh` последовательно делает rebase для build 3598/1, добавляет единственный импорт `mp_vitals.dll!MpVitalsInit`, создаёт два безопасных варианта и пересобирает DLL. Все результаты проверяются SHA-256.
+
+## Ограничения совместимости
+
+- Поддерживаются только MiusPlayer v20 (`basic_network.codelib` SHA-256 `8108bd1e…4ae5723`) и игра 6.00 build 3598/1, для которой подготовлен rebase.
+- DLL изменяет память только после проверки сигнатур функций; при несовпадении не устанавливает перехват.
+- Сохранения игры не изменяются. Установщик хранит оригинальный модуль в `MiusVitals\state` для удаления.
+
+## Документация
+
+- [Независимый анализ MiusPlayer v20](docs/MIUSPLAYER_ANALYSIS.md)
+- [Сборка, контрольные суммы и проверка v7](docs/BUILD_AND_VALIDATION.md)
+- [Инструкция для игроков](MiusVitals/README_VITALS.txt)
+
+## Upstream
+
+Исходный MiusPlayer: [`VampyrCat/MiusPlayer`](https://github.com/VampyrCat/MiusPlayer), исследован коммит `43b2736d3b4a1e208e6c80f45f6ebbdd476de3aa` от 2026-10-14. Его лицензия — CC0-1.0; см. [`NOTICE.md`](NOTICE.md).
