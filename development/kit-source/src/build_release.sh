@@ -23,6 +23,8 @@ OUT="$KIT/files/mp_vitals.dll" ZIG_PYTHON="$ZIG_PYTHON" "$HERE/build.sh"
 "$PYTHON" "$HERE/verify_artifacts.py" --kit "$KIT"
 # The player archive is one unified mod.  Its MiusPlayer program assets are static checked inputs;
 # feed the freshly verified module and sidecar into that one install source before packaging.
+# This rebuilds only the outdated rollback archive; the current installer is v1.0.1 and is built
+# by scripts/package_unified_fps_mod.py from development/unified-fps-kit-source.
 cp "$KIT/files/basic_network.codelib" "$REPO/development/unified-kit-source/files/bin/rel/x64/basic_network.codelib"
 cp "$KIT/files/mp_vitals.dll" "$REPO/development/unified-kit-source/files/mp_vitals.dll"
-"$PYTHON" "$REPO/scripts/package_unified_mod.py" --output "$REPO/MiusMultiplayer_v1.0.0_INSTALL.zip"
+"$PYTHON" "$REPO/scripts/package_unified_mod.py" --output "$REPO/MiusMultiplayer_OUTDATED_INSTALL.zip"

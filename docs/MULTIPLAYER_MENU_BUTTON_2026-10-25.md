@@ -170,8 +170,10 @@ SmartScreen, Smart App Control (Windows 11) и антивирусный кара
   сохранённые прежние файлы. Старый hash-режим остался только для установок, сделанных прежними
   архивами (у них нет списка), чтобы не удалять чужие файлы наугад.
 * `Check_Install.ps1` переписан в read-only диагностику кнопки (см. §3), ничего не блокирует.
-* `MiusMultiplayer_beta_FPS_fix`: тот же принцип — безусловная замена codelib, backup best-effort,
-  удаление по `state\installed.txt`.
+* `MiusMultiplayer_beta_FPS_fix` archive удалён вместе с `scripts/package_fps_beta.py` и
+  `development/fps-beta-kit-source/`: его payload входит в v1.0.1, а второй installer с собственным
+  codelib приводил к смешанным установкам — то есть к тому же «кнопки нет». В игре, где остался
+  beta/withdrawn module, `Enable_Multiplayer.bat` из v1.0.1 заменяет codelib и packs безусловно.
 * Legacy developer-скрипты `development/kit-source/Install_Vitals.bat` и `Uninstall_Vitals.bat`
   (они не входят ни в один player archive) тоже больше не отказывают по unknown hash и не прерываются
   на проверке после copy: модуль заменяется безусловно, сохранённая копия возвращается без сверки hash-а.

@@ -3,8 +3,8 @@
 
 The old v1.0.0 archive deliberately keeps the original Steam-capable module.
 This release is a separately versioned, complete player installer whose module
-is the deterministic Steam-preserving FPS candidate.  It is not the small
-beta-only folder wrapped under a different name.
+is the deterministic Steam-preserving FPS candidate.  It is not the removed
+experimental codelib-only installer wrapped under a different name.
 """
 from __future__ import annotations
 
@@ -82,7 +82,7 @@ def require_sources(repo: Path) -> None:
     except ValueError as exc:
         raise SystemExit(f"unified FPS module is not the exact Steam-preserving candidate: {exc}") from exc
     if candidate != beta_candidate:
-        raise SystemExit("unified FPS module differs from the checked beta candidate")
+        raise SystemExit("unified FPS module differs from the checked FPS candidate build")
 
     for relative in ("files/root/programs/opgame.progpack", "files/root/programs/tacgame.progpack"):
         if b"basic_network.codelib" not in (source / relative).read_bytes():

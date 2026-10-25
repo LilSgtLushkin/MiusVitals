@@ -96,7 +96,7 @@ def verify_ordered_operation_candidate() -> None:
     ):
         require(patch, marker, f"ordered-operation candidate: {marker}")
     # This is a source overlay, not a silent change to the existing runtime packages or transport policy.
-    for forbidden in ("MiusMultiplayer_v1.0.0_INSTALL.zip", "MiusMultiplayer_beta_FPS_fix_INSTALL.zip", "MP_STATE_KBPS", "MP_BG_FPS", "MP_FG_FPS", "k_version = 13"):
+    for forbidden in ("MiusMultiplayer_OUTDATED_INSTALL.zip", "MiusMultiplayer_v1.0.1_INSTALL.zip", "MiusMultiplayer_beta_FPS_fix_INSTALL.zip", "MP_STATE_KBPS", "MP_BG_FPS", "MP_FG_FPS", "k_version = 13"):
         if forbidden in patch:
             raise SystemExit(f"ordered-operation candidate must not change {forbidden}")
 
