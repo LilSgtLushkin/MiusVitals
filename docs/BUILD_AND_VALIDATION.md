@@ -1,4 +1,4 @@
-# Сборка и проверка MiusVitals v7.1.0
+# Сборка и проверка MiusVitals v7.1.1
 
 ## Воспроизводимые входы
 
@@ -10,12 +10,12 @@
 | Main | rebase 3598/1 + импорт DLL | `7caf36cddabf7eb388a3c6c393b05733e051955d63d32ef13531ce88004dcfba` |
 | `nostart` | rebase без группы Start + импорт DLL | `2fb049b9b465de2e05bd9bbe7d5573a772319cc4d65fb20bb146e648a7cdf8ec` |
 | `norebase` | только импорт DLL | `d2e34581b42d0573547e221873d7538b64a413267e8ed388abeb46dd42b630d2` |
-| `mp_vitals.dll` | Zig 0.17.0, no CRT, KERNEL32 only | `83387d8434241773eed6216224cf9bd20ebac61167c5e675fad9a6fb101a5bf0` |
-| `MiusVitals_v7.1.0_INSTALL.zip` | fixed-time exact 16-file install kit | `7c98cf37188107cd84e80f0adf079f6ee43d24e88596cc720d590d9fff9e881d` |
+| `mp_vitals.dll` | Zig 0.17.0, no CRT, KERNEL32 only | `3b74ff7f1b8d9f32488ae3678bd57cfe9f98a2574c1a2acf207dc9111adb3988` |
+| `MiusVitals_v7.1.1_INSTALL.zip` | fixed-time exact 16-file install kit | `fd6bd24d6b956d66dbe2c0bd0de9a5ca5e35f05f0ce93812a1a73b354a7b44f2` |
 
 ## Exact downloadable kit
 
-`development/kit-source/` is the editable development tree and is **not** an install directory. It can contain manifest and verification helpers that deliberately do not reach players. `scripts/package_kit.py` is the source-of-truth allow-list for the only installable download, `MiusVitals_v7.1.0_INSTALL.zip`. It writes only these sixteen files under a single `MiusVitals/` root:
+`development/kit-source/` is the editable development tree and is **not** an install directory. It can contain manifest and verification helpers that deliberately do not reach players. `scripts/package_kit.py` is the source-of-truth allow-list for the only installable download, `MiusVitals_v7.1.1_INSTALL.zip`. It writes only these sixteen files under a single `MiusVitals/` root:
 
 ```text
 Check_Build.ps1
@@ -39,9 +39,9 @@ files/alt/basic_network_v5_norebase.codelib
 The builder fixes every ZIP entry timestamp to 2026-10-25 00:00:00, sorts the explicit tree, fixes permission metadata, and compresses at level 9. `--verify` checks CRCs, the ordered tree (including only required directories), timestamps, and byte-for-byte equality to the kit inputs.
 
 ```sh
-python3 scripts/package_kit.py --output MiusVitals_v7.1.0_INSTALL.zip
-python3 scripts/package_kit.py --verify MiusVitals_v7.1.0_INSTALL.zip
-sha256sum MiusVitals_v7.1.0_INSTALL.zip
+python3 scripts/package_kit.py --output MiusVitals_v7.1.1_INSTALL.zip
+python3 scripts/package_kit.py --verify MiusVitals_v7.1.1_INSTALL.zip
+sha256sum MiusVitals_v7.1.1_INSTALL.zip
 ```
 
 The generated ZIP is committed so it is directly downloadable from the repository; re-running the command with the same checked-in kit must retain the hash above.
@@ -56,7 +56,7 @@ scripts/test_native.sh
 scripts/verify_release.sh
 ```
 
-The native harness tests infantry/vehicle state rules, no echo, receiver mailbox handling, epoch/sequence validation, duplicate ACK behaviour, full-mailbox no-ACK behaviour, exact retransmission, retry and bounded sender retention. It also asserts that native MiusPlayer types 10 and 11 pass through the hook unchanged. The render guard test accepts only the proven `basic_render` read-AV context; valid indices, write faults, another RIP, and a bad fallback continue normal exception search.
+The native harness tests infantry/vehicle state rules, no echo, receiver mailbox handling, epoch/sequence validation, duplicate ACK behaviour, full-mailbox no-ACK behaviour, exact retransmission, retry and bounded sender retention. It also asserts that native MiusPlayer types 10 and 11 pass through the hook unchanged. The render-guard tests accept only the two proven `basic_render` recursive read-AV contexts; valid indices, write faults, another RIP, and a bad fallback continue normal exception search.
 
 ## Full rebuild
 

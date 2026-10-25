@@ -10,7 +10,7 @@ EXPECTED_MODULES = {
     "files/alt/basic_network_nostart.codelib": "2fb049b9b465de2e05bd9bbe7d5573a772319cc4d65fb20bb146e648a7cdf8ec",
     "files/alt/basic_network_v5_norebase.codelib": "d2e34581b42d0573547e221873d7538b64a413267e8ed388abeb46dd42b630d2",
 }
-EXPECTED_DLL = "83387d8434241773eed6216224cf9bd20ebac61167c5e675fad9a6fb101a5bf0"
+EXPECTED_DLL = "3b74ff7f1b8d9f32488ae3678bd57cfe9f98a2574c1a2acf207dc9111adb3988"
 KERNEL32_IMPORTS = {
     "AddVectoredExceptionHandler", "DisableThreadLibraryCalls", "EnterCriticalSection", "FlushInstructionCache", "GetCurrentProcess",
     "GetEnvironmentVariableA", "GetModuleHandleA", "GetTickCount", "InitializeCriticalSection",

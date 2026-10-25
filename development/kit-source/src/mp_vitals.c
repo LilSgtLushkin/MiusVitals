@@ -44,6 +44,9 @@
 // v7.1.0: Vitals data uses type 0x34 and an application ACK uses type 0x35, rather than the legacy unacknowledged type 0x32.
 // Each data packet carries a nonzero epoch and sequence. It is retained for an ACK, retried at most 12 times, and applied once only.
 // Native type 10 (reliable records) and type 11 (its ACK) are deliberately only observed in diagnostics and always pass to MiusPlayer.
+//
+// v7.1.1: the verified basic_render guard also skips the second observed recursive invalid-child read at RVA 0x12ffd.
+// It runs only after exact signatures for both reader/epilogue pairs on the checked Steam 3598 image.
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
@@ -91,7 +94,8 @@ enum {
     RVA_IDLE = 0x19d44, IDLE_IMM8 = 9, IDLE_IMM32 = 19,
     PHYS_GET_MEMBER = 0x9c480,
     GAME_STAT = 0xf80c0, STAT_STEAL = 15, STAT_SEED_OFF = 0x130, STAT_SEED = 0x4d495553,
-    // basic_render.codelib, Steam build 3598: the recursive material-node walker and its normal epilogue.
+    // basic_render.codelib, Steam build 3598: two recursive node walkers and their normal epilogues.
+    RVA_RENDER_WALK_NODE = 0x12fd0, RVA_RENDER_WALK_BAD_READ = 0x12ffd, RVA_RENDER_WALK_FALLBACK = 0x13038,
     RVA_RENDER_NODE = 0x13ab0, RVA_RENDER_BAD_READ = 0x13adb, RVA_RENDER_FALLBACK = 0x13bc9
 };
 #define RENDER_TIMESTAMP 0x66f2d710u
@@ -108,8 +112,19 @@ static const u8 SIG_IDLE[27]   = { 0x8b,0x44,0x24,0x70, 0x83,0xe0,0x0f, 0x6b,0xc
 static const u8 SIG_LOG[7]     = { 0x4c,0x8b,0xdc,0x49,0x89,0x4b,0x08 };
 // adv_physic.codelib: squad->get_member(index) = cmp [rcx+0x190c],edx / jbe / lea eax*5 << 6 + [rcx+0x1900]
 static const u8 SIG_GET_MEMBER[29] = { 0x39,0x91,0x0c,0x19,0,0, 0x76,0x12, 0x8b,0xc2, 0x48,0x8d,0x04,0x80, 0x48,0xc1,0xe0,0x06, 0x48,0x03,0x81,0x00,0x19,0,0, 0xc3, 0x33,0xc0, 0xc3 };
-// The code surrounding the actual fault and the cleanup which returns the parent material. Both signatures are
-// checked before the exception handler is registered; this is deliberately not a generic access-violation handler.
+// The code surrounding both observed faults and their cleanup epilogues. All signatures are checked before
+// the exception handler is registered; this is deliberately not a generic access-violation handler.
+// RVA 12ffd walks a child node and returns void; its normal epilogue must restore RBX as well as RBP/RSI/RDI.
+static const u8 SIG_RENDER_WALK_NODE[48] = {
+    0x48,0x89,0x6c,0x24,0x10, 0x48,0x89,0x74,0x24,0x18, 0x57, 0x48,0x83,0xec,0x20,
+    0x4c,0x8b,0x89,0x40,0x02,0,0, 0x43,0x8d,0x3c,0x80, 0xc1,0xe7,0x06, 0x48,0x8b,0xe9,
+    0x44,0x8b,0xd2, 0x49,0xc1,0xe2,0x06, 0x8b,0xf2, 0x4b,0x03,0x3c,0x0a, 0x8b,0x4f,0x38
+};
+static const u8 SIG_RENDER_WALK_FALLBACK[21] = {
+    0x48,0x8b,0x5c,0x24,0x30, 0x48,0x8b,0x6c,0x24,0x38, 0x48,0x8b,0x74,0x24,0x40,
+    0x48,0x83,0xc4,0x20, 0x5f,0xc3
+};
+// RVA 13adb returns the already-valid parent material ID in EAX.
 static const u8 SIG_RENDER_NODE[46] = {
     0x48,0x89,0x6c,0x24,0x10, 0x48,0x89,0x74,0x24,0x18, 0x57, 0x48,0x83,0xec,0x20,
     0x4c,0x8b,0x89,0x40,0x02,0,0, 0x43,0x8d,0x34,0x80, 0xc1,0xe6,0x06, 0x48,0x8b,0xe9,
@@ -198,20 +213,28 @@ static int log_events(void)
 
 static int same(const u8 *at, const u8 *sig, size_t n) { return readable(at, n) && !memcmp(at, sig, n); }
 
-// basic_render's recursive node reader has no bound check on a child node number. In both supplied dumps the
-// recursive child number was corrupt, but RDI still held its valid parent material ID. The normal cleanup at
-// RVA_RENDER_FALLBACK returns that ID in EAX and restores the non-volatile registers. This handler only takes
-// that exact read AV, on this exact verified build, and only with the corrupt-child / valid-parent register shape.
+// basic_render's recursive node readers have no bound check on a child node number. Three supplied dumps now
+// prove two exact read faults: 13adb has the valid parent material ID in EDI and returns it in EAX; 12ffd has an
+// invalid child-node pointer in RDI and returns void. Both normal epilogues restore the non-volatile registers.
+// This handler only takes those exact read AVs, on this exact verified build, with a corrupt child number in R8.
 static LONG WINAPI render_fault_guard(EXCEPTION_POINTERS *xp)
 {
     EXCEPTION_RECORD *er;
     CONTEXT *ctx;
     if (!g_render || !xp || !(er = xp->ExceptionRecord) || !(ctx = xp->ContextRecord)) return EXCEPTION_CONTINUE_SEARCH;
     if (er->ExceptionCode != EXCEPTION_ACCESS_VIOLATION || er->NumberParameters < 2 || er->ExceptionInformation[0] != 0) return EXCEPTION_CONTINUE_SEARCH;
-    if (ctx->Rip != (u64)(g_render + RVA_RENDER_BAD_READ) || er->ExceptionAddress != (void *)(g_render + RVA_RENDER_BAD_READ)) return EXCEPTION_CONTINUE_SEARCH;
-    if (ctx->Rsi > ~(u64)0 - 0x38 || (u64)er->ExceptionInformation[1] != ctx->Rsi + 0x38) return EXCEPTION_CONTINUE_SEARCH;
-    if (ctx->R8 <= 0x3ff || ctx->Rdi > 0xffffff) return EXCEPTION_CONTINUE_SEARCH;
-    ctx->Rip = (u64)(g_render + RVA_RENDER_FALLBACK);       // EDI is the material ID of the parent recursive node
+    if (ctx->R8 <= 0x3ff) return EXCEPTION_CONTINUE_SEARCH;       // a plausible child index is never hidden
+    if (ctx->Rip == (u64)(g_render + RVA_RENDER_BAD_READ) && er->ExceptionAddress == (void *)(g_render + RVA_RENDER_BAD_READ)) {
+        if (ctx->Rsi > ~(u64)0 - 0x38 || (u64)er->ExceptionInformation[1] != ctx->Rsi + 0x38 || ctx->Rdi > 0xffffff)
+            return EXCEPTION_CONTINUE_SEARCH;
+        ctx->Rip = (u64)(g_render + RVA_RENDER_FALLBACK);          // EDI is the valid parent material ID
+    } else if (ctx->Rip == (u64)(g_render + RVA_RENDER_WALK_BAD_READ) && er->ExceptionAddress == (void *)(g_render + RVA_RENDER_WALK_BAD_READ)) {
+        if (ctx->Rdi > ~(u64)0 - 0x38 || (u64)er->ExceptionInformation[1] != ctx->Rdi + 0x38)
+            return EXCEPTION_CONTINUE_SEARCH;
+        ctx->Rip = (u64)(g_render + RVA_RENDER_WALK_FALLBACK);     // skip only the invalid child branch
+    } else {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
     __atomic_fetch_add(&g_render_recoveries, 1u, __ATOMIC_RELAXED);
     return EXCEPTION_CONTINUE_EXECUTION;
 }
@@ -233,12 +256,15 @@ static void try_render_guard(void)
     stamp = *(const u32 *)(b + pe + 8);
     image = *(const u32 *)(b + pe + 24 + 56);
     if (stamp != RENDER_TIMESTAMP || image <= RVA_RENDER_FALLBACK + sizeof SIG_RENDER_FALLBACK ||
+        image <= RVA_RENDER_WALK_FALLBACK + sizeof SIG_RENDER_WALK_FALLBACK ||
         !same(b + RVA_RENDER_NODE, SIG_RENDER_NODE, sizeof SIG_RENDER_NODE) ||
-        !same(b + RVA_RENDER_FALLBACK, SIG_RENDER_FALLBACK, sizeof SIG_RENDER_FALLBACK)) goto no;
+        !same(b + RVA_RENDER_FALLBACK, SIG_RENDER_FALLBACK, sizeof SIG_RENDER_FALLBACK) ||
+        !same(b + RVA_RENDER_WALK_NODE, SIG_RENDER_WALK_NODE, sizeof SIG_RENDER_WALK_NODE) ||
+        !same(b + RVA_RENDER_WALK_FALLBACK, SIG_RENDER_WALK_FALLBACK, sizeof SIG_RENDER_WALK_FALLBACK)) goto no;
     g_render = (u8 *)b;
     g_render_handler = AddVectoredExceptionHandler(1, render_fault_guard);
     if (!g_render_handler) { g_render = 0; goto no; }
-    if (g_log) g_log("vitals: basic_render invalid-child crash guard armed (rva %x)", RVA_RENDER_BAD_READ);
+    if (g_log) g_log("vitals: basic_render invalid-child crash guards armed (rvas %x, %x)", RVA_RENDER_WALK_BAD_READ, RVA_RENDER_BAD_READ);
     return;
 no:
     if (g_log) g_log("vitals: basic_render crash guard not armed (different build or handler unavailable)");
