@@ -6,11 +6,18 @@ import struct
 from pathlib import Path
 
 EXPECTED_MODULES = {
-    "files/basic_network.codelib": "7caf36cddabf7eb388a3c6c393b05733e051955d63d32ef13531ce88004dcfba",
-    "files/alt/basic_network_nostart.codelib": "2fb049b9b465de2e05bd9bbe7d5573a772319cc4d65fb20bb146e648a7cdf8ec",
+    "files/basic_network.codelib": "4c91874c4b62db424ecca36586121bcb3b4cc7849cc900285e68de5151eddc36",
+    "files/alt/basic_network_nostart.codelib": "f0766bec48696869d59d4a654a04f20bd7baf9f73adb6fbf139e7da31dfc1f4f",
     "files/alt/basic_network_v5_norebase.codelib": "d2e34581b42d0573547e221873d7538b64a413267e8ed388abeb46dd42b630d2",
 }
-EXPECTED_DLL = "3b74ff7f1b8d9f32488ae3678bd57cfe9f98a2574c1a2acf207dc9111adb3988"
+EXPECTED_DLL = "8f336d5645c01a394b7be776fda704e0910adb949083c16fea6ba25df7294f3e"
+# Steam 3598/1 moves the operation Next Turn handler from +0x36b40 to +0x36b30.
+# The rebased main variants must contain both the target address and its strict signature;
+# otherwise basic_network deliberately disables shared operation turns at runtime.
+MAP_NEXT_TURN_IMM_RVA = 0x1A327
+MAP_NEXT_TURN_RVA = 0x36B30
+MAP_NEXT_TURN_SIGNATURE_RVA = 0x48DA0
+MAP_NEXT_TURN_SIGNATURE = bytes.fromhex("40534883ec404c8b81d8010000488bd9")
 KERNEL32_IMPORTS = {
     "AddVectoredExceptionHandler", "DisableThreadLibraryCalls", "EnterCriticalSection", "FlushInstructionCache", "GetCurrentProcess",
     "GetEnvironmentVariableA", "GetModuleHandleA", "GetTickCount", "InitializeCriticalSection",
@@ -93,7 +100,7 @@ def exports(data):
     return [c_string(data, rva_to_offset(struct.unpack_from("<I", data, names_at + 4 * i)[0])) for i in range(names)]
 
 
-def check_module(path):
+def check_module(path, require_operation_map):
     data = path.read_bytes()
     sections, rva_to_offset, directories = pe(data)
     names = [name for name, *_ in sections]
@@ -105,6 +112,13 @@ def check_module(path):
     imported = imports(data)
     if imported.get("mp_vitals.dll") != ["MpVitalsInit"]:
         raise ValueError("mp_vitals.dll!MpVitalsInit import is absent or unexpected")
+    if require_operation_map:
+        next_turn, = struct.unpack_from("<I", data, rva_to_offset(MAP_NEXT_TURN_IMM_RVA))
+        if next_turn != MAP_NEXT_TURN_RVA:
+            raise ValueError("operation Next Turn target is %#x, expected %#x" % (next_turn, MAP_NEXT_TURN_RVA))
+        actual_signature = data[rva_to_offset(MAP_NEXT_TURN_SIGNATURE_RVA):rva_to_offset(MAP_NEXT_TURN_SIGNATURE_RVA) + len(MAP_NEXT_TURN_SIGNATURE)]
+        if actual_signature != MAP_NEXT_TURN_SIGNATURE:
+            raise ValueError("operation Next Turn signature is not the verified Steam 3598/1 handler")
 
 
 def check_dll(path):
@@ -129,7 +143,7 @@ def main():
         if actual != wanted:
             raise SystemExit(f"{relative}: sha256 {actual}, expected {wanted}")
         try:
-            check_module(path)
+            check_module(path, relative != "files/alt/basic_network_v5_norebase.codelib")
         except (ValueError, struct.error, UnicodeDecodeError) as error:
             raise SystemExit(f"{relative}: invalid PE/import layout: {error}")
         print(f"OK {relative}: {actual}")

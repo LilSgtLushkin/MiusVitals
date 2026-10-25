@@ -21,4 +21,4 @@ mkdir -p "$KIT/files/alt"
 OUT="$KIT/files/mp_vitals.dll" ZIG_PYTHON="$ZIG_PYTHON" "$HERE/build.sh"
 
 "$PYTHON" "$HERE/verify_artifacts.py" --kit "$KIT"
-"$PYTHON" "$REPO/scripts/package_kit.py" --output "$REPO/MiusVitals_v7.1.1_INSTALL.zip"
+"$PYTHON" "$REPO/scripts/package_kit.py" --output "$REPO/MiusVitals_v7.2.0_INSTALL.zip"

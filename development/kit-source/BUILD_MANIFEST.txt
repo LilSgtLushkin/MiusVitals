@@ -1,4 +1,4 @@
-MiusVitals v7.1.1 build manifest
+MiusVitals v7.2.0 build manifest
 Built: 2026-10-25
 
 Input: MiusPlayer v20 basic_network.codelib
@@ -8,26 +8,33 @@ Build toolchain:
   ziglang Python package 0.17.0
   x86_64-windows-gnu target, no C runtime
 
+Operation-map target verification (Steam 3598/1 actual adv_opgame.codelib):
+  Next Turn entry: +0x36b30
+  Signature: 40 53 48 83 ec 40 4c 8b 81 d8 01 00 00 48 8b d9
+  End-turn worker: +0x76510
+  Operation save: +0xd6080
+
 Output files:
   files/mp_vitals.dll
-    SHA-256: 3b74ff7f1b8d9f32488ae3678bd57cfe9f98a2574c1a2acf207dc9111adb3988
+    SHA-256: 8f336d5645c01a394b7be776fda704e0910adb949083c16fea6ba25df7294f3e
     imports: KERNEL32.dll only (including AddVectoredExceptionHandler)
     exports: MpVitalsInit only
   files/basic_network.codelib
-    SHA-256: 7caf36cddabf7eb388a3c6c393b05733e051955d63d32ef13531ce88004dcfba
+    SHA-256: 4c91874c4b62db424ecca36586121bcb3b4cc7849cc900285e68de5151eddc36
   files/alt/basic_network_nostart.codelib
-    SHA-256: 2fb049b9b465de2e05bd9bbe7d5573a772319cc4d65fb20bb146e648a7cdf8ec
+    SHA-256: f0766bec48696869d59d4a654a04f20bd7baf9f73adb6fbf139e7da31dfc1f4f
   files/alt/basic_network_v5_norebase.codelib
     SHA-256: d2e34581b42d0573547e221873d7538b64a413267e8ed388abeb46dd42b630d2
 
 Only player-installable archive:
-  ../../MiusVitals_v7.1.1_INSTALL.zip
-    SHA-256: fd6bd24d6b956d66dbe2c0bd0de9a5ca5e35f05f0ce93812a1a73b354a7b44f2
+  ../../MiusVitals_v7.2.0_INSTALL.zip
+    SHA-256: 6ae6d3410e2233491fb4a7dd7371c3895ced571293052fa737f78dfdbf83fd09
     exact player kit: 16 files under one MiusVitals/ root directory
 
 Validation:
-  - all three codelib variants are reproduced byte-for-byte from the v20 input;
+  - main/nostart codelibs are reproduced byte-for-byte from the v20 input;
+  - the operation Next Turn pointer and exact target signature are asserted in main/nostart;
   - every patched codelib contains exactly mp_vitals.dll!MpVitalsInit in .mpimp;
-  - the DLL imports only KERNEL32.dll and exports only MpVitalsInit;
+  - the DLL imports only KERNEL32.dll and exports MpVitalsInit only;
   - package_kit.py verifies the archive CRCs, exact 16-file allow-list, fixed ZIP metadata, and byte identity with kit inputs;
   - native logic tests pass with AddressSanitizer and UndefinedBehaviorSanitizer.

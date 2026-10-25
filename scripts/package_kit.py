@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create or validate the exact downloadable MiusVitals v7.1.1 kit.
+"""Create or validate the exact downloadable MiusVitals v7.2.0 kit.
 
 The repository deliberately contains development files as well as the kit.  This
 script is the allow-list between the two: no manifest, verifier, workflow, cache,
@@ -14,7 +14,7 @@ from pathlib import Path
 import sys
 import zipfile
 
-VERSION = "7.1.1"
+VERSION = "7.2.0"
 # `development/kit-source` contains the editable source and verification helpers.
 # It is deliberately not named `MiusVitals`, so a repository checkout is not mistaken
 # for the player install. The generated archive still has the required game root.
@@ -82,6 +82,20 @@ def require_source(repo: Path) -> None:
         raise SystemExit("kit source is incomplete: " + ", ".join(missing))
 
 
+def packed_source_bytes(path: Path) -> bytes:
+    """Make the player-facing Windows launchers invariant to Git checkout EOLs.
+
+    .gitattributes deliberately checks *.bat and *.ps1 out as CRLF. The archive
+    is committed and must verify byte-for-byte on Linux CI as well as on a
+    Windows checkout, so package those two formats canonically as CRLF instead
+    of depending on the host's working-tree conversion.
+    """
+    data = path.read_bytes()
+    if path.suffix.lower() in {".bat", ".ps1"}:
+        return data.replace(b"\r\n", b"\n").replace(b"\r", b"\n").replace(b"\n", b"\r\n")
+    return data
+
+
 def build(repo: Path, output: Path) -> None:
     require_source(repo)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -91,7 +105,7 @@ def build(repo: Path, output: Path) -> None:
             for name in DIRS:
                 archive.writestr(make_info(name, directory=True), b"")
             for relative in FILES:
-                archive.writestr(make_info(f"{ARCHIVE_ROOT}/{relative}"), (kit_path(repo) / relative).read_bytes())
+                archive.writestr(make_info(f"{ARCHIVE_ROOT}/{relative}"), packed_source_bytes(kit_path(repo) / relative))
         os.replace(temporary, output)
     finally:
         temporary.unlink(missing_ok=True)
@@ -109,13 +123,13 @@ def verify(repo: Path, archive_path: Path) -> None:
             raise SystemExit(f"ZIP CRC failed: {bad}")
         names = tuple(archive.namelist())
         if names != wanted:
-            raise SystemExit("ZIP tree differs from v7.1.1 allow-list:\n"
+            raise SystemExit("ZIP tree differs from v7.2.0 allow-list:\n"
                              f"  expected: {list(wanted)}\n  got: {list(names)}")
         for info in archive.infolist():
             if info.date_time != ZIP_TIME:
                 raise SystemExit(f"ZIP timestamp is not reproducible: {info.filename}")
         for relative in FILES:
-            source = (kit_path(repo) / relative).read_bytes()
+            source = packed_source_bytes(kit_path(repo) / relative)
             packed = archive.read(f"{ARCHIVE_ROOT}/{relative}")
             if packed != source:
                 raise SystemExit(f"ZIP content differs from kit source: {relative}")

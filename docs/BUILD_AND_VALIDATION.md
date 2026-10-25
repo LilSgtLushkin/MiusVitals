@@ -1,21 +1,28 @@
-# Сборка и проверка MiusVitals v7.1.1
+# Сборка и проверка MiusVitals v7.2.0
 
-## Воспроизводимые входы
+## Воспроизводимые входы и артефакты
 
-`development/kit-source/src/build_release.sh` принимает оригинальный `basic_network.codelib` из MiusPlayer v20 и проверяет его SHA-256 до изменений.
+`development/kit-source/src/build_release.sh` принимает только оригинальный MiusPlayer v20 `basic_network.codelib`; SHA-256 входа проверяется до всех изменений.
 
 | Вариант | Преобразование | SHA-256 |
 | --- | --- | --- |
 | Исходный MiusPlayer v20 | входной файл | `8108bd1e9af8080ef8b1050512b8311848f5a336acb49a7479388733b4ae5723` |
-| Main | rebase 3598/1 + импорт DLL | `7caf36cddabf7eb388a3c6c393b05733e051955d63d32ef13531ce88004dcfba` |
-| `nostart` | rebase без группы Start + импорт DLL | `2fb049b9b465de2e05bd9bbe7d5573a772319cc4d65fb20bb146e648a7cdf8ec` |
-| `norebase` | только импорт DLL | `d2e34581b42d0573547e221873d7538b64a413267e8ed388abeb46dd42b630d2` |
-| `mp_vitals.dll` | Zig 0.17.0, no CRT, KERNEL32 only | `3b74ff7f1b8d9f32488ae3678bd57cfe9f98a2574c1a2acf207dc9111adb3988` |
-| `MiusVitals_v7.1.1_INSTALL.zip` | fixed-time exact 16-file install kit | `fd6bd24d6b956d66dbe2c0bd0de9a5ca5e35f05f0ce93812a1a73b354a7b44f2` |
+| Main | rebase 3598/1, verified operation Next Turn, импорт DLL | `4c91874c4b62db424ecca36586121bcb3b4cc7849cc900285e68de5151eddc36` |
+| `nostart` | тот же rebase без Start group, импорт DLL | `f0766bec48696869d59d4a654a04f20bd7baf9f73adb6fbf139e7da31dfc1f4f` |
+| `norebase` | только импорт DLL; диагностический вариант | `d2e34581b42d0573547e221873d7538b64a413267e8ed388abeb46dd42b630d2` |
+| `mp_vitals.dll` | Zig 0.17.0, no CRT, KERNEL32 only | `8f336d5645c01a394b7be776fda704e0910adb949083c16fea6ba25df7294f3e` |
+
+Main и `nostart` изменяют три связанных элемента operation-map detour только после строгой сверки исходного v20:
+
+1. immediate по RVA `basic_network+0x1a327`: `adv_opgame+0x36b40` → `+0x36b30`;
+2. проверяемую 16-байтную сигнатуру по `basic_network+0x48da0`;
+3. уже ранее rebased worker (`+0x76510`) и save routine (`+0xd6080`).
+
+`verify_artifacts.py` проверяет не только хэш, импорт `mp_vitals.dll!MpVitalsInit` и PE surface, но и новый operation Next Turn target/signature в main/nostart. Таким образом artifact не может выглядеть валидным, если map detour снова окажется отключённым старой проверкой.
 
 ## Exact downloadable kit
 
-`development/kit-source/` is the editable development tree and is **not** an install directory. It can contain manifest and verification helpers that deliberately do not reach players. `scripts/package_kit.py` is the source-of-truth allow-list for the only installable download, `MiusVitals_v7.1.1_INSTALL.zip`. It writes only these sixteen files under a single `MiusVitals/` root:
+`development/kit-source/` — редактируемая development структура, не каталог установки. `scripts/package_kit.py` — allow-list единственного installable download: `MiusVitals_v7.2.0_INSTALL.zip`. В архив попадают ровно эти 16 файлов под единственным `MiusVitals/` root:
 
 ```text
 Check_Build.ps1
@@ -36,29 +43,29 @@ files/alt/basic_network_nostart.codelib
 files/alt/basic_network_v5_norebase.codelib
 ```
 
-The builder fixes every ZIP entry timestamp to 2026-10-25 00:00:00, sorts the explicit tree, fixes permission metadata, and compresses at level 9. `--verify` checks CRCs, the ordered tree (including only required directories), timestamps, and byte-for-byte equality to the kit inputs.
+ZIP использует фиксированный timestamp 2026-10-25 00:00:00, явный порядок записей, фиксированные mode bits и deflate level 9. `--verify` проверяет CRC, дерево, timestamp и точную byte identity со входами kit.
 
 ```sh
-python3 scripts/package_kit.py --output MiusVitals_v7.1.1_INSTALL.zip
-python3 scripts/package_kit.py --verify MiusVitals_v7.1.1_INSTALL.zip
-sha256sum MiusVitals_v7.1.1_INSTALL.zip
+python3 scripts/package_kit.py --output MiusVitals_v7.2.0_INSTALL.zip
+python3 scripts/package_kit.py --verify MiusVitals_v7.2.0_INSTALL.zip
+sha256sum MiusVitals_v7.2.0_INSTALL.zip
 ```
 
-The generated ZIP is committed so it is directly downloadable from the repository; re-running the command with the same checked-in kit must retain the hash above.
-
-## Local validation
+## Локальная проверка
 
 ```sh
-# Portable C logic test: GCC/Clang, AddressSanitizer and UndefinedBehaviorSanitizer.
 scripts/test_native.sh
-
-# codelib/DLL SHA-256 + PE import/export surface + exact ZIP + native test.
 scripts/verify_release.sh
 ```
 
-The native harness tests infantry/vehicle state rules, no echo, receiver mailbox handling, epoch/sequence validation, duplicate ACK behaviour, full-mailbox no-ACK behaviour, exact retransmission, retry and bounded sender retention. It also asserts that native MiusPlayer types 10 and 11 pass through the hook unchanged. The render-guard tests accept only the two proven `basic_render` recursive read-AV contexts; valid indices, write faults, another RIP, and a bad fallback continue normal exception search.
+Native harness запускается с ASan/UBSan. Помимо прежних тестов смертей/ранений/техники, ACK/retry, duplicate mailbox и transparent type 10/11, он утверждает v7.2 правила:
 
-## Full rebuild
+- Vitals state не уходит, не помещается в mailbox и не ACK-ается, пока object-number exchange не готов;
+- запрос exchange начинается через три секунды и повторяется;
+- после `yes` отправляется snapshot и повторённый пакет peer принимается;
+- перед statistic hook выполняется final forced scan.
+
+## Полная пересборка
 
 ```sh
 python3 -m venv /tmp/mius-v7-venv
@@ -68,4 +75,6 @@ ZIG_PYTHON=/tmp/mius-v7-venv/bin/python development/kit-source/src/build_release
 scripts/verify_release.sh
 ```
 
-`build_release.sh` regenerates the three module variants, compiles the DLL, verifies them, then writes the exact downloadable ZIP at the repository root. It intentionally writes no game installation. Review resulting SHA-256 values before publishing if changing the toolchain or source.
+Скрипт регенерирует все варианты codelib, собирает DLL, проверяет hashes/PE/map detour и создаёт exact install ZIP. Он не устанавливает ничего в игровую папку.
+
+Нативные и static проверки не заменяют живую пару Graviteam. Первый тест после релиза должен включать: обмен карты, приказы обоих игроков, оба Next Turn, передачу следующего map epoch, существующее и появляющееся во время turn подкрепление, а затем тактический бой с `object-number lists exchanged: yes` на обеих машинах. Текущий merge гарантированно добавляет новые `user_orders`, но не доказан для произвольной новой structural row подкрепления. Финальный forced scan проверен нативно, но это ещё не отдельный блокирующий ACK-barrier при выходе из tactical game: его нельзя считать доказанным без живой проверки перехода карты.
