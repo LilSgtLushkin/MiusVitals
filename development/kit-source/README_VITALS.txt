@@ -1,8 +1,8 @@
-MiusVitals v7.2.2 — глобальная карта, Vitals и guard basic_render
+MiusVitals v7.1.0 — глобальная карта, Vitals и guard basic_render
 ====================================================================
 
 ВАЖНО: это комплект только для Steam game build 3598/1 + MiusPlayer v20.
-ОБА игрока должны установить один и тот же MiusVitals v7.2.2.
+ОБА игрока должны установить один и тот же MiusVitals v7.1.0.
 
 Быстрая установка
 -----------------
@@ -26,7 +26,7 @@ MiusVitals v7.2.2 — глобальная карта, Vitals и guard basic_ren
 
   map: unknown game build, ending the turn is not coordinated between the players
 
-v7.2.2 в main/nostart basic_network.codelib содержит проверенное исправление:
+v7.1.0 в main/nostart basic_network.codelib содержит проверенное исправление:
 * указатель Next Turn перенесён на +36b30;
 * embedded signature заменена точным 16-байтным прологом целевой Steam 3598/1
   функции;
@@ -40,7 +40,7 @@ v7.2.2 в main/nostart basic_network.codelib содержит проверенн
   user_orders с собственной картой, обрабатывает ход и присылает клиенту полную
   карту следующего epoch.
 
-v7.2.2 устраняет конкретную гонку между выдачей карты и запуском отдельного
+v7.1.0 устраняет конкретную гонку между выдачей карты и запуском отдельного
 opgame клиента. Раньше host gate Next Turn требовал уже полученный map-mode Hello
 (phase 0xfe). Но карта уже была выдана, а joiner ещё мог скачивать save/стартовать.
 В это окно Next Turn хоста шёл в stock handler: ход сразу проигрывался, а клиент
@@ -72,10 +72,21 @@ merge структурно добавляет только новые строк
 подкрепления во время совместного turn ещё не подтверждено живой парой игроков.
 Не обещайте такое новое reinforcement до этого теста.
 
+Важно о сообщении «за вторым человеком действует бот»: supplied host log уже
+показывает `391 formations and battle groups turned round`. Именно это меняет
+operation command tags на USER для joiner; `AI commander switched off` в
+тактическом log — другой механизм. Старая строка `unknown game build, ending
+the turn is not coordinated` доказывает старый/несовместимый installed module,
+а не отсутствие mirror. После установки у ОБОИХ SHA-256
+basic_network.codelib должен быть 485B655662BD062E16278F9D699A3097B49A08DE1948D2500DD589703A3102A3.
+Если при обоих таких hash симптом остаётся, нужны обе full opgame logs,
+build_report.txt и created-after-hand-off .opsave; не подменяйте module вручную
+и не используйте `norebase` для normal Steam 3598/1.
+
 Object-number exchange и Vitals
 -------------------------------
 Номера descriptions/objects в operation battle могут быть разными на двух ПК.
-Поэтому Vitals v7.2.2 не считает exchange необязательной диагностикой:
+Поэтому Vitals v7.1.0 не считает exchange необязательной диагностикой:
 
 * пока не появится "object-number lists exchanged: yes", он каждые 3 секунды
   запрашивает нативную передачу таблиц;
@@ -104,18 +115,18 @@ Object-number exchange и Vitals
 по обработанному host save и передаётся joiner целиком на новом map epoch.
 
 Синхронизируются здоровье, смерть и squad record. Этот forced scan проходит через
-обычный ACK/retry Vitals, но v7.2.2 пока НЕ устанавливает отдельный блокирующий
+обычный ACK/retry Vitals, но v7.1.0 пока НЕ устанавливает отдельный блокирующий
 ACK-barrier именно в момент выхода из tactical game. Поэтому запись о final scan
 не доказывает, что peer подтвердил её до аварийно быстрого закрытия боя.
 
 Вид конкретного трупа/ragdoll на карте боя может оставаться локальным
 render/physics результатом движка; он не является источником campaign result.
-v7.2.2 не пишет guessed offsets в corpse lifecycle. Если при совпадающем dead
+v7.1.0 не пишет guessed offsets в corpse lifecycle. Если при совпадающем dead
 клиентское тело не появляется, необходимы логи и проверенные engine addresses.
 Для сравнения проверяйте строки Vitals: после нормального боя dead here должен
 согласовываться, а still apart — быть 0.
 
-Корень нового basic_render crash и v7.2.2
+Корень нового basic_render crash и v7.1.0
 ------------------------------------------
 Новый minidump доказывает write-AV в basic_render+129a2 при deployment. Это не
 пакет сети: valid node record содержала 24-bit matrix/transform-cache slot,
@@ -124,7 +135,7 @@ v7.2.2 не пишет guessed offsets в corpse lifecycle. Если при со
 mp_vitals.dll, поэтому причина — нарушенный инвариант transient renderer cache,
 а не Vitals/object numbers.
 
-На строго проверенном Steam 3598 коде v7.2.2 перед каждым таким use проверяет,
+На строго проверенном Steam 3598 коде v7.1.0 перед каждым таким use проверяет,
 что slot принадлежит текущему writable Windows allocation matrix pool. Иначе он
 атомарно ставит штатный sentinel -2 в record+34. Затем неизменённый basic_render
 идёт в свой cache-miss allocator, получает свежий slot и сам записывает его в
@@ -136,8 +147,26 @@ movaps в тот же allocator; render operation не пропускается 
   vitals: basic_render cache-lifetime repair and invalid-child guards armed ...
 
 Запись "rebuilt ... stale basic_render transform cache entries" означает, что
-одна или несколько просроченных cache entries были пересозданы движком. Подробнее
-и точные register/disassembly evidence: docs/RENDER_CACHE_ROOT_CAUSE_2026-10-25.md
+одна или несколько просроченных cache entries были пересозданы движком.
+
+Текущий, отдельный read-AV был в basic_render+39b52 (`movups xmm9,[rax+rsi]`).
+В dump `RAX=FAAEC630` уже является 32-bit index/stride-derived offset, а
+`RSI+RAX` точно совпадает с invalid address. Stock triangle reader не проверяет
+границы index-derived vertex/attribute address. v7.1.0 перед входом именно в эту
+проверенную функцию сверяет весь index array и каждый будущий 16-byte primary и
+optional attribute read. Если geometry некорректна, функция возвращает только
+свой штатный no-hit (`false`, query+0xa4=0), не выполняя invalid load.
+
+Это не broad exception handling. Двенадцать exact load instructions оставлены
+в VEH только как backup гонки между preflight и engine read; совпасть должны
+read AV, RIP, effective address и writable output. Любой другой exception
+остаётся движку. Нормальная строка запуска теперь:
+
+  vitals: basic_render cache-lifetime, geometry-index and invalid-child guards armed ...
+
+А `skipped ... malformed basic_render geometry read ... no-hit path` означает,
+что была отвергнута некорректная geometry; сохраните полный tactical log.
+Подробный разбор dump и тестов: docs/TRIANGLE_GEOMETRY_ROOT_CAUSE_2026-10-25.md
 в repository.
 
 Сохранённые меры v7.1.1
@@ -158,11 +187,11 @@ MP_VEHICLES=0/1/2  выключить / только лог / применять
 MP_STATS=0         не задавать одинаковый seed послебоевой статистики.
 MP_LOG_VITALS=1    писать отдельные Vitals-события.
 MP_IDLE_MS=N       период повторной отправки неподвижных unit в миллисекундах.
-MP_RENDER_GUARD=0  выключить только exact basic_render cache-lifetime repair и invalid-child guards для диагностики.
+MP_RENDER_GUARD=0  выключить только exact basic_render cache-lifetime, geometry-index и invalid-child guards для диагностики.
 
 Контрольные суммы и состав
 --------------------------
-files/mp_vitals.dll                     SHA-256 F978C2CAA28429A0A4C6648CBDF9368001A683D12AA33B5BC5F9B7AD98F0DF08
+files/mp_vitals.dll                     SHA-256 3A2914AB86924A4220758865A9638E732CD3F2701D0E9F567FD14B9BE1A4BD5D
 files/basic_network.codelib             SHA-256 485B655662BD062E16278F9D699A3097B49A08DE1948D2500DD589703A3102A3
 files/alt/basic_network_nostart.codelib SHA-256 E4317E630A21198A55E0E86BE4AA29C71FCADA6065824C858ACD0E2BDEF8ADF9
 files/alt/basic_network_v5_norebase.codelib SHA-256 D2E34581B42D0573547E221873D7538B64A413267E8ED388ABEB46DD42B630D2

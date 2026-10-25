@@ -21,7 +21,7 @@
 #define IMAGE_NT_SIGNATURE 0x4550
 typedef unsigned long DWORD; typedef long LONG; typedef uintptr_t ULONG_PTR; typedef int BOOL; typedef void *LPVOID, *HMODULE, *HINSTANCE, *PVOID; typedef const char *LPCSTR;
 typedef struct _EXCEPTION_RECORD { DWORD ExceptionCode, ExceptionFlags; struct _EXCEPTION_RECORD *ExceptionRecord; void *ExceptionAddress; DWORD NumberParameters; ULONG_PTR ExceptionInformation[15]; } EXCEPTION_RECORD;
-typedef struct _CONTEXT { uint64_t Rip, Rsp, Rax, Rdx, Rbp, Rsi, Rdi, R8; } CONTEXT;
+typedef struct _CONTEXT { uint64_t Rip, Rsp, Rax, Rcx, Rdx, Rbp, Rsi, Rdi, R8, R14; } CONTEXT;
 typedef struct _EXCEPTION_POINTERS { EXCEPTION_RECORD *ExceptionRecord; CONTEXT *ContextRecord; } EXCEPTION_POINTERS;
 typedef LONG (WINAPI *PVECTORED_EXCEPTION_HANDLER)(EXCEPTION_POINTERS *);
 #define EXCEPTION_ACCESS_VIOLATION ((DWORD)0xc0000005u)

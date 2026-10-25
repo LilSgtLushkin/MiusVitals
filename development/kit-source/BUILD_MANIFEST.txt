@@ -1,4 +1,4 @@
-MiusVitals v7.2.2 build manifest
+MiusVitals v7.1.0 build manifest
 Built: 2026-10-25
 
 Input: MiusPlayer v20 basic_network.codelib
@@ -17,9 +17,19 @@ Operation-map target verification (Steam 3598/1 actual adv_opgame.codelib):
     it removes only the premature g_peer_on_map branch in Next Turn while
     retaining the following g_connected branch.
 
+Renderer target verification (Steam 3598 basic_render.codelib):
+  Timestamp: 0x66f2d710
+  New geometry query entry: +0x39a40
+  Checked blocks: query entry, index/vertex loop, both optional-attribute
+    blocks, and the native no-hit epilogue at +0x39de5.
+  Fix: validates every index-derived 16-byte geometry read before the original
+    triangle query; a malformed query returns the engine's no-hit result.
+  Race fallback: only 12 exact matching read instructions can reach the same
+    native no-hit epilogue after an already-armed preflight.
+
 Output files:
   files/mp_vitals.dll
-    SHA-256: f978c2caa28429a0a4c6648cbdf9368001a683d12aa33b5bc5f9b7ad98f0df08
+    SHA-256: 3a2914ab86924a4220758865a9638e732cd3f2701d0e9f567fd14b9be1a4bd5d
     imports: KERNEL32.dll only (including AddVectoredExceptionHandler)
     exports: MpVitalsInit only
   files/basic_network.codelib
@@ -30,8 +40,8 @@ Output files:
     SHA-256: d2e34581b42d0573547e221873d7538b64a413267e8ed388abeb46dd42b630d2
 
 Only player-installable archive:
-  ../../MiusVitals_v7.2.2_INSTALL.zip
-    SHA-256: abf05d993893bfefe3f22731d7a2f32af651d965e241cb2732d2496610c21f6c
+  ../../MiusVitals_v7.1.0_INSTALL.zip
+    SHA-256: f06e83284494ddc4f8ac16c57d7a4bed4ecb48af4b5aa0f1ad27fc8a953a5a4c
     exact player kit: 16 files under one MiusVitals/ root directory
 
 Validation:
@@ -40,4 +50,4 @@ Validation:
   - every patched codelib contains exactly mp_vitals.dll!MpVitalsInit in .mpimp;
   - the DLL imports only KERNEL32.dll and exports MpVitalsInit only;
   - package_kit.py verifies the archive CRCs, exact 16-file allow-list, fixed ZIP metadata, and byte identity with kit inputs;
-  - native logic tests pass with AddressSanitizer and UndefinedBehaviorSanitizer.
+  - native logic tests pass with AddressSanitizer and UndefinedBehaviorSanitizer, including valid and dump-shaped malformed triangle geometry.

@@ -51,6 +51,8 @@ static void fake_orig_packet(const void *a, const unsigned char *b, int c, u32 d
 static char *fake_get_member(void *sq, u32 idx) { (void)sq; return idx < NS ? members[idx] : 0; }
 static void (*during)(void);
 static void fake_orig_frame(void *om, void *a2, u64 a3, void *a4) { (void)om;(void)a2;(void)a3;(void)a4; if (during) during(); }
+static int fake_triangle_calls;
+static int fake_render_triangle(void *query) { (void)query; fake_triangle_calls++; return 1; }
 
 static float *selfhp(int i) { return (float *)(man[i] + H_SELF); }
 static u32 *st(int i) { return (u32 *)(members[i] + M_STATE); }
@@ -310,13 +312,31 @@ int main(void)
         printf("idle patch: OK\n");
     }
     // ---- 14. Exact basic_render repair: malformed recursive children still return through their normal epilogues,
-    // while a stale transform-cache ID is invalidated before the engine uses it and rebuilt through its own allocator.
+    // stale matrix-cache IDs go through the engine allocator, and corrupt geometry is rejected before the engine reads it.
     {
-        static u8 render[0x14000]; static u64 renderer[0x300 / 8], groups[8], record[0x200 / 8];
+        static u8 render[0x3a000], triangle_query[0xc0], triangle_vertices[256]; static u32 triangle_indices[3];
+        static u64 renderer[0x300 / 8], groups[8], record[0x200 / 8];
         EXCEPTION_RECORD er; CONTEXT cx; EXCEPTION_POINTERS xp = { &er, &cx };
         memset(&er, 0, sizeof er); memset(&cx, 0, sizeof cx); memset(renderer, 0, sizeof renderer); memset(groups, 0, sizeof groups); memset(record, 0, sizeof record);
-        g_render = render; g_render_recoveries = g_render_cache_repairs = 0; g_render_cache_armed = 1;
+        g_render = render; g_render_recoveries = g_render_cache_repairs = g_render_triangle_skips = 0; g_render_cache_armed = g_render_triangle_armed = 1;
         er.ExceptionCode = EXCEPTION_ACCESS_VIOLATION; er.NumberParameters = 2; er.ExceptionInformation[0] = 0;
+
+        // Triangle preflight models the current crash exactly: its third stored index (+8), faaec63, is
+        // multiplied by the 16-byte stride to make the observed invalid offset faaec630.  Good geometry
+        // reaches the engine; malformed geometry gets only its documented no-hit result before a vertex load occurs.
+        memset(triangle_query, 0, sizeof triangle_query); memset(triangle_vertices, 0, sizeof triangle_vertices);
+        triangle_indices[0] = triangle_indices[1] = triangle_indices[2] = 0;
+        *(u64 *)(triangle_query + 0x70) = (u64)(size_t)triangle_indices;
+        *(u64 *)(triangle_query + 0x78) = (u64)(size_t)triangle_vertices;
+        *(u32 *)(triangle_query + 0x80) = 3; *(u32 *)(triangle_query + 0x84) = 1; *(u32 *)(triangle_query + 0x88) = 16;
+        *(u32 *)(triangle_query + 0x8c) = 64; *(u32 *)(triangle_query + 0x90) = 96;
+        fake_vq_unmapped_from = UINTPTR_MAX; fake_triangle_calls = 0; g_orig_render_triangle = fake_render_triangle;
+        assert(!render_triangle_bad_input(triangle_query) && hook_render_triangle(triangle_query) == 1 && fake_triangle_calls == 1);
+        triangle_indices[2] = 0x0faaec63u; triangle_query[0xa4] = 1;
+        fake_vq_unmapped_from = (uintptr_t)triangle_vertices + sizeof triangle_vertices;
+        assert(render_triangle_bad_input(triangle_query) && hook_render_triangle(triangle_query) == 0 && fake_triangle_calls == 1 && !triangle_query[0xa4] && g_render_triangle_skips == 1);
+        fake_vq_unmapped_from = UINTPTR_MAX;
+
         // The original material reader returns its valid parent material ID in EDI.
         cx.Rip = (u64)(render + RVA_RENDER_BAD_READ); cx.Rsi = 0x123456780ull; cx.R8 = 0x400; cx.Rdi = 0x3456;
         er.ExceptionAddress = render + RVA_RENDER_BAD_READ; er.ExceptionInformation[1] = cx.Rsi + 0x38;
@@ -331,6 +351,19 @@ int main(void)
         er.ExceptionInformation[0] = 0; cx.Rip = (u64)(render + RVA_RENDER_WALK_BAD_READ + 1); assert(render_fault_guard(&xp) == EXCEPTION_CONTINUE_SEARCH);
         cx.Rip = (u64)(render + RVA_RENDER_BAD_READ); cx.Rsi = 0x123456780ull; cx.Rdi = 0x1000000; er.ExceptionAddress = render + RVA_RENDER_BAD_READ; er.ExceptionInformation[1] = cx.Rsi + 0x38;
         assert(render_fault_guard(&xp) == EXCEPTION_CONTINUE_SEARCH);
+
+        // The preflight's tiny race backup accepts only the triangle routine's twelve read instructions and
+        // still returns via its own no-hit cleanup.  An address mismatch remains the engine's exception.
+        memset(&cx, 0, sizeof cx); cx.Rdx = (u64)(size_t)renderer; cx.Rsi = 0xc4f85f30ull; cx.Rax = 0xfaaec630ull;
+        cx.Rip = (u64)(render + RVA_RENDER_TRIANGLE_VERTEX_1); er.ExceptionAddress = render + RVA_RENDER_TRIANGLE_VERTEX_1; er.ExceptionInformation[1] = cx.Rsi + cx.Rax;
+        assert(render_fault_guard(&xp) == EXCEPTION_CONTINUE_EXECUTION && cx.Rip == (u64)(render + RVA_RENDER_TRIANGLE_FALLBACK) && g_render_triangle_skips == 2);
+        memset(&cx, 0, sizeof cx); cx.Rdx = (u64)(size_t)renderer; cx.R8 = 0x1bfa72560ull;
+        cx.Rip = (u64)(render + RVA_RENDER_TRIANGLE_INDEX_0); er.ExceptionAddress = render + RVA_RENDER_TRIANGLE_INDEX_0; er.ExceptionInformation[1] = cx.R8;
+        assert(render_fault_guard(&xp) == EXCEPTION_CONTINUE_EXECUTION && cx.Rip == (u64)(render + RVA_RENDER_TRIANGLE_FALLBACK) && g_render_triangle_skips == 3);
+        memset(&cx, 0, sizeof cx); cx.Rdx = (u64)(size_t)renderer; cx.Rax = 0x100000000ull; cx.R14 = 0x2340;
+        cx.Rip = (u64)(render + RVA_RENDER_TRIANGLE_ATTR1_1); er.ExceptionAddress = render + RVA_RENDER_TRIANGLE_ATTR1_1; er.ExceptionInformation[1] = cx.Rax + cx.R14;
+        assert(render_fault_guard(&xp) == EXCEPTION_CONTINUE_EXECUTION && cx.Rip == (u64)(render + RVA_RENDER_TRIANGLE_FALLBACK) && g_render_triangle_skips == 4);
+        er.ExceptionInformation[1]++; assert(render_fault_guard(&xp) == EXCEPTION_CONTINUE_SEARCH);
 
         // The reported cache has an ordinary source node but an out-of-pool 24-bit matrix slot.  A valid destination leaves it alone;
         // an unmapped destination atomically becomes the engine's -2 cache-miss sentinel before the original function runs.

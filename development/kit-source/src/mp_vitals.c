@@ -39,7 +39,7 @@
 // Environment: MP_VITALS 0 off, 1 only compare and log, 2 and 3 apply.
 //              Default: apply in operation battles, compare and log only otherwise.   MP_LOG_VITALS=1 logs every event.
 //              MP_VEHICLES 0 off, 1 only compare and log, 2 apply (default: as MP_VITALS).   MP_STATS 0 leaves the statistics' dice alone.
-//              MP_RENDER_GUARD=0 disables the exact basic_render cache-lifetime and invalid-child guards. MP_IDLE_MS selects the stationary-unit repeat period.
+//              MP_RENDER_GUARD=0 disables the exact basic_render cache-lifetime, geometry-index and invalid-child guards. MP_IDLE_MS selects the stationary-unit repeat period.
 //
 // v7.1.0: Vitals data uses type 0x34 and an application ACK uses type 0x35, rather than the legacy unacknowledged type 0x32.
 // Each data packet carries a nonzero epoch and sequence. It is retained for an ACK, retried at most 12 times, and applied once only.
@@ -57,6 +57,11 @@
 // v7.2.1: a new Steam 3598 crash dump proves that basic_render can retain a matrix-cache slot from a
 // previous pool. The exact cache-sync function now tests pool ownership and asks the engine's allocator
 // to rebuild a stale entry before the unchecked 64-byte matrix write; it does not invent a render object.
+//
+// Current release: the later dump is a different fault: unvalidated triangle index/stride arithmetic
+// reaches basic_render+39b52. The exact triangle-query entry now verifies every index-derived
+// vertex/optional-attribute address before the engine reads it, returning its documented no-hit result
+// for malformed geometry. The VEH remains only an exact after-check race fallback for those loads.
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
@@ -105,10 +110,17 @@ enum {
     PHYS_GET_MEMBER = 0x9c480,
     GAME_STAT = 0xf80c0, STAT_STEAL = 15, STAT_SEED_OFF = 0x130, STAT_SEED = 0x4d495553,
     // basic_render.codelib, Steam build 3598.  The renderer's transform-cache updater at 12925
-    // stores matrices through a cached 24-bit pool slot; the other two functions walk material nodes.
+    // stores matrices through a cached 24-bit pool slot; the two next functions walk material nodes.
+    // 39a40 is the triangle-query routine: it returns false through 39de5 if none of its triangles hits.
     RVA_RENDER_CACHE_SYNC = 0x12925, RVA_RENDER_CACHE_WRITE = 0x129a2, RVA_RENDER_CACHE_REBUILD = 0x129c6,
     RVA_RENDER_WALK_NODE = 0x12fd0, RVA_RENDER_WALK_BAD_READ = 0x12ffd, RVA_RENDER_WALK_FALLBACK = 0x13038,
-    RVA_RENDER_NODE = 0x13ab0, RVA_RENDER_BAD_READ = 0x13adb, RVA_RENDER_FALLBACK = 0x13bc9
+    RVA_RENDER_NODE = 0x13ab0, RVA_RENDER_BAD_READ = 0x13adb, RVA_RENDER_FALLBACK = 0x13bc9,
+    RVA_RENDER_TRIANGLE = 0x39a40, RVA_RENDER_TRIANGLE_LOOP = 0x39b20,
+    RVA_RENDER_TRIANGLE_INDEX_0 = 0x39b26, RVA_RENDER_TRIANGLE_INDEX_1 = 0x39b29, RVA_RENDER_TRIANGLE_INDEX_2 = 0x39b30,
+    RVA_RENDER_TRIANGLE_VERTEX_0 = 0x39b4d, RVA_RENDER_TRIANGLE_VERTEX_1 = 0x39b52, RVA_RENDER_TRIANGLE_VERTEX_2 = 0x39b5b,
+    RVA_RENDER_TRIANGLE_ATTR0 = 0x39cf2, RVA_RENDER_TRIANGLE_ATTR0_0 = 0x39cfb, RVA_RENDER_TRIANGLE_ATTR0_1 = 0x39cff, RVA_RENDER_TRIANGLE_ATTR0_2 = 0x39d04,
+    RVA_RENDER_TRIANGLE_ATTR1 = 0x39d23, RVA_RENDER_TRIANGLE_ATTR1_0 = 0x39d2c, RVA_RENDER_TRIANGLE_ATTR1_1 = 0x39d30, RVA_RENDER_TRIANGLE_ATTR1_2 = 0x39d35,
+    RVA_RENDER_TRIANGLE_FALLBACK = 0x39de5
 };
 #define RENDER_TIMESTAMP 0x66f2d710u
 // adv_game.codelib: the end-of-battle statistics function (prologue; its body has three times imul reg,[reg+0x130],0x19660d)
@@ -156,6 +168,27 @@ static const u8 SIG_RENDER_CACHE_BODY[114] = {
     0x0f,0x29,0x04,0x01
 };
 static const u8 SIG_RENDER_CACHE_REBUILD[20] = { 0x48,0x8d,0x8f,0x38,0x01,0,0, 0x49,0x8b,0xd0, 0xe8,0xeb,0x69,0,0, 0x8b,0xd0, 0x89,0x55,0x34 };
+// Triangle query observed in gt3_crashreport.zip: it reads three 32-bit indices, then three 16-byte vertices.
+// Its two optional attribute buffers use the same indices; 39de5 is its proven existing no-hit cleanup.
+static const u8 SIG_RENDER_TRIANGLE[40] = {
+    0x48,0x8b,0xc4, 0x48,0x89,0x58,0x18, 0x48,0x89,0x70,0x20, 0x57,0x41,0x54,0x41,0x57,
+    0x48,0x81,0xec,0xc0,0,0,0, 0x8b,0x99,0x80,0,0,0, 0x45,0x32,0xc9, 0x44,0x0f,0xb6,0xa1,0x80,0,0,0
+};
+static const u8 SIG_RENDER_TRIANGLE_LOOP[64] = {
+    0x8b,0x8a,0x88,0,0,0, 0x41,0x8b,0x28, 0x41,0x8b,0x40,0x08, 0x41,0x03,0xea,
+    0x45,0x8b,0x70,0x04, 0x41,0x03,0xc2, 0x0f,0x10,0x72,0x50, 0x45,0x03,0xf2,
+    0x0f,0xaf,0xe9, 0x0f,0x28,0xee, 0x0f,0xaf,0xc1, 0x44,0x0f,0xaf,0xf1, 0x8b,0xc8,
+    0x44,0x0f,0x10,0x24,0x2e, 0x44,0x0f,0x10,0x0c,0x30, 0x41,0x0f,0x5c,0xec, 0x45,0x0f,0x10,0x04,0x36
+};
+static const u8 SIG_RENDER_TRIANGLE_ATTR0[48] = {
+    0x8b,0x82,0x8c,0,0,0, 0x48,0x03,0xc6, 0x0f,0x10,0x0c,0x28, 0x41,0x0f,0x10,0x14,0x06, 0x0f,0x10,0x04,0x01,
+    0x0f,0x5c,0xd1, 0x0f,0x5c,0xc1, 0x0f,0x59,0xd4, 0x0f,0x59,0xc5, 0x0f,0x58,0xd1, 0x0f,0x58,0xd0, 0x0f,0x11,0x52,0x20, 0x40,0x84,0xff,0x74
+};
+static const u8 SIG_RENDER_TRIANGLE_ATTR1[48] = {
+    0x8b,0x82,0x90,0,0,0, 0x48,0x03,0xc6, 0x0f,0x10,0x0c,0x28, 0x41,0x0f,0x10,0x14,0x06, 0x0f,0x10,0x04,0x01,
+    0x0f,0x5c,0xd1, 0x0f,0x5c,0xc1, 0x0f,0x59,0xd4, 0x0f,0x59,0xc5, 0x0f,0x58,0xd1, 0x0f,0x58,0xd0, 0x0f,0x11,0x52,0x30, 0x84,0xdb,0x74,0x26
+};
+static const u8 SIG_RENDER_TRIANGLE_FALLBACK[18] = { 0x44,0x88,0x8a,0xa4,0,0,0, 0xeb,0x07, 0x44,0x88,0x89,0xa4,0,0,0, 0x4c,0x8d };
 
 // engine layout (adv_physic.codelib; the same in the build of the mod's author and in the current Steam build, read from its code):
 //   i_human +0x7c8 the soldier's own health (float, 1 = unhurt). The hit code: health below 0.5 -> the soldier leaves his squad
@@ -186,6 +219,7 @@ typedef void (*FnSend)(const void *data, u32 size);
 typedef void (*FnLog)(const char *fmt, ...);
 typedef void (*FnStat)(void *obj, long long a2, char a3);
 typedef void (*FnRenderCache)(void *renderer, u32 node, const void *matrix);
+typedef int (*FnRenderTriangle)(void *query);
 
 static HMODULE g_mod, g_phys;
 static u32 g_phys_size;
@@ -207,10 +241,12 @@ static const u8 *g_peer;
 static int g_active;                // hooks installed
 static int g_broken;                // something did not match: no more work
 static u8 *g_render;
-static int g_render_tried, g_render_cache_armed;
+static int g_render_tried, g_render_cache_armed, g_render_triangle_armed;
 static u32 g_render_recoveries, g_render_reported, g_render_cache_repairs, g_render_cache_reported;
+static u32 g_render_triangle_skips, g_render_triangle_reported;
 static PVOID g_render_handler;
 static FnRenderCache g_orig_render_cache;
+static FnRenderTriangle g_orig_render_triangle;
 
 // ------------------------------------------------------------------ small helpers
 static int page_has(const void *p, size_t n, int write, MEMORY_BASIC_INFORMATION *out)
@@ -306,6 +342,74 @@ static void hook_render_cache(void *renderer, u32 node, const void *matrix)
     g_orig_render_cache(renderer, node, matrix);
 }
 
+// The current dump reached `movups xmm9,[rsi+rax]` at +39b52.  R10 was zero and RAX already
+// held faaec630: that is an impossible scaled vertex offset from 32-bit triangle index/stride arithmetic,
+// not a pointer failure.  The engine gives this query a vertex base (+78), index triples (+70, +84), stride
+// (+88), two optional attribute offsets (+8c/+90), and the output's no-hit byte (+a4).  Check every
+// address it will read before entering it.  On malformed geometry its documented result is simply no hit;
+// no renderer object, index, or vertex data is repaired or fabricated.
+static int triangle_vertex_readable(u64 base, u32 index, u32 stride)
+{
+    u64 at;
+    u32 offset = index * stride;                           // exactly `imul r32,r32`: modulo 2^32
+    return add_u64(base, (u64)offset, &at) && readable((const void *)(size_t)at, 16);
+}
+static int render_triangle_bad_input(void *query)
+{
+    const u8 *q = (const u8 *)query;
+    u64 vertices, indices, attr0 = 0, attr1 = 0;
+    u32 count, stride, base, flags;
+    if (!q || !readable(q, 0x98) || !writable(q + 0xa4, 1)) return 0; // an unknown query remains the engine's fault
+    vertices = *(const u64 *)(q + 0x78); indices = *(const u64 *)(q + 0x70);
+    count = *(const u32 *)(q + 0x84); stride = *(const u32 *)(q + 0x88);
+    base = *(const u32 *)(q + 0x94); flags = *(const u32 *)(q + 0x80);
+    if (!count) return 0;                                  // the engine returns no hit without using +70
+    if (count > 0xffffffffu / 12u || !readable((const void *)(size_t)indices, (size_t)count * 12u)) return 1;
+    if ((flags & 1u) && !add_u64(vertices, *(const u32 *)(q + 0x8c), &attr0)) return 1;
+    if ((flags & 2u) && !add_u64(vertices, *(const u32 *)(q + 0x90), &attr1)) return 1;
+    for (u32 n = 0; n < count; n++) {
+        const u32 *tri = (const u32 *)(size_t)(indices + (u64)n * 12u);
+        u32 a = tri[0] + base, b = tri[1] + base, c = tri[2] + base; // exactly the engine's 32-bit additions
+        if (!triangle_vertex_readable(vertices, a, stride) || !triangle_vertex_readable(vertices, b, stride) || !triangle_vertex_readable(vertices, c, stride)) return 1;
+        if ((flags & 1u) && (!triangle_vertex_readable(attr0, a, stride) || !triangle_vertex_readable(attr0, b, stride) || !triangle_vertex_readable(attr0, c, stride))) return 1;
+        if ((flags & 2u) && (!triangle_vertex_readable(attr1, a, stride) || !triangle_vertex_readable(attr1, b, stride) || !triangle_vertex_readable(attr1, c, stride))) return 1;
+    }
+    return 0;
+}
+static int hook_render_triangle(void *query)
+{
+    if (render_triangle_bad_input(query)) {
+        *(u8 *)((u8 *)query + 0xa4) = 0;                  // the engine's no-hit result field
+        __atomic_fetch_add(&g_render_triangle_skips, 1u, __ATOMIC_RELAXED);
+        return 0;
+    }
+    return g_orig_render_triangle(query);
+}
+
+// A read may only race the preflight if another engine thread replaces geometry between the check and its
+// corresponding instruction.  This is not a general exception handler: it recognises just those twelve
+// loads and sends the already-framed query through its native no-hit epilogue.
+static int render_triangle_fault(CONTEXT *ctx, const EXCEPTION_RECORD *er)
+{
+    u64 at, want, rip = ctx->Rip, out_at;
+    if (!g_render_triangle_armed) return 0;
+    if (rip == (u64)(g_render + RVA_RENDER_TRIANGLE_INDEX_0)) { at = ctx->R8; want = 0; }
+    else if (rip == (u64)(g_render + RVA_RENDER_TRIANGLE_INDEX_1)) { at = ctx->R8; want = 8; }
+    else if (rip == (u64)(g_render + RVA_RENDER_TRIANGLE_INDEX_2)) { at = ctx->R8; want = 4; }
+    else if (rip == (u64)(g_render + RVA_RENDER_TRIANGLE_VERTEX_0)) { at = ctx->Rsi; want = ctx->Rbp; }
+    else if (rip == (u64)(g_render + RVA_RENDER_TRIANGLE_VERTEX_1)) { at = ctx->Rsi; want = ctx->Rax; }
+    else if (rip == (u64)(g_render + RVA_RENDER_TRIANGLE_VERTEX_2)) { at = ctx->Rsi; want = ctx->R14; }
+    else if (rip == (u64)(g_render + RVA_RENDER_TRIANGLE_ATTR0_0) || rip == (u64)(g_render + RVA_RENDER_TRIANGLE_ATTR1_0)) { at = ctx->Rax; want = ctx->Rbp; }
+    else if (rip == (u64)(g_render + RVA_RENDER_TRIANGLE_ATTR0_1) || rip == (u64)(g_render + RVA_RENDER_TRIANGLE_ATTR1_1)) { at = ctx->Rax; want = ctx->R14; }
+    else if (rip == (u64)(g_render + RVA_RENDER_TRIANGLE_ATTR0_2) || rip == (u64)(g_render + RVA_RENDER_TRIANGLE_ATTR1_2)) { at = ctx->Rax; want = ctx->Rcx; }
+    else return 0;
+    if (er->ExceptionAddress != (void *)(size_t)rip || !add_u64(at, want, &at) ||
+        (u64)er->ExceptionInformation[1] != at || !add_u64(ctx->Rdx, 0xa4, &out_at) || !writable((const void *)(size_t)out_at, 1)) return 0;
+    ctx->Rip = (u64)(g_render + RVA_RENDER_TRIANGLE_FALLBACK);
+    __atomic_fetch_add(&g_render_triangle_skips, 1u, __ATOMIC_RELAXED);
+    return 1;
+}
+
 // basic_render's recursive node readers have no bound check on a child node number. The supplied dumps
 // prove two exact read faults: 13adb has the valid parent material ID in EDI and returns it in EAX; 12ffd has an
 // invalid child-node pointer in RDI and returns void. Both normal epilogues restore the non-volatile registers.
@@ -334,7 +438,9 @@ static LONG WINAPI render_fault_guard(EXCEPTION_POINTERS *xp)
         }
         return EXCEPTION_CONTINUE_SEARCH;
     }
-    if (er->ExceptionInformation[0] != 0 || ctx->R8 <= 0x3ff) return EXCEPTION_CONTINUE_SEARCH;       // a plausible child index is never hidden
+    if (er->ExceptionInformation[0] != 0) return EXCEPTION_CONTINUE_SEARCH;
+    if (render_triangle_fault(ctx, er)) return EXCEPTION_CONTINUE_EXECUTION;
+    if (ctx->R8 <= 0x3ff) return EXCEPTION_CONTINUE_SEARCH;       // a plausible child index is never hidden
     if (ctx->Rip == (u64)(g_render + RVA_RENDER_BAD_READ) && er->ExceptionAddress == (void *)(g_render + RVA_RENDER_BAD_READ)) {
         if (ctx->Rsi > ~(u64)0 - 0x38 || (u64)er->ExceptionInformation[1] != ctx->Rsi + 0x38 || ctx->Rdi > 0xffffff)
             return EXCEPTION_CONTINUE_SEARCH;
@@ -368,25 +474,35 @@ static void try_render_guard(void)
     image = *(const u32 *)(b + pe + 24 + 56);
     if (stamp != RENDER_TIMESTAMP || image <= RVA_RENDER_FALLBACK + sizeof SIG_RENDER_FALLBACK ||
         image <= RVA_RENDER_WALK_FALLBACK + sizeof SIG_RENDER_WALK_FALLBACK || image <= RVA_RENDER_CACHE_REBUILD + sizeof SIG_RENDER_CACHE_REBUILD ||
+        image <= RVA_RENDER_TRIANGLE_FALLBACK + sizeof SIG_RENDER_TRIANGLE_FALLBACK ||
         !same(b + RVA_RENDER_NODE, SIG_RENDER_NODE, sizeof SIG_RENDER_NODE) ||
         !same(b + RVA_RENDER_FALLBACK, SIG_RENDER_FALLBACK, sizeof SIG_RENDER_FALLBACK) ||
         !same(b + RVA_RENDER_WALK_NODE, SIG_RENDER_WALK_NODE, sizeof SIG_RENDER_WALK_NODE) ||
         !same(b + RVA_RENDER_WALK_FALLBACK, SIG_RENDER_WALK_FALLBACK, sizeof SIG_RENDER_WALK_FALLBACK) ||
         !same(b + RVA_RENDER_CACHE_SYNC, SIG_RENDER_CACHE_SYNC, sizeof SIG_RENDER_CACHE_SYNC) ||
         !same(b + RVA_RENDER_CACHE_SYNC + sizeof SIG_RENDER_CACHE_SYNC, SIG_RENDER_CACHE_BODY, sizeof SIG_RENDER_CACHE_BODY) ||
-        !same(b + RVA_RENDER_CACHE_REBUILD, SIG_RENDER_CACHE_REBUILD, sizeof SIG_RENDER_CACHE_REBUILD)) goto no;
+        !same(b + RVA_RENDER_CACHE_REBUILD, SIG_RENDER_CACHE_REBUILD, sizeof SIG_RENDER_CACHE_REBUILD) ||
+        !same(b + RVA_RENDER_TRIANGLE, SIG_RENDER_TRIANGLE, sizeof SIG_RENDER_TRIANGLE) ||
+        !same(b + RVA_RENDER_TRIANGLE_LOOP, SIG_RENDER_TRIANGLE_LOOP, sizeof SIG_RENDER_TRIANGLE_LOOP) ||
+        !same(b + RVA_RENDER_TRIANGLE_ATTR0, SIG_RENDER_TRIANGLE_ATTR0, sizeof SIG_RENDER_TRIANGLE_ATTR0) ||
+        !same(b + RVA_RENDER_TRIANGLE_ATTR1, SIG_RENDER_TRIANGLE_ATTR1, sizeof SIG_RENDER_TRIANGLE_ATTR1) ||
+        !same(b + RVA_RENDER_TRIANGLE_FALLBACK, SIG_RENDER_TRIANGLE_FALLBACK, sizeof SIG_RENDER_TRIANGLE_FALLBACK)) goto no;
     g_render = (u8 *)b;
     g_render_handler = AddVectoredExceptionHandler(1, render_fault_guard);
     if (!g_render_handler) { g_render = 0; goto no; }
     g_orig_render_cache = (FnRenderCache)install_detour(g_render + RVA_RENDER_CACHE_SYNC, sizeof SIG_RENDER_CACHE_SYNC, (void *)hook_render_cache);
-    if (g_orig_render_cache) {
-        g_render_cache_armed = 1;
-        if (g_log) g_log("vitals: basic_render cache-lifetime repair and invalid-child guards armed (rvas %x, %x, %x)", RVA_RENDER_CACHE_WRITE, RVA_RENDER_WALK_BAD_READ, RVA_RENDER_BAD_READ);
-    } else if (g_log) {
-        // Never weaken the two independently verified read guards merely because
-        // this additional entry detour was blocked by the process protection.
-        g_log("vitals: basic_render invalid-child guards armed; cache-lifetime repair could not be installed");
-    }
+    if (g_orig_render_cache) g_render_cache_armed = 1;
+    g_orig_render_triangle = (FnRenderTriangle)install_detour(g_render + RVA_RENDER_TRIANGLE, 14, (void *)hook_render_triangle);
+    if (g_orig_render_triangle) g_render_triangle_armed = 1;
+    if (g_log && g_render_cache_armed && g_render_triangle_armed)
+        g_log("vitals: basic_render cache-lifetime, geometry-index and invalid-child guards armed (rvas %x, %x, %x, %x)",
+              RVA_RENDER_CACHE_WRITE, RVA_RENDER_TRIANGLE, RVA_RENDER_WALK_BAD_READ, RVA_RENDER_BAD_READ);
+    else if (g_log && g_render_triangle_armed)
+        g_log("vitals: basic_render geometry-index and invalid-child guards armed; cache-lifetime repair could not be installed");
+    else if (g_log && g_render_cache_armed)
+        g_log("vitals: basic_render cache-lifetime and invalid-child guards armed; geometry-index preflight could not be installed");
+    else if (g_log)
+        g_log("vitals: basic_render invalid-child guards armed; cache-lifetime and geometry-index preflights could not be installed");
     return;
 no:
     if (g_log) g_log("vitals: basic_render crash guard not armed (different build or handler unavailable)");
@@ -758,6 +874,11 @@ static void vitals_frame(void *om)
         if (render_recoveries != g_render_reported) {
             g_render_reported = render_recoveries;
             g_log("vitals: skipped an invalid recursive basic_render node (%u time%s); parent material used", g_render_reported, g_render_reported == 1 ? "" : "s");
+        }
+        u32 triangle_skips = __atomic_load_n(&g_render_triangle_skips, __ATOMIC_RELAXED);
+        if (triangle_skips != g_render_triangle_reported) {
+            g_render_triangle_reported = triangle_skips;
+            g_log("vitals: skipped %u malformed basic_render geometry read%s through the engine's no-hit path", triangle_skips, triangle_skips == 1 ? "" : "s");
         }
         u32 cache_repairs = __atomic_load_n(&g_render_cache_repairs, __ATOMIC_RELAXED);
         if (cache_repairs != g_render_cache_reported) {
