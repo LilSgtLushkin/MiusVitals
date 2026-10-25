@@ -9,10 +9,9 @@ set "QUIET="
 if /i "%~1"=="/quiet" set "QUIET=1"
 set "RC=0"
 set "CANDIDATE=78E2718383BC0679154118415189D1C1EE05ED0179A0A924455C22CB4AE2916E"
-set "V20=8108BD1E9AF8080EF8B1050512B8311848F5A336ACB49A7479388733B4AE5723"
-set "STABLE=485B655662BD062E16278F9D699A3097B49A08DE1948D2500DD589703A3102A3"
-set "STABLE_PREVIOUS=4C91874C4B62DB424ECCA36586121BCB3B4CC7849CC900285E68DE5151EDDC36"
-set "STABLE_NOSTART=E4317E630A21198A55E0E86BE4AA29C71FCADA6065824C858ACD0E2BDEF8ADF9"
+set "ACTIVE=%GAME%\bin\rel\x64\basic_network.codelib"
+set "BACKUP=%MOD%\state\backup\bin\rel\x64\basic_network.codelib"
+set "BACKUP_HASH=%MOD%\state\backup\bin\rel\x64\basic_network.codelib.sha256"
 
 echo.
 echo  MiusMultiplayer beta_FPS_fix - experimental FPS candidate
@@ -20,53 +19,84 @@ echo.
 if not exist "%GAME%\starter_x64.exe" goto :no_game
 if not exist "%MOD%\files\bin\rel\x64\basic_network.codelib" goto :incomplete
 tasklist /fi "imagename eq starter_x64.exe" /nh 2>nul | find /i "starter_x64.exe" >nul && goto :running
-call :known_network
-if errorlevel 1 goto :foreign_network
 if not exist "%MOD%\state\backup\bin\rel\x64\" mkdir "%MOD%\state\backup\bin\rel\x64" || goto :failed
 call :backup_previous || goto :failed
 if not exist "%GAME%\bin\rel\x64\" mkdir "%GAME%\bin\rel\x64" || goto :failed
-call :copy_checked "%MOD%\files\bin\rel\x64\basic_network.codelib" "%GAME%\bin\rel\x64\basic_network.codelib" "%CANDIDATE%" || goto :failed
+call :copy_checked "%MOD%\files\bin\rel\x64\basic_network.codelib" "%ACTIVE%" "%CANDIDATE%" || (
+    call :restore_backup_after_failed_install
+    goto :failed
+)
 >"%MOD%\state\enabled.txt" echo beta_FPS_fix candidate enabled.
 echo  Installed and SHA-256 verified:
 echo    basic_network.codelib %CANDIDATE%
 echo.
 echo  This is an experimental FPS-only source candidate. Both players must use this same beta archive.
-echo  It replaces the installed codelib automatically. Run Disable_Beta_FPS_Fix.bat before returning to stable MiusMultiplayer.
+echo  The previous codelib, including an unrecognised one, is backed up and can be restored.
+echo  Run Disable_Beta_FPS_Fix.bat before returning to stable MiusMultiplayer.
 echo  Vitals sidecar hooks are intentionally not claimed for this source-built candidate; record FPS and both basic_network logs.
 goto :finish
 
-:known_network
-if not exist "%GAME%\bin\rel\x64\basic_network.codelib" exit /b 0
-set "H="
-for /f "skip=1 delims=" %%X in ('certutil -hashfile "%GAME%\bin\rel\x64\basic_network.codelib" SHA256 2^>nul') do if not defined H set "H=%%X"
-if defined H set "H=%H: =%"
-for %%X in ("%CANDIDATE%" "%V20%" "%STABLE%" "%STABLE_PREVIOUS%" "%STABLE_NOSTART%") do if /i "%H%"==%%~X exit /b 0
-echo  Existing basic_network.codelib is unknown: %H%
-echo  Nothing was changed: this beta will not overwrite an unknown module.
+:backup_previous
+if not exist "%ACTIVE%" exit /b 0
+call :is_candidate && exit /b 0
+if not exist "%BACKUP%" goto :create_backup
+call :read_backup_hash || exit /b 1
+call :hash_file "%ACTIVE%" ACTIVE_HASH || exit /b 1
+if /i "%ACTIVE_HASH%"=="%EXPECTED_BACKUP_HASH%" exit /b 0
+echo  A stale beta backup was found while a different codelib is active.
+echo  Nothing was changed, so no unrecognised module can be lost. Use Disable_Beta_FPS_Fix.bat or resolve the stale beta state first.
 exit /b 1
 
-:backup_previous
-if not exist "%GAME%\bin\rel\x64\basic_network.codelib" exit /b 0
-call :is_candidate && exit /b 0
-if exist "%MOD%\state\backup\bin\rel\x64\basic_network.codelib" exit /b 0
-copy /y "%GAME%\bin\rel\x64\basic_network.codelib" "%MOD%\state\backup\bin\rel\x64\basic_network.codelib" >nul || exit /b 1
+:create_backup
+call :hash_file "%ACTIVE%" SOURCE_HASH || exit /b 1
+copy /y "%ACTIVE%" "%BACKUP%" >nul || exit /b 1
+call :hash_file "%BACKUP%" BACKED_UP_HASH || exit /b 1
+if /i "%SOURCE_HASH%"=="%BACKED_UP_HASH%" goto :write_backup_hash
+del /f /q "%BACKUP%" >nul 2>nul
+echo  Backup verification failed; the active codelib was not replaced.
+exit /b 1
+
+:write_backup_hash
+>"%BACKUP_HASH%" echo %SOURCE_HASH%  basic_network.codelib
 echo    saved previous basic_network.codelib in beta_FPS_fix\state\backup
 exit /b 0
 
-:is_candidate
-if not exist "%GAME%\bin\rel\x64\basic_network.codelib" exit /b 1
-set "H="
-for /f "skip=1 delims=" %%X in ('certutil -hashfile "%GAME%\bin\rel\x64\basic_network.codelib" SHA256 2^>nul') do if not defined H set "H=%%X"
-if defined H set "H=%H: =%"
-if /i "%H%"=="%CANDIDATE%" exit /b 0
+:restore_backup_after_failed_install
+if not exist "%BACKUP%" exit /b 0
+call :read_backup_hash || exit /b 1
+call :copy_checked "%BACKUP%" "%ACTIVE%" "%EXPECTED_BACKUP_HASH%" || exit /b 1
+echo  Restored the previous codelib after the beta install verification failed.
+exit /b 0
+
+:read_backup_hash
+set "EXPECTED_BACKUP_HASH="
+if not exist "%BACKUP_HASH%" exit /b 1
+for /f "usebackq tokens=1" %%X in ("%BACKUP_HASH%") do if not defined EXPECTED_BACKUP_HASH set "EXPECTED_BACKUP_HASH=%%X"
+if not defined EXPECTED_BACKUP_HASH exit /b 1
+call :hash_file "%BACKUP%" ACTUAL_BACKUP_HASH || exit /b 1
+if /i "%EXPECTED_BACKUP_HASH%"=="%ACTUAL_BACKUP_HASH%" exit /b 0
+echo  The saved beta backup failed its SHA-256 check and was not used.
 exit /b 1
+
+:is_candidate
+if not exist "%ACTIVE%" exit /b 1
+call :hash_file "%ACTIVE%" ACTIVE_HASH || exit /b 1
+if /i "%ACTIVE_HASH%"=="%CANDIDATE%" exit /b 0
+exit /b 1
+
+:hash_file
+set "%~2="
+set "H="
+for /f "skip=1 delims=" %%X in ('certutil -hashfile "%~1" SHA256 2^>nul') do if not defined H set "H=%%X"
+if defined H set "H=%H: =%"
+if not defined H exit /b 1
+set "%~2=%H%"
+exit /b 0
 
 :copy_checked
 copy /y "%~1" "%~2" >nul || exit /b 1
-set "H="
-for /f "skip=1 delims=" %%X in ('certutil -hashfile "%~2" SHA256 2^>nul') do if not defined H set "H=%%X"
-if defined H set "H=%H: =%"
-if /i "%H%"=="%~3" exit /b 0
+call :hash_file "%~2" COPIED_HASH || exit /b 1
+if /i "%COPIED_HASH%"=="%~3" exit /b 0
 echo  SHA-256 verification failed for %~2
 exit /b 1
 
@@ -82,11 +112,8 @@ goto :finish
 echo  The game is running. Close it, then run this again.
 set "RC=4"
 goto :finish
-:foreign_network
-set "RC=2"
-goto :finish
 :failed
-echo  A file could not be copied or verified. Close the game and run this file again.
+echo  A file could not be copied, backed up, or verified. Close the game and run this file again.
 set "RC=1"
 :finish
 echo.

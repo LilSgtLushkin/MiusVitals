@@ -17,9 +17,11 @@ write-elision candidate. The candidate SHA-256 is:
 
   78e2718383bc0679154118415189d1c1ee05ed0179a0a924455c22cb4ae2916e
 
-It keeps a private backup of the previously installed recognised codelib in
-MiusMultiplayer_beta_FPS_fix\state\backup and Disable_Beta_FPS_Fix.bat restores it.
-The beta installer never overwrites an unknown active multiplayer module.
+It backs up any previously installed codelib, including an unknown module, in
+MiusMultiplayer_beta_FPS_fix\state\backup before replacement. The backup receives
+its own SHA-256 record; Disable_Beta_FPS_Fix.bat verifies and restores that exact
+previous file. If a stale beta backup exists while a different external codelib is
+active, the installer stops without changing either file so data cannot be lost.
 
 Install
 -------
