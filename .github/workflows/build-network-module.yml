@@ -108,6 +108,7 @@ jobs:
             --focus steam,gtmf,presence,upnp,find_local \
             --out development/net-v21/build/compare-m2.md \
             --json development/net-v21/build/compare-m2.json \
+            --missing-out development/net-v21/build/missing-m2.txt \
             2>&1 | tee development/net-v21/build/compare-m2.log
           exit ${PIPESTATUS[0]}
 
@@ -166,6 +167,16 @@ jobs:
               echo "#### $report"
               cat "development/net-v21/build/$report.md" 2>/dev/null || echo "no $report report"
             done
+            if [ -f development/net-v21/build/missing-m2.txt ]; then
+              echo
+              echo "<details><summary>every missing work item, by milestone</summary>"
+              echo
+              echo '```'
+              cat development/net-v21/build/missing-m2.txt
+              echo '```'
+              echo
+              echo '</details>'
+            fi
             echo
             if [ -f MiusMultiplayer_v1.0.2_TEST_INSTALL.zip ]; then
               echo "test installer: MiusMultiplayer_v1.0.2_TEST_INSTALL.zip, sha256 $(sha256sum MiusMultiplayer_v1.0.2_TEST_INSTALL.zip | cut -d' ' -f1)"
