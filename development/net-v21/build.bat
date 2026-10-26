@@ -14,6 +14,7 @@ setlocal
 if /i "%~1"=="baseline" goto tools
 if /i "%~1"=="module" goto tools
 if /i "%~1"=="selftest" goto tools
+if /i "%~1"=="join" goto tools
 if /i "%~1"=="all" goto tools
 echo usage: build.bat baseline^|module^|selftest^|join^|all
 exit /b 2
