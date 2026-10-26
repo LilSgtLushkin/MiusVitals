@@ -154,10 +154,14 @@ static uint32_t g_app_id;
 static int g_friend_count;
 static char g_persona[STEAM_NAME_MAX] = {0};
 static char g_presence[128] = {0};
+static char g_connect[256] = {0};
+static bool g_broadcasting;      // last "can be joined" state we told Steam about
+static unsigned g_operation;     // and the operation it was for
 
 static SOCKET g_fake_socket = INVALID_SOCKET;
 static uint16_t g_fake_port;
 static char g_fake_file[MAX_PATH] = {0};
+static char g_fake_persona[STEAM_NAME_MAX] = {0};
 
 static session_request_cb g_cb_request;
 static session_fail_cb g_cb_fail;
@@ -231,15 +235,15 @@ static bool fake_open(uint16_t port)
     return true;
 }
 
-static void fake_note(const char *text)
+static void fake_flush()
 {
     // The stand-in keeps its notes in a file the way v20's does: a second process can read where the
-    // first one says it is, without any Steam involvement.
+    // first one says it is, without any Steam involvement.  Two keys, like real rich presence.
     if (!g_fake_file[0])
         return;
     FILE *file = nullptr;
     if (fopen_s(&file, g_fake_file, "w") == 0 && file) {
-        fprintf(file, "%s\n", text);
+        fprintf(file, "persona=%s\ngtmf=%s\nconnect=%s\n", g_fake_persona, g_presence, g_connect);
         fclose(file);
     }
 }
@@ -355,9 +359,10 @@ bool steam_init()
         g_app_id = 0;
         sprintf_s(g_persona, sizeof(g_persona), "steam:%llu", value);
         g_ready = true;
+        copy_text(g_fake_persona, sizeof(g_fake_persona), g_persona);
         steam_log("steam: TEST STAND-IN for Steam: this game is 'steam:%llu',"
                   " its datagrams travel over UDP on this PC", value);
-        fake_note(g_persona);
+        fake_flush();
         return true;
     }
 
@@ -488,13 +493,64 @@ bool steam_presence(const char *value)
         return false;
     copy_text(g_presence, sizeof(g_presence), value);
     if (g_fake) {
-        fake_note(g_presence);
+        fake_flush();
         return true;
     }
     return g_api.set_presence && g_api.set_presence(g_friends, "gtmf", g_presence);
 }
 
 const char *steam_presence_value() { return g_presence; }
+
+const char *steam_connect_text() { return g_connect; }
+
+bool steam_broadcast(bool hosting, unsigned operation)
+{
+    if (!g_ready)
+        return false;
+
+    char note[32] = {0};
+    char connect[256] = {0};
+    if (hosting) {
+        // The same words v20 puts there, character for character: a friend's Steam client shows
+        // "Join Game" from the second key, and the first one is what the lobby list is keyed on.
+        sprintf_s(note, sizeof(note), "%u game", operation);
+        sprintf_s(connect, sizeof(connect), "root\\programs\\opgame.progpack, +gtmf_join=steam:%llu",
+                  (unsigned long long)g_user_id);
+    }
+
+    if (g_broadcasting == hosting && g_operation == operation &&
+        strcmp(g_presence, note) == 0 && strcmp(g_connect, connect) == 0)
+        return true;  // already said; v20 does not repeat itself either
+
+    copy_text(g_presence, sizeof(g_presence), note);
+    copy_text(g_connect, sizeof(g_connect), connect);
+    g_broadcasting = hosting;
+    g_operation = operation;
+
+    if (g_fake) {
+        fake_flush();
+        if (hosting)
+            steam_log("steam: friends are told that this game can be joined (%s)", g_presence);
+        else
+            steam_log("steam: no longer shown to friends as a game to join%s", "");
+        return true;
+    }
+
+    bool noted = g_api.set_presence && g_api.set_presence(g_friends, "gtmf", g_presence);
+    const char *held = g_api.get_presence ? g_api.get_presence(g_friends, g_user_id, "gtmf") : nullptr;
+    if (!noted || !held || strcmp(held, g_presence) != 0)
+        steam_log("steam: Steam did not take the note for friends (asked for '%s', it holds '%s')",
+                  g_presence, held ? held : "");
+    if (!(g_api.set_presence && g_api.set_presence(g_friends, "connect", g_connect))) {
+        steam_log("steam: Steam did not take the \"connect\" text for its Join Game");
+        return false;
+    }
+    if (hosting)
+        steam_log("steam: friends are told that this game can be joined (%s)", g_presence);
+    else
+        steam_log("steam: no longer shown to friends as a game to join%s", "");
+    return true;
+}
 
 bool steam_presence_check(char *out, size_t size)
 {
@@ -556,6 +612,9 @@ void steam_test_reset()
     g_join_pending = false;
     g_join_id = 0;
     g_presence[0] = 0;
+    g_connect[0] = 0;
+    g_broadcasting = false;
+    g_operation = 0;
     if (g_fake_socket != INVALID_SOCKET) {
         closesocket(g_fake_socket);
         g_fake_socket = INVALID_SOCKET;

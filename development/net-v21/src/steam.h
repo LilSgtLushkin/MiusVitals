@@ -63,6 +63,16 @@ bool steam_presence(const char *value);
 const char *steam_presence_value();          // last value we asked Steam to hold
 bool steam_presence_check(char *out, size_t size);  // read it back and compare, like v20 does
 
+// Tell friends that this game can be joined, or that it can no longer be joined.
+//
+// v20 does this in one place (snapshot_operation_saves) and with two presence keys: "gtmf" gets
+// "<operation number> game", and "connect" gets the text Steam puts behind the Join Game entry -
+// "root\programs\opgame.progpack, +gtmf_join=steam:<our id>".  Clicking that entry starts the
+// game with "+gtmf_join=steam:<our id>" on the command line, which steam_note_command_line()
+// picks up.  With hosting false both keys are emptied, which hides the game from friends.
+bool steam_broadcast(bool hosting, unsigned operation);
+const char *steam_connect_text();            // the last "connect" text, for the log and tests
+
 // Join requests: "+gtmf_join=steam:<id>" on the command line, or a friend pressing Join Game.
 void steam_note_command_line(const char *command_line);
 bool steam_join_take(uint64_t *id);          // true once per request

@@ -99,7 +99,20 @@ int main()
     check(steam_presence("17 cloud"), "presence is recorded in stand-in mode");
     check(strcmp(steam_presence_value(), "17 cloud") == 0, "and reads back");
 
-    // ---- 5. join requests off the command line
+    // ---- 5. what friends are shown: both presence keys v20 uses, word for word
+    check(steam_broadcast(true, 17), "hosting is advertised to friends");
+    check(strcmp(steam_presence_value(), "17 game") == 0,
+          "the note says which operation is being played");
+    char expected[256];
+    sprintf_s(expected, sizeof(expected), "root\\programs\\opgame.progpack, +gtmf_join=steam:%llu",
+              (unsigned long long)steam_user_id());
+    check(strcmp(steam_connect_text(), expected) == 0,
+          "and Join Game carries the progpack plus the steam: address");
+    check(steam_broadcast(false, 0), "leaving the game is advertised too");
+    check(steam_presence_value()[0] == 0 && steam_connect_text()[0] == 0,
+          "with both notes cleared, so friends see nothing to join");
+
+    // ---- 6. join requests off the command line
     steam_note_command_line("\"gtmp.exe\" +gtmf_join=steam:76561198000000042");
     uint64_t join = 0;
     check(steam_join_take(&join) && join == 76561198000000042ULL, "a steam: join request is parsed");
