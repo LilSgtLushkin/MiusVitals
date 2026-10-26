@@ -14,16 +14,26 @@ on:
   push:
     paths:
       - "development/net-v21/**"
+      - "development/net-v21-kit/**"
+      - "scripts/package_net_v21_test.py"
       - ".github/workflows/build-network-module.yml"
   pull_request:
     paths:
       - "development/net-v21/**"
+      - "development/net-v21-kit/**"
+      - "scripts/package_net_v21_test.py"
       - ".github/workflows/build-network-module.yml"
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write    # the test installer is committed back into the branch, see the last steps
   pull-requests: write
+
+# A new push makes the previous run's installer stale, and two runs committing the same file would
+# race each other; the newest run wins.
+concurrency:
+  group: network-module-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-and-compare:
@@ -68,6 +78,10 @@ jobs:
           development\net-v21\build\selftest\steam_selftest.exe >> development\net-v21\build\selftest.log 2>&1
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\netlog_selftest.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
           exit /b %rc%
 
       - name: M1 - compare our baseline against the released v12 module
@@ -97,6 +111,32 @@ jobs:
             2>&1 | tee development/net-v21/build/compare-m2.log
           exit ${PIPESTATUS[0]}
 
+      - name: Package the test installer (proven v1.0.1 + our module beside it)
+        shell: bash
+        run: |
+          python scripts/package_net_v21_test.py \
+            --codelib development/net-v21/build/module/basic_network.codelib \
+            --output MiusMultiplayer_v1.0.2_TEST_INSTALL.zip \
+            --commit "${{ github.sha }}" \
+            2>&1 | tee development/net-v21/build/package.log
+          exit ${PIPESTATUS[0]}
+
+      - name: Publish the test installer into the branch
+        if: always() && github.event_name == 'push'
+        shell: bash
+        run: |
+          # The archive has to be reachable without the Actions API (artifact downloads are blocked
+          # where this build is checked), so it is committed into the branch it was built from and
+          # travels to main with the pull request.
+          archive=MiusMultiplayer_v1.0.2_TEST_INSTALL.zip
+          if [ ! -f "$archive" ]; then echo "no archive was built; nothing to publish"; exit 0; fi
+          git config user.name "net-v21 build"
+          git config user.email "net-v21-build@users.noreply.github.com"
+          git add "$archive"
+          if git diff --cached --quiet; then echo "the archive has not changed"; exit 0; fi
+          git commit -m "build: refresh the net_v21 test installer [skip ci]"
+          git push
+
       - name: Put the numbers in the job summary
         if: always()
         shell: bash
@@ -125,7 +165,13 @@ jobs:
               echo "#### $report"
               cat "development/net-v21/build/$report.md" 2>/dev/null || echo "no $report report"
             done
-            for name in baseline module selftest compare-m1 compare-m2; do
+            echo
+            if [ -f MiusMultiplayer_v1.0.2_TEST_INSTALL.zip ]; then
+              echo "test installer: MiusMultiplayer_v1.0.2_TEST_INSTALL.zip, sha256 $(sha256sum MiusMultiplayer_v1.0.2_TEST_INSTALL.zip | cut -d' ' -f1)"
+            else
+              echo "test installer: not built"
+            fi
+            for name in baseline module selftest package compare-m1 compare-m2; do
               log="development/net-v21/build/$name.log"
               echo
               echo "<details><summary>$name log</summary>"
@@ -146,5 +192,6 @@ jobs:
           name: network-module
           path: |
             development/net-v21/build/**
+            MiusMultiplayer_v1.0.2_TEST_INSTALL.zip
           if-no-files-found: warn
           retention-days: 14

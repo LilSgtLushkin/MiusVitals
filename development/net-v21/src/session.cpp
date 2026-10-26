@@ -12,6 +12,7 @@
 // follows them; when both look from the host's side the host owns everything. For owned units a game sends
 // transforms about 15 times a second (this file) and the full saved state when it changes (statesync.cpp).
 #include "common.h"
+#include "netlog.h"
 #include "protocol.h"
 #include "image.h"
 #include "detour.h"
@@ -259,7 +260,11 @@ static void send_to(const sockaddr_in &to, const void *data, int size)
 
 static void send_peer(const void *data, int size)
 {
-    if (g_sock != INVALID_SOCKET && g_have_peer) send_to(g_peer, data, size);
+    if (g_sock != INVALID_SOCKET && g_have_peer) {
+        send_to(g_peer, data, size);
+        netlog_packet("tx", (const unsigned char *)data, size, ntohl(g_peer.sin_addr.s_addr),
+                      ntohs(g_peer.sin_port), g_peer.sin_family);
+    }
 }
 
 // Full-state replication. MP_SYNC_STATE=0 switches it off (positions only), =1 forces it on.
@@ -1653,6 +1658,9 @@ static void leave_battle_for_menu(void)
 static void on_packet(const sockaddr_in &from, const unsigned char *data, int size, DWORD now)
 {
     const Head *h = (const Head *)data;
+    // Every datagram through the counter, before the protocol decides what to do with it: a packet
+    // that is dropped for a wrong magic is exactly the kind of thing a battle log has to show.
+    netlog_packet("rx", data, size, ntohl(from.sin_addr.s_addr), ntohs(from.sin_port), from.sin_family);
     if (size < (int)sizeof(Head) || h->magic != k_magic) return;
     bool from_peer = g_have_peer && from.sin_addr.s_addr == g_peer.sin_addr.s_addr && from.sin_port == g_peer.sin_port;
 
@@ -1695,6 +1703,9 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
             char ip[64];
             inet_ntop(AF_INET, &from.sin_addr, ip, sizeof ip);
             mp_log("net: player connected from %s:%u (%s)", ip, ntohs(from.sin_port), name[0] ? name : "no name");
+            netlog_mark("a player joined: %s:%u (%s), sides us 0x%x them 0x%x, versus %d",
+                        ip, ntohs(from.sin_port), name[0] ? name : "no name", w.user_side,
+                        w.enemy_side, (int)versus);
             g_sent.clear();            // a new game needs every unit once
             g_held.clear();
             statesync_reset();
@@ -1779,6 +1790,10 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
         break;
     case PKT_WELCOME:
         if (g_role == ROLE_JOIN && size >= (int)sizeof(Welcome)) {
+            netlog_mark("welcome from the host: version %u, sides us 0x%x them 0x%x, versus %d, "
+                        "in battle %d", ((const Welcome *)data)->version,
+                        ((const Welcome *)data)->user_side, ((const Welcome *)data)->enemy_side,
+                        (int)((const Welcome *)data)->versus, (int)((const Welcome *)data)->in_battle);
             const Welcome *w = (const Welcome *)data;
             if (!g_connected) {
                 g_connected = true;
@@ -1875,6 +1890,7 @@ void session_frame(ObjMan *om)
 {
     DWORD now = GetTickCount();
     g_prof_frames++;
+    netlog_frame();
     update_ai_commander();
     if (g_tactical && (g_role != ROLE_NONE || GetEnvironmentVariableA("MP_LOG_SHOTS", 0, 0))) shots_install(om);
     if (g_tactical && g_role != ROLE_NONE) trench_install();

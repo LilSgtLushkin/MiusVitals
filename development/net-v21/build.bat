@@ -33,7 +33,7 @@ if not defined VCToolsInstallDir (
 where cl
 cd /d "%~dp0"
 
-set BASE=src\basic_network.cpp src\session.cpp src\ui.cpp src\state.cpp src\statesync.cpp src\shots.cpp src\trench.cpp src\xlate.cpp
+set BASE=src\basic_network.cpp src\netlog.cpp src\session.cpp src\ui.cpp src\state.cpp src\statesync.cpp src\shots.cpp src\trench.cpp src\xlate.cpp
 set STEAM=src\steam.cpp src\steam_module.cpp
 
 if /i "%~1"=="baseline" goto baseline
@@ -59,4 +59,6 @@ exit /b %errorlevel%
 :selftest
 if not exist build\selftest mkdir build\selftest
 cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\steam.cpp src\steam_selftest.cpp /link ws2_32.lib /OUT:build\selftest\steam_selftest.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\netlog.cpp src\netlog_selftest.cpp /link /OUT:build\selftest\netlog_selftest.exe
 exit /b %errorlevel%

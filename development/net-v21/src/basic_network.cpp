@@ -2,6 +2,7 @@
 // Fills the "i_network" slot the engine reserves. Stage 2: proper command table, per-frame tick,
 // and a survey of every engine object (commands + handler addresses) written to out\mp_objects_<program>.txt.
 #include "common.h"
+#include "netlog.h"
 #include <intrin.h>
 #include <malloc.h>
 #include <share.h>
@@ -41,18 +42,25 @@ static void log_open(HMODULE self)
 
 void mp_log(const char *fmt, ...)
 {
-    if (!g_log) return;
-    SYSTEMTIME t;
-    GetLocalTime(&t);
-    EnterCriticalSection(&g_cs);
-    fprintf(g_log, "%02u:%02u:%02u.%03u [t%05lu] ", t.wHour, t.wMinute, t.wSecond, t.wMilliseconds, GetCurrentThreadId());
+    // Every line also goes to the run log (netlog.h): one file, in order, with the build identity at
+    // the top, is what a bug report needs.  The old per-pid file stays, because it is what the
+    // published module writes and support instructions still point at it.
+    char text[1024];
     va_list a;
     va_start(a, fmt);
-    vfprintf(g_log, fmt, a);
+    vsprintf_s(text, sizeof text, fmt, a);
     va_end(a);
-    fputc('\n', g_log);
-    fflush(g_log);
-    LeaveCriticalSection(&g_cs);
+    if (g_log) {
+        SYSTEMTIME t;
+        GetLocalTime(&t);
+        EnterCriticalSection(&g_cs);
+        fprintf(g_log, "%02u:%02u:%02u.%03u [t%05lu] ", t.wHour, t.wMinute, t.wSecond, t.wMilliseconds, GetCurrentThreadId());
+        fprintf(g_log, "%s", text);
+        fputc('\n', g_log);
+        fflush(g_log);
+        LeaveCriticalSection(&g_cs);
+    }
+    netlog_mirror(text);
 }
 
 bool readable(const void *p, size_t n)
@@ -745,6 +753,7 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD reason, LPVOID)
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(self);
         log_open(self);
+        netlog_open(self, g_program, g_out_dir);
         mp_log("basic_network.codelib loaded, program '%s', pid %lu", g_program, GetCurrentProcessId());
         mp_log("command line: %s", GetCommandLineA());
         g_lockstep = GetEnvironmentVariableA("MP_LOCKSTEP", 0, 0) != 0;
@@ -752,6 +761,7 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD reason, LPVOID)
         mp_log("lockstep %s, debug %s", g_lockstep ? "on" : "off", g_debug ? "on" : "off");
     } else if (reason == DLL_PROCESS_DETACH && g_log) {
         mp_log("unloaded");
+        netlog_shutdown();
     }
     return TRUE;
 }

@@ -18,6 +18,7 @@
 //
 // MP_SYNC_SHOTS=0 switches all of this off; MP_LOG_SHOTS=1 writes every launch to out\mp_shots_<pid>.txt.
 #include "common.h"
+#include "netlog.h"
 #include "protocol.h"
 #include "detour.h"
 #include <intrin.h>
@@ -239,6 +240,7 @@ void shots_frame(void (*send)(const void *, int))
         }
         send(packet, (int)(sizeof h + k * sizeof(ShotRec)));
         g_stat_sent_bytes += sizeof h + k * sizeof(ShotRec);
+        netlog_count("shots_sent", (long long)k);
         at += k;
     }
 }
@@ -260,11 +262,14 @@ void shots_on_packet(const unsigned char *data, int size, void (*send)(const voi
         g_epoch_in = h->epoch;
         g_last_seq_in = 0;
     }
+    unsigned long long fresh = 0;
     for (unsigned i = 0; i < head->count; i++) {
         if (recs[i].seq != g_last_seq_in + 1) continue;         // had already, or not its turn yet
         g_last_seq_in = recs[i].seq;
         g_in.push_back(recs[i]);
+        fresh++;
     }
+    netlog_count("shots_in", (long long)fresh);
     ShotAck ack = { make_head(PKT_SHOT_ACK), g_epoch_in, g_last_seq_in };
     send(&ack, sizeof ack);
 }

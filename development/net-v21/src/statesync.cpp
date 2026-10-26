@@ -6,6 +6,7 @@
 // the object before the next simulation step. Versions only advance on acknowledgement, so a lost
 // datagram costs one retry and never corrupts state.
 #include "common.h"
+#include "netlog.h"
 #include "protocol.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -302,7 +303,11 @@ void statesync_apply(ObjMan *om)
         int r = state_is_unit(o) ? state_load_keep_motion(o, in.base.data(), in.base.size(), g_translate)
                                  : state_load(o, in.base.data(), in.base.size());
         g_stat_loads++;
-        if (r) g_stat_bad++;
+        netlog_count("state_loaded");
+        if (r) {
+            g_stat_bad++;
+            netlog_count("state_rejected");
+        }
     }
 }
 

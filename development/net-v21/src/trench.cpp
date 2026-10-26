@@ -17,6 +17,7 @@
 // The records travel on the same reliable, ordered channel as the shots (ShotRec.kind 2).
 // MP_SYNC_TRENCH=0 switches this off; MP_LOG_TRENCH=1 logs every dig.
 #include "common.h"
+#include "netlog.h"
 #include "protocol.h"
 #include "detour.h"
 #include <stdio.h>
@@ -87,6 +88,7 @@ static u64 dig_hook(char *trencher, int squad, float *pos)
     u64 result = g_dig(trencher, squad, pos);
     g_stat_own++;
     if (g_trace) mp_log("trench: squad %08x dug in (kind %u, settings %x, %s), sent", r.squad, r.type, r.flags, pos ? "at a given place" : "where it stands");
+    netlog_count("trench_sent");
     s.kind = 2;
     memcpy(s.launch, &r, sizeof r);
     // What is kept for a player who connects later: the squads this player has placed himself. The digging
@@ -135,6 +137,7 @@ static void apply(const TrenchRec &r)
     g_injecting = false;
     g_stat_applied++;
     if (g_trace) mp_log("trench: squad %08x of the other player dug in here from his values (kind %u, settings %x)", r.squad, r.type, r.flags);
+    netlog_count("trench_applied");
 }
 
 // A dig of the other game has arrived (called in order, before a simulation step).
