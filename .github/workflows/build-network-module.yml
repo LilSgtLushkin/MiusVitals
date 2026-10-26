@@ -162,11 +162,19 @@ jobs:
       # The job log is not reachable from outside this cluster (the log endpoint is blocked), so the
       # compiler output is mirrored into a pull-request comment while the build is being brought up.
       - name: Mirror the compiler output into the pull request
-        if: always() && github.event_name == 'pull_request'
+        if: always()
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # The job log is not reachable from where this build is checked, so the output has to be
+          # reachable somewhere else.  On a pull request that is the request itself; on a push it is
+          # whatever request is open for this branch, which is how work continues after a merge.
+          number="${{ github.event.number }}"
+          if [ -z "$number" ]; then
+            number=$(gh pr list --head "${{ github.ref_name }}" --state open --json number --jq '.[0].number')
+          fi
+          if [ -z "$number" ]; then echo "no pull request to mirror into"; exit 0; fi
           body=/tmp/build-comment.md
           {
             echo "### network module build (${{ github.sha }})"
@@ -203,7 +211,7 @@ jobs:
               echo '</details>'
             done
           } > "$body"
-          gh pr comment "${{ github.event.number }}" --body-file "$body"
+          gh pr comment "$number" --body-file "$body"
 
       - name: Upload the build, the logs and both comparisons
         if: always()
