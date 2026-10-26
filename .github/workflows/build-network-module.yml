@@ -79,7 +79,9 @@ jobs:
             --reference development/net-v21/references/v12.codelib \
             --reference-kind v12 --label "M1 baseline vs v12" \
             --out development/net-v21/build/compare-m1.md \
-            --json development/net-v21/build/compare-m1.json
+            --json development/net-v21/build/compare-m1.json \
+            2>&1 | tee development/net-v21/build/compare-m1.log
+          exit ${PIPESTATUS[0]}
 
       - name: M2 - compare our module against the v20 module players run
         shell: bash
@@ -91,7 +93,9 @@ jobs:
             --reference-kind v20 --label "M2 module vs v20" \
             --focus steam,gtmf,presence,upnp,find_local \
             --out development/net-v21/build/compare-m2.md \
-            --json development/net-v21/build/compare-m2.json
+            --json development/net-v21/build/compare-m2.json \
+            2>&1 | tee development/net-v21/build/compare-m2.log
+          exit ${PIPESTATUS[0]}
 
       - name: Put the numbers in the job summary
         if: always()
@@ -116,7 +120,7 @@ jobs:
           body=/tmp/build-comment.md
           {
             echo "### network module build (${{ github.sha }})"
-            for name in baseline module selftest; do
+            for name in baseline module selftest compare-m1 compare-m2; do
               log="development/net-v21/build/$name.log"
               echo
               echo '```'
