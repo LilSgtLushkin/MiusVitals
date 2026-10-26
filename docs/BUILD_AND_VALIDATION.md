@@ -16,6 +16,36 @@
 
 Новый DLL допускает только KERNEL32 imports, включая `GetCommandLineA` и `SetEnvironmentVariableA`. Во время dependency attach (до кэширования state policy в `basic_network`) он устанавливает отсутствующий `MP_SYNC_STATE=0` исключительно для strict operation-tactical command line; explicit environment setting не меняется. Ни `g_host_mode`, ни map state, ни codelib не записываются.
 
+## Тестовый архив net_v21 (v1.0.2-test)
+
+`MiusMultiplayer_v1.0.2_TEST_INSTALL.zip` — не выпуск, а тестовый установщик, который **не может
+сделать игру хуже**: `Enable_Multiplayer.bat` ставит ровно те же файлы, что v1.0.1, и они сверяются
+по хэшам при упаковке. Наш собственный модуль лежит рядом, в `MiusMultiplayer\net_v21\`, и
+включается только вручную:
+
+```bat
+net_v21\Switch_To_NetV21.bat       переключить игру на наш модуль
+net_v21\Switch_Back_To_Proven.bat  вернуть проверенный (лежит в том же архиве)
+net_v21\Collect_Logs.bat           собрать out\net_v21_*.log в одну папку для отчёта
+```
+
+Зачем он нужен: наш модуль пишет подробный лог (`out\net_v21_<program>.log`) с паспортом сборки,
+счётчиками трафика и боевыми вехами — именно его не хватало, чтобы разбирать жалобы «разъехалось
+на десятой минуте». Сам модуль пока без боевой дельты v20 (M3–M5) и без импорта `mp_vitals.dll`,
+поэтому для обычной игры остаётся проверенный вариант; `README_TEST.txt` в архиве говорит это
+прямо.
+
+```sh
+python3 scripts/package_net_v21_test.py \
+    --codelib development/net-v21/build/module/basic_network.codelib \
+    --output MiusMultiplayer_v1.0.2_TEST_INSTALL.zip
+python3 scripts/package_net_v21_test.py --verify MiusMultiplayer_v1.0.2_TEST_INSTALL.zip
+```
+
+Архив детерминированный (фиксированные время и порядок записей), поэтому повторная сборка из того
+же дерева даёт те же байты; `TEST_BUILD.txt` внутри несёт SHA-256 нашего модуля и всех проверенных
+файлов.
+
 ## Публичный исходный MiusPlayer и полная source workspace
 
 `development/upstream/miusplayer-public-43b2736/` содержит отобранный редактируемый public source snapshot `VampyrCat/MiusPlayer@43b2736d3b4a1e208e6c80f45f6ebbdd476de3aa`: C++ `basic_network`, headers, program-pack Python tooling и mpmod1 templates. Лицензия CC0 и origin зафиксированы в `UPSTREAM.json`; `SOURCE_MANIFEST.sha256` защищает каждый vendored source file. Это расширяет development workspace за пределы player kit, но не добавляет непроверенные файлы в игру.

@@ -33,8 +33,13 @@ if not defined VCToolsInstallDir (
 where cl
 cd /d "%~dp0"
 
+rem Our tree: the published sources copied into src\ and changed where we need them.
 set BASE=src\basic_network.cpp src\netlog.cpp src\session.cpp src\ui.cpp src\state.cpp src\statesync.cpp src\shots.cpp src\trench.cpp src\xlate.cpp
 set STEAM=src\steam.cpp src\steam_module.cpp
+rem The published sources untouched: the baseline is built from these, not from src\, so M1 keeps
+rem measuring the toolchain instead of our edits. development\upstream\ is the frozen copy.
+set PUBLISHED=..\upstream\miusplayer-public-43b2736\basic_network
+set BASELINE=%PUBLISHED%\basic_network.cpp %PUBLISHED%\session.cpp %PUBLISHED%\ui.cpp %PUBLISHED%\state.cpp %PUBLISHED%\statesync.cpp %PUBLISHED%\shots.cpp %PUBLISHED%\trench.cpp %PUBLISHED%\xlate.cpp
 
 if /i "%~1"=="baseline" goto baseline
 if /i "%~1"=="module" goto module
@@ -48,7 +53,7 @@ exit /b 0
 
 :baseline
 if not exist build\baseline mkdir build\baseline
-cl /nologo /LD /MD /O1 /EHa /W3 /Brepro /Fo"build\baseline\\" /Fd"build\baseline\\" %BASE% /link user32.lib gdi32.lib ws2_32.lib ole32.lib oleaut32.lib /OUT:build\baseline\basic_network.codelib /IMPLIB:build\baseline\basic_network.lib /MAP:build\baseline\basic_network.map
+cl /nologo /LD /MD /O1 /EHa /W3 /Brepro /Fo"build\baseline\\" /Fd"build\baseline\\" %BASELINE% /link user32.lib gdi32.lib ws2_32.lib ole32.lib oleaut32.lib /OUT:build\baseline\basic_network.codelib /IMPLIB:build\baseline\basic_network.lib /MAP:build\baseline\basic_network.map
 exit /b %errorlevel%
 
 :module

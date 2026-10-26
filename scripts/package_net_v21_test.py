@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import os
 from pathlib import Path
 import zipfile
 
@@ -69,7 +68,7 @@ def with_crlf(name: str, data: bytes) -> bytes:
     return data.replace(b"\r\n", b"\n").replace(b"\r", b"\n").replace(b"\n", b"\r\n")
 
 
-def collect(repo: Path, codelib: Path, commit: str) -> dict[str, bytes]:
+def collect(repo: Path, codelib: Path) -> dict[str, bytes]:
     """The archive's whole tree, before CRLF handling: name -> raw bytes."""
     tree: dict[str, bytes] = {}
     for relative, expected in PROVEN_BINARIES.items():
@@ -98,7 +97,6 @@ def collect(repo: Path, codelib: Path, commit: str) -> dict[str, bytes]:
     passport = [
         f"MiusMultiplayer {VERSION} - test archive",
         "",
-        f"commit:                 {commit or 'local build'}",
         f"net_v21 module:         net_v21/basic_network.netv21.codelib",
         f"net_v21 sha256:         {module_hash}",
         f"net_v21 size:           {len(tree['net_v21/basic_network.netv21.codelib'])} bytes",
@@ -162,10 +160,10 @@ def verify(archive_path: Path) -> None:
           f"archive sha256 {sha256(archive_path.read_bytes())}")
 
 
-def build(repo: Path, codelib: Path, archive_path: Path, commit: str) -> None:
+def build(repo: Path, codelib: Path, archive_path: Path) -> None:
     if not codelib.is_file():
         raise SystemExit(f"no module to package: {codelib}")
-    tree = collect(repo, codelib, commit)
+    tree = collect(repo, codelib)
     archive_path.parent.mkdir(parents=True, exist_ok=True)
     temporary = archive_path.with_name(archive_path.name + ".tmp")
     try:
@@ -187,14 +185,13 @@ def main() -> None:
     parser.add_argument("--verify", type=Path)
     parser.add_argument("--codelib", type=Path,
                         default=Path("development/net-v21/build/module/basic_network.codelib"))
-    parser.add_argument("--commit", default=os.environ.get("GITHUB_SHA", ""))
     args = parser.parse_args()
     if bool(args.output) == bool(args.verify):
         parser.error("use exactly one of --output or --verify")
     repo = Path(__file__).resolve().parents[1]
     if args.output:
         codelib = args.codelib if args.codelib.is_absolute() else repo / args.codelib
-        build(repo, codelib, args.output, args.commit)
+        build(repo, codelib, args.output)
     else:
         verify(args.verify)
 

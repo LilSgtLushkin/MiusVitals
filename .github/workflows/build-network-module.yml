@@ -117,7 +117,6 @@ jobs:
           python scripts/package_net_v21_test.py \
             --codelib development/net-v21/build/module/basic_network.codelib \
             --output MiusMultiplayer_v1.0.2_TEST_INSTALL.zip \
-            --commit "${{ github.sha }}" \
             2>&1 | tee development/net-v21/build/package.log
           exit ${PIPESTATUS[0]}
 
@@ -133,6 +132,8 @@ jobs:
           git config user.name "net-v21 build"
           git config user.email "net-v21-build@users.noreply.github.com"
           git add "$archive"
+          # The archive is deterministic: the same module produces the same bytes, so an
+          # unchanged source tree does not add a commit every run.
           if git diff --cached --quiet; then echo "the archive has not changed"; exit 0; fi
           git commit -m "build: refresh the net_v21 test installer [skip ci]"
           git push
