@@ -1,0 +1,98 @@
+name: Build network module
+
+# M1 and M2 from docs/V20_SOURCE_RECOVERY.md, done the only way that can be trusted: build the tree
+# with the author's own compiler settings on Windows, then measure the result against the two
+# modules that exist - v12 (published source build) and v20 (what players run).
+#
+#   baseline  the published sources, untouched  -> should reproduce v12 function for function
+#   module    the same sources plus our Steam layer -> compared against v20 with focus on Steam
+#   selftest  the Steam layer alone, on a machine with no Steam at all
+#
+# A red comparison is information, not a failure: the job prints the numbers and the tables.
+
+on:
+  push:
+    paths:
+      - "development/net-v21/**"
+      - ".github/workflows/build-network-module.yml"
+  pull_request:
+    paths:
+      - "development/net-v21/**"
+      - ".github/workflows/build-network-module.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-compare:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install the disassembler the comparison needs
+        run: python -m pip install --quiet capstone
+
+      - name: Fetch the two reference modules (pinned, SHA-256 checked)
+        run: python development/net-v21/tools/fetch_references.py
+
+      - name: M1 - build the published sources exactly as published
+        shell: cmd
+        run: development\net-v21\build.bat baseline
+
+      - name: M2 - build the same tree plus the Steam layer
+        shell: cmd
+        run: development\net-v21\build.bat module
+
+      - name: M2 - build and run the Steam self-test (no Steam, no game needed)
+        shell: cmd
+        run: |
+          development\net-v21\build.bat selftest || exit /b 1
+          development\net-v21\build\selftest\steam_selftest.exe || exit /b 1
+
+      - name: M1 - compare our baseline against the released v12 module
+        shell: bash
+        run: |
+          python development/net-v21/tools/compare.py \
+            --candidate development/net-v21/build/baseline/basic_network.codelib \
+            --candidate-map development/net-v21/build/baseline/basic_network.map \
+            --reference development/net-v21/references/v12.codelib \
+            --reference-kind v12 --label "M1 baseline vs v12" \
+            --out development/net-v21/build/compare-m1.md \
+            --json development/net-v21/build/compare-m1.json
+
+      - name: M2 - compare our module against the v20 module players run
+        shell: bash
+        run: |
+          python development/net-v21/tools/compare.py \
+            --candidate development/net-v21/build/module/basic_network.codelib \
+            --candidate-map development/net-v21/build/module/basic_network.map \
+            --reference development/net-v21/references/v20.codelib \
+            --reference-kind v20 --label "M2 module vs v20" \
+            --focus steam,gtmf,presence,upnp,find_local \
+            --out development/net-v21/build/compare-m2.md \
+            --json development/net-v21/build/compare-m2.json
+
+      - name: Put the numbers in the job summary
+        shell: bash
+        run: |
+          {
+            echo '## M1: our build of the published sources vs the released v12 module'
+            cat development/net-v21/build/compare-m1.md
+            echo
+            echo '## M2: our module (published sources + Steam layer) vs the v20 module'
+            cat development/net-v21/build/compare-m2.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the build and both comparisons
+        uses: actions/upload-artifact@v4
+        with:
+          name: network-module
+          path: |
+            development/net-v21/build/**
+          if-no-files-found: error
+          retention-days: 14
