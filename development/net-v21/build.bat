@@ -33,8 +33,8 @@ if not defined VCToolsInstallDir (
 where cl
 cd /d "%~dp0"
 
-set BASE=basic_network.cpp session.cpp ui.cpp state.cpp statesync.cpp shots.cpp trench.cpp xlate.cpp
-set STEAM=steam.cpp steam_module.cpp
+set BASE=src\basic_network.cpp src\session.cpp src\ui.cpp src\state.cpp src\statesync.cpp src\shots.cpp src\trench.cpp src\xlate.cpp
+set STEAM=src\steam.cpp src\steam_module.cpp
 
 if /i "%~1"=="baseline" goto baseline
 if /i "%~1"=="module" goto module
@@ -48,12 +48,12 @@ exit /b 0
 
 :baseline
 if not exist build\baseline mkdir build\baseline
-cl /nologo /LD /MD /O1 /EHa /W3 /Brepro /Fo"build\baseline\\" /Fd"build\baseline\\" src\%BASE% /link user32.lib gdi32.lib ws2_32.lib ole32.lib oleaut32.lib /OUT:build\baseline\basic_network.codelib /IMPLIB:build\baseline\basic_network.lib /MAP:build\baseline\basic_network.map
+cl /nologo /LD /MD /O1 /EHa /W3 /Brepro /Fo"build\baseline\\" /Fd"build\baseline\\" %BASE% /link user32.lib gdi32.lib ws2_32.lib ole32.lib oleaut32.lib /OUT:build\baseline\basic_network.codelib /IMPLIB:build\baseline\basic_network.lib /MAP:build\baseline\basic_network.map
 exit /b %errorlevel%
 
 :module
 if not exist build\module mkdir build\module
-cl /nologo /LD /MD /O1 /EHa /W3 /Brepro /Fo"build\module\\" /Fd"build\module\\" src\%BASE% src\%STEAM% /link user32.lib gdi32.lib ws2_32.lib ole32.lib oleaut32.lib /OUT:build\module\basic_network.codelib /IMPLIB:build\module\basic_network.lib /MAP:build\module\basic_network.map
+cl /nologo /LD /MD /O1 /EHa /W3 /Brepro /Fo"build\module\\" /Fd"build\module\\" %BASE% %STEAM% /link user32.lib gdi32.lib ws2_32.lib ole32.lib oleaut32.lib /OUT:build\module\basic_network.codelib /IMPLIB:build\module\basic_network.lib /MAP:build\module\basic_network.map
 exit /b %errorlevel%
 
 :selftest
