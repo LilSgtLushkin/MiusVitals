@@ -5,6 +5,7 @@
 // place the module touches to switch the layer on.
 #include "steam.h"
 #include "common.h"
+#include "netlog.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -17,6 +18,13 @@ void steam_log(const char *fmt, ...)
     vsprintf_s(text, sizeof(text), fmt, args);
     va_end(args);
     mp_log("%s", text);
+}
+
+// The five-second Steam totals, for the run log's summary line.
+void steam_traffic_note(unsigned long long sent, unsigned long long received)
+{
+    netlog_count("steam_sent", (long long)sent);
+    netlog_count("steam_received", (long long)received);
 }
 
 // Called once from session_start(): reads the command line for a join request, then brings the

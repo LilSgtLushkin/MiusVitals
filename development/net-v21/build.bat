@@ -3,7 +3,8 @@ rem Build the network module from this tree.  Needs the Visual Studio 2022 C++ t
 rem
 rem   build.bat baseline   the published v12 sources, untouched - the M1 reference build
 rem   build.bat module     the same sources plus the Steam layer - the M2 build
-rem   build.bat selftest   the Steam layer's self-test, no game and no Steam needed
+rem   build.bat selftest   the Steam layer's and the run log's self-tests, no game and no Steam needed
+rem   build.bat join       the command-line join launcher (mp_join.exe), with Steam
 rem   build.bat all        all three
 rem
 rem Every module link writes a .map: the DLL carries no symbol table, and the map is what makes the
@@ -13,8 +14,9 @@ setlocal
 if /i "%~1"=="baseline" goto tools
 if /i "%~1"=="module" goto tools
 if /i "%~1"=="selftest" goto tools
+if /i "%~1"=="join" goto tools
 if /i "%~1"=="all" goto tools
-echo usage: build.bat baseline^|module^|selftest^|all
+echo usage: build.bat baseline^|module^|selftest^|join^|all
 exit /b 2
 
 :tools
@@ -44,11 +46,13 @@ set BASELINE=%PUBLISHED%\basic_network.cpp %PUBLISHED%\session.cpp %PUBLISHED%\u
 if /i "%~1"=="baseline" goto baseline
 if /i "%~1"=="module" goto module
 if /i "%~1"=="selftest" goto selftest
+if /i "%~1"=="join" goto join
 
 :all
 call "%~f0" baseline || exit /b 1
 call "%~f0" module || exit /b 1
 call "%~f0" selftest || exit /b 1
+call "%~f0" join || exit /b 1
 exit /b 0
 
 :baseline
@@ -63,7 +67,14 @@ exit /b %errorlevel%
 
 :selftest
 if not exist build\selftest mkdir build\selftest
-cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\steam.cpp src\steam_selftest.cpp /link ws2_32.lib /OUT:build\selftest\steam_selftest.exe
+cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\steam.cpp src\steam_logger.cpp src\steam_selftest.cpp /link ws2_32.lib /OUT:build\selftest\steam_selftest.exe
 if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\netlog.cpp src\netlog_selftest.cpp /link /OUT:build\selftest\netlog_selftest.exe
+exit /b %errorlevel%
+
+:join
+rem The launcher the same way the author builds it (/MT), plus the Steam layer, so joining by
+rem "steam:<id>" works from the command line as well as from the menu.
+if not exist build\join mkdir build\join
+cl /nologo /MT /O1 /EHsc /W3 /Fo"build\join\\" /Fd"build\join\\" src\mp_join.cpp src\steam.cpp src\steam_logger.cpp /link ws2_32.lib /OUT:build\join\mp_join.exe
 exit /b %errorlevel%

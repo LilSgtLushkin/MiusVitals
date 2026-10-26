@@ -2,7 +2,7 @@
 //
 // It exercises what can be exercised without a second player - the stand-in transport, the
 // datagram path end to end over loopback, the join-request parser and the off switch - and prints
-// one line per check.  The parts that need real Steam (rich presence, callbacks, P2P relay) are
+// one line per check.  steam_log comes from steam_logger.cpp, the same one mp_join.exe links.  The parts that need real Steam (rich presence, callbacks, P2P relay) are
 // logged but cannot be asserted here; they are what the two-PC run is for.
 #include "steam.h"
 
@@ -11,16 +11,6 @@
 
 static int g_failures;
 static int g_checks;
-
-void steam_log(const char *fmt, ...)
-{
-    va_list args;
-    va_start(args, fmt);
-    printf("    log: ");
-    vprintf(fmt, args);
-    printf("\n");
-    va_end(args);
-}
 
 static void check(bool condition, const char *what)
 {
@@ -95,9 +85,25 @@ int main()
     check(peer == helper_port, "with the peer's number attached");
     check(steam_recv(&peer, buffer, sizeof(buffer)) == 0, "and an empty queue says so");
 
+    // ---- 4a. the address of a Steam peer: same struct as a UDP peer, another family
+    sockaddr_in address;
+    check(steam_peer_make(76561198000000042ULL, &address), "a Steam ID makes a peer address");
+    check(address.sin_family == 0x5354, "with the family v20 marks Steam peers with");
+    check(steam_peer_id(&address) == 76561198000000042ULL, "and the ID reads back unchanged");
+    sockaddr_in plain = {};
+    plain.sin_family = AF_INET;
+    check(!steam_peer_make(0, &plain) && !steam_peer_make(1, nullptr),
+          "an empty ID or no address is refused");
+    check(steam_peer_id(&plain) == 0, "and a UDP peer has no Steam ID");
+
     // ---- 4. presence in stand-in mode is a note, never a failure
     check(steam_presence("17 cloud"), "presence is recorded in stand-in mode");
     check(strcmp(steam_presence_value(), "17 cloud") == 0, "and reads back");
+
+    // ---- 4b. the totals behind the five-second line v20 prints
+    unsigned long long sent_total = 0, received_total = 0;
+    steam_traffic_totals(&sent_total, &received_total);
+    check(sent_total >= 1 && received_total >= 1, "the transport counted the datagrams it moved");
 
     // ---- 5. what friends are shown: both presence keys v20 uses, word for word
     check(steam_broadcast(true, 17), "hosting is advertised to friends");

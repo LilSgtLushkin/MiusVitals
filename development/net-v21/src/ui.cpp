@@ -11,6 +11,8 @@
 // device-reset handling.
 #include "common.h"
 #include "joiner.h"
+#include "netlog.h"
+#include "steam.h"
 #include <d3d9.h>
 #include <ctype.h>
 #include <math.h>
@@ -446,6 +448,10 @@ void ui_start(ObjMan *)
 void ui_frame(ObjMan *om)
 {
     g_frames++;
+    // The menu process is where a Steam join request arrives and where the lobby lives, so the layer
+    // has to be running here as well as in the battle (both calls are idempotent).
+    steam_install();
+    steam_tick();
     if (g_exit_at && GetTickCount() > g_exit_at) ExitProcess(0);
     HWND win = main_window();
     bool focused = win && GetForegroundWindow() == win;
@@ -466,6 +472,24 @@ void ui_frame(ObjMan *om)
     g_on_op_map = session_on_op_map(om);
     if (!g_on_main_menu || g_screen != SCR_NONE) g_button_hot = false;
     if (!g_on_op_map || g_screen != SCR_NONE) g_map_button_hot = false;
+    // A friend pressed Join Game in Steam (or the game was started with +gtmf_join=steam:<id>): v20
+    // goes into that lobby from the main menu, and so does this.  Only from the main menu - a game
+    // that is already in a battle or on the map must not be dragged out of it.
+    if (g_on_main_menu && g_screen == SCR_NONE && g_frames > 45) {
+        uint64_t steam_join = 0;
+        if (steam_join_take(&steam_join)) {
+            sprintf_s(g_address, "steam:%llu", (unsigned long long)steam_join);
+            g_message[0] = 0;
+            mp_log("ui: Steam's Join Game - into the lobby of %s when the main menu is up", g_address);
+            netlog_mark("Steam's Join Game taken (%s, from %s)", g_address, steam_join_source());
+            g_joiner.prefer_side = 0;
+            g_joiner.lobby_ready = false;
+            g_joiner.swap_req = 0;
+            strcpy_s(g_joiner.my_name, session_my_name());
+            if (g_joiner.start(g_address)) { g_lobby_host = false; g_screen = SCR_LOBBY; }
+            else strcpy_s(g_message, g_joiner.error);
+        }
+    }
     // back from a turn on the operational map: into the host's lobby again, ready for the battles
     if (g_autojoin[0] && g_on_main_menu && g_frames > 45 && g_screen == SCR_NONE) {
         strcpy_s(g_address, g_autojoin);
