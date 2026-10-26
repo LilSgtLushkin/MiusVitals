@@ -52,7 +52,7 @@ def image_base(path: Path) -> int:
     return struct.unpack_from("<Q", data, pe + 24 + 24)[0]
 
 
-def parse_map(path: Path, base: int) -> dict[int, str]:
+def parse_map(path: Path, base: int, image_size: int) -> dict[int, str]:
     """RVA -> symbol from a MSVC linker map.
 
     The map prints "Rva+Base" (preferred base + RVA) and, at the top, the preferred load address;
@@ -68,7 +68,7 @@ def parse_map(path: Path, base: int) -> dict[int, str]:
             continue
         symbol, absolute = match.group(1), int(match.group(2), 16)
         rva = absolute - base
-        if 0 < rva < image.size_of_image:
+        if 0 < rva < image_size:
             names.setdefault(rva, symbol.split("@@")[0].lstrip("?"))
     return names
 
@@ -102,7 +102,8 @@ def main() -> int:
 
     candidate = v20tool.Image(args.candidate)
     reference = v20tool.Image(args.reference)
-    cand_names = parse_map(args.candidate_map, image_base(args.candidate)) if args.candidate_map else {}
+    cand_names = (parse_map(args.candidate_map, image_base(args.candidate), candidate.size_of_image)
+                  if args.candidate_map else {})
     ref_names = reference_names(args.reference_kind, reference)
 
     rows = v20tool._classify(candidate, cand_names, reference, ref_names, args.label)
