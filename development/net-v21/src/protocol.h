@@ -2,10 +2,10 @@
 // (mp_join.cpp). UDP, little endian.
 #pragma once
 
-enum { PKT_HELLO = 1, PKT_WELCOME, PKT_KEEPALIVE, PKT_IMAGE_REQUEST, PKT_IMAGE_DATA, PKT_STATE, PKT_BYE, PKT_OBJECT, PKT_OBJECT_ACK, PKT_SHOT, PKT_SHOT_ACK };
+enum { PKT_HELLO = 1, PKT_WELCOME, PKT_KEEPALIVE, PKT_IMAGE_REQUEST, PKT_IMAGE_DATA, PKT_STATE, PKT_BYE, PKT_OBJECT, PKT_OBJECT_ACK, PKT_SHOT, PKT_SHOT_ACK, PKT_END };
 enum { HOST_MODE_SKIRMISH = 1, HOST_MODE_OPERATION = 2, HOST_MODE_MISSION = 3 };       // mission: made in the battle editor
 static const unsigned k_magic = 0x504d5447;          // "GTMP"
-static const unsigned k_version = 12;
+static const unsigned k_version = 13;      // 13: the two players' forces travel (Hello.force_*) and the battle can end by agreement
 static const char k_protocol[12] = "GTMF_TA_A1";     // the engine's own protocol id for this game
 static const unsigned k_chunk = 1000;
 static const unsigned short k_default_port = 1943;   // the port the engine's own network settings name
@@ -23,9 +23,12 @@ struct Head { unsigned magic; unsigned char type, flags; unsigned short count; }
 // turn_done: on the operational map, this player has pressed "next turn". map_epoch: which state of the
 // operation his copy of the map is of (see Welcome.map_flags); with another number he is not counted as
 // being on the map - his copy is of a turn that is over.
+// force_size / force_hash: this player's own force is offered - his battle description, from which the
+// other game takes his squads and units (force.h). 0: nothing to offer.
 struct Hello {
     Head h; char proto[12]; unsigned version, prefer_side; unsigned char ready, phase, lobby_ready, swap_req; char name[24];
     unsigned map_size, map_hash, turn_done, map_epoch;
+    unsigned force_size, force_hash;
 };
 // battle description = the file the operational phase hands to the tactical phase (units, map, sides, seed).
 // in_battle 0: the host is still in its menus or on the operational map; the joining game waits.
@@ -78,6 +81,10 @@ struct ShotRec {
     float pos[4];
     unsigned char launch[0x90];
 };
+// How the sender's battle stands (M3): bit 0 of h.flags - he proposes a ceasefire, bit 1 - his battle is
+// over. Sent a few times a second while a battle runs, so a lost datagram costs nothing: the state, not the
+// change, is what travels. result is his battle's outcome while bit 1 is set.
+struct EndState { Head h; unsigned sim_ms, result; };
 #pragma pack(pop)
 
 inline unsigned fnv(const unsigned char *p, size_t n)

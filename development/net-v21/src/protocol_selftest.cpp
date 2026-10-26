@@ -46,11 +46,12 @@ struct Assembly
 int main()
 {
     expect(sizeof(Head), 8, "Head");
-    expect(sizeof(Hello), 72, "Hello");
+    expect(sizeof(Hello), 80, "Hello (the two players' forces travel in it)");
     expect(sizeof(Welcome), 180, "Welcome");
     expect(sizeof(ImageRequest), 12, "ImageRequest");
     expect(sizeof(ImageData), 16 + k_chunk, "ImageData");
     expect(sizeof(StateHead), 28, "StateHead");
+    expect(sizeof(EndState), 16, "EndState");
     expect(sizeof(UnitRec), 80, "UnitRec");
     expect(sizeof(ObjectFrag), 36, "ObjectFrag");
     expect(sizeof(ObjectAck), 20, "ObjectAck");

@@ -792,6 +792,7 @@ static bool test_shot_request(char *name, size_t n)
     DeleteFileA(path);
     if (!strncmp(line, "ready", 5)) { session_test_ready(); return false; }
     if (!strncmp(line, "resign", 6)) { session_test_resign(); return false; }
+    if (!strncmp(line, "ceasefire", 9)) { session_toggle_ceasefire(); return false; }
     if (!strncmp(line, "endturn", 7)) { session_test_next_turn(); return false; }
     if (!strncmp(line, "savemap", 7)) { session_test_save(); return false; }
     if (!strncmp(line, "newmap", 6)) { session_test_new_map(); return false; }

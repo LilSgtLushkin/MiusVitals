@@ -40,6 +40,8 @@ bool session_connected(void);
 bool session_versus(void);
 bool session_state_wanted(Object *o);      // false: this unit is followed by position only
 void session_test_resign(void);     // tests: leave the battle the way the game's own "to the operation" box does
+void session_toggle_ceasefire(void);     // M3: propose the end of the battle, or take the proposal back (F9)
+bool session_ceasefire_offered(void);
 void session_test_ready(void);      // tests: same as this player pressing Start
 const char *session_my_name(void);
 bool session_peer(char *name, size_t size, bool *ready);     // the other player, if connected

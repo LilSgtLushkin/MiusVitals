@@ -190,8 +190,8 @@ void xlate_frame(ObjMan *om)
             memcpy(g_vtbl_copy, vt - 1, sizeof g_vtbl_copy);
             g_obj_by_place = (Lookup)vt[54];
             g_desc_by_num = (Lookup)vt[57];
-            g_vtbl_copy[1 + 54] = obj_by_place_hook;
-            g_vtbl_copy[1 + 57] = desc_by_num_hook;
+            g_vtbl_copy[1 + 54] = (void *)obj_by_place_hook;
+            g_vtbl_copy[1 + 57] = (void *)desc_by_num_hook;
             om->vtbl = g_vtbl_copy + 1;
             mp_log("numbers: the other game's description and object numbers are translated when its states are loaded");
         } else {

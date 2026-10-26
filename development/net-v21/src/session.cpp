@@ -16,6 +16,7 @@
 #include "steam.h"
 #include "protocol.h"
 #include "image.h"
+#include "force.h"
 #include "detour.h"
 #include "hooks.h"
 #include "opsave.h"
@@ -79,6 +80,8 @@ static unsigned char g_peer_swap_req;
 // battle description: served by the host, read by both for sides and unit ownership
 static std::vector<unsigned char> g_image;
 static u32 g_image_hash, g_user_side, g_enemy_side;
+// The description as the host has it: this game's own copy, turned back round when this game mirrored it.
+static u32 g_source_hash;
 static std::unordered_set<u64> g_my_units;          // versus: the units this game's player commands
 static std::unordered_set<u64> g_position_only;     // units whose saved state is not exchanged
 
@@ -110,6 +113,28 @@ static DWORD g_last_phase_step;
 static DWORD g_host_lost;                  // joining game: when the host went away (0 = it has not)
 // Both players have to press Start to leave deployment, and again to leave the initial orders.
 static u32 g_my_ready, g_peer_ready;       // the phase each player has asked to move on to (1 or 2)
+
+// M3: how far the battle's end has gone (see the "end of a battle" section below).
+static bool g_end_proposed, g_peer_proposed;
+static bool g_peer_over, g_end_left, g_end_leave;
+static u32 g_peer_result;
+static DWORD g_end_at, g_end_last_tx, g_peer_over_at, g_end_key_was;
+// The host is starting the battle again with both forces: the joining game must not take the silence that
+// follows for the host leaving.
+static bool g_restart_coming;
+static DWORD g_restart_until;
+
+// M4: the two players' forces (see the "two players' forces" section below).
+static std::vector<unsigned char> g_force_out, g_force_in, g_force_have;
+static std::vector<DWORD> g_force_asked;
+static u32 g_force_out_hash, g_force_in_hash, g_force_got;
+static bool g_force_published, g_force_applied, g_force_noted;
+static DWORD g_force_last_ask;
+// The joining game downloading a description the host has started its battle with.
+static std::vector<unsigned char> g_desc_in, g_desc_have;
+static std::vector<DWORD> g_desc_asked;
+static u32 g_desc_hash, g_desc_got;
+static DWORD g_desc_last_ask, g_desc_since;
 typedef u64 (*StartAction)(Object *, u64, u64, u64);
 typedef void (*InputAction)(Object *, u64, const char *);
 typedef void (*BoxResult)(Object *, int, u64, u64);
@@ -123,6 +148,7 @@ typedef void (*SetPause)(char *, unsigned char);
 static SetSpeed g_set_speed;               // the timer's own setters, replaced on the timer object of a joining game
 static SetPause g_set_pause;
 static double g_sim_step = 0.02;           // multiplayer battles simulate in steps of this many seconds (MP_SIM_HZ)
+static void force_publish(void);           // M4: this player's force, offered to the other game (defined below)
 
 int session_role(void) { return g_role; }
 int session_host_mode(void) { return g_host_mode; }
@@ -234,6 +260,14 @@ const char *session_status(void)
         sprintf_s(state, "%s", g_map_note);
     else if (!g_tactical)
         sprintf_s(state, "%s has joined and is %s  (F9: lobby)", peer, g_peer_lobby_ready ? "ready" : "not ready yet");
+    else if (g_end_at)
+        sprintf_s(state, "ceasefire agreed - the battle ends in %u s", (unsigned)((g_end_at - GetTickCount()) / 1000 + 1));
+    else if (g_end_proposed)
+        sprintf_s(state, "you have proposed a ceasefire - F9 takes it back");
+    else if (g_peer_proposed)
+        sprintf_s(state, "%s proposes a ceasefire - F9 accepts", peer);
+    else if (g_peer_over)
+        sprintf_s(state, "%s's battle is over - this one ends too", peer);
     else if (g_phase < 2 && g_start_action && mine && !theirs)
         sprintf_s(state, "waiting for %s to finish %s", peer, what);
     else if (g_phase < 2 && g_start_action && theirs && !mine)
@@ -387,12 +421,21 @@ static void load_battle_description(void)
     strcpy_s(g_image_file, path);
     if (!read_file(path, g_image)) { mp_log("net: cannot read the battle description %s", path); return; }
     g_image_hash = fnv(g_image.data(), g_image.size());
+    // The host serves its description as it is; a joining game mirrors the copy it was given, so the hash of
+    // *the host's* file is the hash of this one turned back round. Comparing the wrong one made two games
+    // that are playing the same battle look as if their descriptions differed.
+    g_source_hash = g_image_hash;
+    if (g_versus) {
+        std::vector<unsigned char> back = g_image;
+        if (image::mirror(back)) g_source_hash = fnv(back.data(), back.size());
+    }
     image::sides(g_image, &g_user_side, &g_enemy_side);
     // In this game's own description the squads tagged USER are the ones its player commands.
     g_my_units = image::units_of(g_image, image::k_user);
     find_position_only_units();
     mp_log("net: battle description %zu bytes (hash %08x), this player commands %s (%zu units)", g_image.size(), g_image_hash,
            image::side_name(g_user_side), g_my_units.size());
+    force_publish();
 }
 
 // ---------------------------------------------------------------- versus: no computer commander
@@ -1555,8 +1598,8 @@ static void replace_timer_setters(ObjMan *om)
     memcpy(copy, vt - 1, sizeof copy);
     g_set_speed = (SetSpeed)vt[3];
     g_set_pause = (SetPause)vt[5];
-    copy[1 + 3] = set_speed_hook;
-    copy[1 + 5] = set_pause_hook;
+    copy[1 + 3] = (void *)set_speed_hook;
+    copy[1 + 5] = (void *)set_pause_hook;
     *(void ***)timer = copy + 1;
     mp_log("net: speed and pause are the host's");
 }
@@ -1733,6 +1776,348 @@ static void leave_battle_for_menu(void)
     if (HWND w = main_window()) PostMessageA(w, WM_CLOSE, 0, 0);
 }
 
+// ---------------------------------------------------------------- the end of a battle (M3)
+// A two-player battle has to end the same way in both games. Each player can propose a ceasefire - F9 while
+// the battle runs - and the battle is over five seconds after both have; the same key takes the proposal
+// back. The proposal travels as state, not as an event (EndState, twice a second), so a lost datagram costs
+// nothing. When one game's battle is over, the other game is told and ends its own battle as well.
+
+static bool end_running(void) { return g_tactical && g_role != ROLE_NONE && g_phase >= 2; }
+
+void session_toggle_ceasefire(void)
+{
+    if (!end_running()) return;
+    g_end_proposed = !g_end_proposed;
+    g_end_last_tx = 0;                                  // tell the other game at once
+    if (!g_end_proposed) {
+        g_end_at = 0;
+        mp_log("end: this player takes the ceasefire proposal back");
+        netlog_mark("ceasefire taken back");
+    } else {
+        mp_log("end: this player proposes a ceasefire");
+        netlog_mark("ceasefire proposed");
+    }
+}
+
+bool session_ceasefire_offered(void) { return g_end_proposed; }
+
+static void end_send(DWORD now, unsigned char extra)
+{
+    if (!g_tactical || g_role == ROLE_NONE || !g_connected) return;
+    if (!extra && g_end_last_tx && now - g_end_last_tx < 500) return;
+    g_end_last_tx = now;
+    EndState e = { make_head(PKT_END) };
+    e.h.flags = (unsigned char)((g_end_proposed ? 1 : 0) | (g_end_left ? 2 : 0) | extra);
+    e.sim_ms = (unsigned)g_sim_ms;
+    e.result = 0;
+    send_to(g_peer, &e, sizeof e);
+}
+
+static void end_frame(ObjMan *, DWORD now)
+{
+    if (!g_tactical || g_role == ROLE_NONE) return;
+    end_send(now, 0);
+    if (g_end_proposed && g_peer_proposed && !g_end_at && !g_end_left) {
+        g_end_at = now + 5000;
+        mp_log("end: both players want the ceasefire - the battle ends in 5 s");
+        netlog_mark("ceasefire agreed");
+    }
+    if (g_end_at && !g_end_left && now >= g_end_at) {
+        g_end_left = true;
+        g_end_leave = true;
+        mp_log("end: the ceasefire is on - leaving the battle");
+    }
+    if (g_peer_over && !g_end_left) {
+        if (!g_peer_over_at) {
+            g_peer_over_at = now + 3000;
+            mp_log("end: the other player's battle is over (result %u there) - ending this one", g_peer_result);
+        } else if (now >= g_peer_over_at) {
+            g_end_left = true;
+            g_end_leave = true;
+            mp_log("end: leaving the battle the other player is no longer in");
+        }
+    }
+}
+
+// F9 in the battle. The game's own functions are left alone: a ceasefire is this module's own arrangement
+// between the two players, and leaving the battle is done through the game's own way out of it (the
+// "to the operation" box), which already works.
+static void end_keys(void)
+{
+    if (!end_running()) { g_end_key_was = 0; return; }
+    bool down = (GetAsyncKeyState(VK_F9) & 0x8000) != 0;
+    if (down && !g_end_key_was) session_toggle_ceasefire();
+    g_end_key_was = down;
+}
+
+static void end_on_packet(const unsigned char *data, int size, DWORD now)
+{
+    if (size < (int)sizeof(EndState)) return;
+    const EndState *e = (const EndState *)data;
+    bool proposed = (e->h.flags & 1) != 0, over = (e->h.flags & 2) != 0, restart = (e->h.flags & 4) != 0;
+    if (proposed != g_peer_proposed) {
+        g_peer_proposed = proposed;
+        if (proposed) mp_log("end: the other player proposes a ceasefire");
+        else mp_log("end: the other player takes the ceasefire proposal back");
+    }
+    if (over && !g_peer_over) {
+        g_peer_over = true;
+        g_peer_result = e->result;
+    }
+    if (restart) {
+        g_restart_coming = true;
+        g_restart_until = now + 90000;
+    }
+}
+
+// ---------------------------------------------------------------- the two players' forces (M4)
+// Each game's battle description is its own player's Skirmish setup: his own force on his side and, on the
+// other side, whatever the setup gave the computer. A two-player battle needs both forces in both games,
+// every unit keeping the id it has in its owner's description (force.h does the bytes).
+//   - each game offers its own description: the joining game in its Hello, and serves it on request (the
+//     image channel with flags 2);
+//   - the host fetches it, checks it and writes the joining player's squads and units into its own
+//     description, then starts the battle again from the file that now carries both forces;
+//   - the joining game sees the host's description change, downloads it, mirrors it (it commands the other
+//     side) and starts its battle again from that.
+// An operation's battle is left alone: there the forces come from the operation's own save.
+
+static bool force_here(void)
+{
+    return g_tactical && g_role != ROLE_NONE && g_host_mode != HOST_MODE_OPERATION && !g_image.empty();
+}
+
+static void force_publish(void)
+{
+    char v[16];
+    if (!force_here()) return;
+    if (GetEnvironmentVariableA("MP_FORCE_EXCHANGE", v, sizeof v) && !atoi(v)) {
+        mp_log("lobby: the two players' forces are not exchanged (MP_FORCE_EXCHANGE=0)");
+        return;
+    }
+    if (GetEnvironmentVariableA("MP_FORCE_APPLIED", v, sizeof v) && atoi(v)) {
+        g_force_applied = true;
+        SetEnvironmentVariableA("MP_FORCE_APPLIED", 0);          // the next battle starts clean
+        mp_log("lobby: this battle was started again with both forces - they stay as they are");
+        return;
+    }
+    if (!force::is_description(g_image)) {
+        mp_log("lobby: this battle's description has no squads or units - the other player's force is not asked for");
+        return;
+    }
+    force::Counts c = force::user_force(g_image);
+    if (!c.squads || !c.units) {
+        mp_log("lobby: this player's own force cannot be read out of the battle (%u squads, %u units)", c.squads, c.units);
+        return;
+    }
+    g_force_out = g_image;
+    g_force_out_hash = fnv(g_force_out.data(), g_force_out.size());
+    g_force_published = true;
+    mp_log("ui: this player's own force is offered to the other game: %u squads, %u units of the %s (%u bytes)",
+           c.squads, c.units, image::side_name(g_user_side), (unsigned)g_force_out.size());
+}
+
+static void force_offer_to_hello(Hello *hello)
+{
+    if (!g_force_published || g_force_applied) return;
+    hello->force_size = (u32)g_force_out.size();
+    hello->force_hash = g_force_out_hash;
+}
+
+// The joining game's force, asked for piece by piece (the same channel the description and the map travel on).
+static void force_ask(DWORD now)
+{
+    if (!g_force_in.size() || g_force_applied) return;
+    if (g_force_last_ask && now - g_force_last_ask < 60) return;
+    g_force_last_ask = now;
+    int budget = 24;
+    for (size_t i = 0; i < g_force_have.size() && budget > 0; i++) {
+        if (g_force_have[i]) continue;
+        if (now - g_force_asked[i] < 250) continue;
+        g_force_asked[i] = now ? now : 1;
+        ImageRequest r = { make_head(PKT_IMAGE_REQUEST), (u32)i };
+        r.h.flags = 2;
+        send_to(g_peer, &r, sizeof r);
+        budget--;
+    }
+}
+
+static bool force_write_in(const ImageData *d, int size)
+{
+    if (!g_force_in.size() || d->index >= g_force_have.size() || g_force_have[d->index] || d->size > k_chunk) return false;
+    if ((size_t)d->index * k_chunk + d->size > g_force_in.size()) return false;
+    if (size < (int)(sizeof(ImageData) - k_chunk + d->size)) return false;
+    memcpy(g_force_in.data() + (size_t)d->index * k_chunk, d->data, d->size);
+    g_force_have[d->index] = 1;
+    g_force_got++;
+    return true;
+}
+
+// The host: the joining player's force is in. It is his own battle's description; what goes into this
+// battle is his squads and units for the side he commands here.
+static bool force_apply(ObjMan *)
+{
+    if (g_force_applied || g_force_in.empty() || g_image.empty() || g_role != ROLE_HOST) return false;
+    if (g_phase >= 2) {
+        if (!g_force_noted) {
+            g_force_noted = true;
+            mp_log("lobby: the other player's force arrived after the battle had started - it stays out of this battle");
+        }
+        return false;
+    }
+    unsigned my_user = 0, my_enemy = 0, his_user = 0, his_enemy = 0;
+    if (!image::sides(g_image, &my_user, &my_enemy)) { mp_log("lobby: this battle's description has no sides - the force is not put in"); return false; }
+    if (!image::sides(g_force_in, &his_user, &his_enemy)) { mp_log("lobby: the other player's force has no sides - his side is played as set up"); return false; }
+    if (his_user != my_enemy) {
+        mp_log("lobby: the other player's force is of the %s and he commands the %s here - his side is played as set up",
+               image::side_name(his_user), image::side_name(my_enemy));
+        return false;
+    }
+    std::vector<unsigned char> combined = g_image;
+    force::Result r = force::insert(combined, g_force_in);
+    if (!r.ok) {
+        mp_log("lobby: the other player's own force could not be put into this battle (%s) - his side is played as set up", r.note);
+        return false;
+    }
+    char backup[MAX_PATH];
+    sprintf_s(backup, "%s.before_mp", g_image_file);
+    if (!CopyFileA(g_image_file, backup, FALSE)) {
+        mp_log("lobby: cannot keep a copy of the battle description (%s) - the force is not put in", backup);
+        return false;
+    }
+    FILE *f = 0;
+    if (fopen_s(&f, g_image_file, "wb") || !f) {
+        mp_log("lobby: cannot write the battle with both forces (%s) - playing it as it is", g_image_file);
+        return false;
+    }
+    fwrite(combined.data(), 1, combined.size(), f);
+    fclose(f);
+    g_image.swap(combined);
+    g_image_hash = fnv(g_image.data(), g_image.size());
+    g_source_hash = g_image_hash;
+    g_force_applied = true;
+    mp_log("lobby: the other player's own force is put into the battle: %u squads and %u units of his come in, "
+           "%u squads and %u units of this player's stay (%zu bytes; the description as it was is kept in %s)",
+           r.added_squads, r.added_units, r.kept_squads, r.kept_units, g_image.size(), backup);
+    return true;
+}
+
+// Starting the battle again, from the description that now carries both forces. The other game is told
+// first, so it waits instead of reading the silence as the end of the session.
+static void force_restart(void)
+{
+    SetEnvironmentVariableA("MP_FORCE_APPLIED", "1");
+    for (int i = 0; i < 3; i++) {
+        end_send(GetTickCount(), 4);
+        Sleep(15);
+    }
+    std::string cmd = GetCommandLineA();
+    STARTUPINFOA si = { sizeof si };
+    PROCESS_INFORMATION pi;
+    if (CreateProcessA(0, &cmd[0], 0, 0, FALSE, 0, 0, g_root, &si, &pi)) {
+        mp_log("lobby: restarting the battle with the other player's own force");
+        ExitProcess(0);
+    }
+    mp_log("lobby: could not restart the battle (%lu), playing it as it is", GetLastError());
+    SetEnvironmentVariableA("MP_FORCE_APPLIED", 0);
+    // the file carries both forces but this battle does not: put back what the game started with
+    char backup[MAX_PATH];
+    sprintf_s(backup, "%s.before_mp", g_image_file);
+    CopyFileA(backup, g_image_file, FALSE);
+}
+
+// The joining game: the host's description has changed (it carries both forces now). Download it, mirror it
+// - this player commands the other side - and start the battle again from it.
+static void desc_begin(u32 size, u32 hash, DWORD now)
+{
+    g_desc_in.assign(size, 0);
+    g_desc_have.assign((size + k_chunk - 1) / k_chunk, 0);
+    g_desc_asked.assign(g_desc_have.size(), 0);
+    g_desc_got = 0;
+    g_desc_hash = hash;
+    g_desc_last_ask = 0;
+    g_desc_since = now;
+    mp_log("lobby: the host's battle has changed (%u bytes, hash %08x) - fetching it, it carries both forces", size, hash);
+}
+
+static void desc_ask(DWORD now)
+{
+    if (g_desc_have.empty()) return;
+    if (g_desc_last_ask && now - g_desc_last_ask < 60) return;
+    g_desc_last_ask = now;
+    int budget = 24;
+    for (size_t i = 0; i < g_desc_have.size() && budget > 0; i++) {
+        if (g_desc_have[i]) continue;
+        if (now - g_desc_asked[i] < 250) continue;
+        g_desc_asked[i] = now ? now : 1;
+        ImageRequest r = { make_head(PKT_IMAGE_REQUEST), (u32)i };   // flags 0: the battle description
+        send_to(g_peer, &r, sizeof r);
+        budget--;
+    }
+}
+
+static void desc_write_in(ImageData *d, int size)
+{
+    if (g_desc_have.empty() || d->index >= g_desc_have.size() || g_desc_have[d->index] || d->size > k_chunk) return;
+    if ((size_t)d->index * k_chunk + d->size > g_desc_in.size() || size < (int)(sizeof(ImageData) - k_chunk + d->size)) return;
+    memcpy(g_desc_in.data() + (size_t)d->index * k_chunk, d->data, d->size);
+    g_desc_have[d->index] = 1;
+    if (++g_desc_got != g_desc_have.size()) return;
+    if (fnv(g_desc_in.data(), g_desc_in.size()) != g_desc_hash) {
+        mp_log("lobby: the battle arrived damaged, fetching it again");
+        desc_begin((u32)g_desc_in.size(), g_desc_hash, GetTickCount());
+        return;
+    }
+    std::vector<unsigned char> out = g_desc_in;
+    if (g_versus && !image::mirror(out)) {
+        mp_log("lobby: the host's battle could not be prepared for this side - playing it as it is");
+        return;
+    }
+    FILE *f = 0;
+    if (fopen_s(&f, g_image_file, "wb") || !f) {
+        mp_log("lobby: cannot write the battle to %s - playing it as it is", g_image_file);
+        return;
+    }
+    fwrite(out.data(), 1, out.size(), f);
+    fclose(f);
+    SetEnvironmentVariableA("MP_FORCE_APPLIED", "1");
+    mp_log("lobby: the battle with both forces is in place (%zu bytes, mirrored %d) - starting the battle again", out.size(), (int)g_versus);
+    std::string cmd = GetCommandLineA();
+    STARTUPINFOA si = { sizeof si };
+    PROCESS_INFORMATION pi;
+    if (CreateProcessA(0, &cmd[0], 0, 0, FALSE, 0, 0, g_root, &si, &pi)) ExitProcess(0);
+    mp_log("lobby: could not restart the battle (%lu), playing it as it is", GetLastError());
+    SetEnvironmentVariableA("MP_FORCE_APPLIED", 0);
+}
+
+// Every frame: fetch what is missing, apply what is in, and keep the other game told.
+static void force_frame(ObjMan *om, DWORD now)
+{
+    if (!g_tactical || g_role == ROLE_NONE) return;
+    if (g_role == ROLE_HOST) {
+        if (g_force_in.size() && g_force_got == g_force_have.size() && !g_force_applied) {
+            if (fnv(g_force_in.data(), g_force_in.size()) != g_force_in_hash) {
+                mp_log("lobby: the other player's force arrived damaged, fetching it again");
+                g_force_in_hash = 0;
+                g_force_in.clear();
+                g_force_have.clear();
+                g_force_asked.clear();
+                g_force_got = 0;
+            } else if (force_apply(om)) {
+                force_restart();
+            }
+        }
+        force_ask(now);
+    }
+    if (g_role == ROLE_JOIN) desc_ask(now);
+    // A joining game that is waiting for the host to come back with the battle that carries both forces
+    // must not read the silence of that restart as the host leaving.
+    if (g_restart_coming && g_restart_until && now > g_restart_until) {
+        g_restart_coming = false;
+        g_restart_until = 0;
+    }
+}
+
 // ---------------------------------------------------------------- receive
 static void on_packet(const sockaddr_in &from, const unsigned char *data, int size, DWORD now)
 {
@@ -1815,6 +2200,19 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
             g_map_got = 0;
             mp_log("map: %s is sending his moves (%u bytes)", g_peer_name[0] ? g_peer_name : "the other player", in->map_size);
         }
+        // The joining player's own force: his battle description, from which this game takes his squads and
+        // units (force.h). Fetched on the image channel; the host puts it into its own description.
+        if (full && in->force_size && in->force_hash && !g_force_applied && in->force_hash != g_force_in_hash &&
+            in->force_size <= (16u << 20)) {
+            if (g_force_in.size() != in->force_size) {
+                g_force_in.assign(in->force_size, 0);
+                g_force_have.assign((in->force_size + k_chunk - 1) / k_chunk, 0);
+                g_force_asked.assign(g_force_have.size(), 0);
+                g_force_got = 0;
+                mp_log("lobby: %s is sending the force he picked (%u bytes)", name[0] ? name : "the other player", in->force_size);
+            }
+            g_force_in_hash = in->force_hash;
+        }
         if (in->phase < 0xfe && in->ready != g_peer_ready) {
             g_peer_ready = in->ready;
             mp_log("ready: the other player has finished %s", g_peer_ready >= 2 ? "the initial orders" : g_peer_ready ? "deployment" : "nothing yet");
@@ -1832,10 +2230,12 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
     case PKT_KEEPALIVE:
         break;
     case PKT_IMAGE_REQUEST:
-        if (size >= (int)sizeof(ImageRequest) && (g_role == ROLE_HOST || h->flags == 1)) {
-            // flags 0: the battle description (host only); 1: the operational map this game is offering
-            const std::vector<unsigned char> &blob = h->flags == 1 ? g_map_out : g_image;
+        if (size >= (int)sizeof(ImageRequest) && (g_role == ROLE_HOST || h->flags == 1 || h->flags == 2)) {
+            // flags 0: the battle description (host only); 1: the operational map this game is offering;
+            // 2: this game's own force (M4), which either player serves
+            const std::vector<unsigned char> &blob = h->flags == 1 ? g_map_out : h->flags == 2 ? g_force_out : g_image;
             if (h->flags == 1 && !g_map_given) return;
+            if (h->flags == 2 && g_force_out.empty()) return;
             if (h->flags == 1 && g_role == ROLE_HOST) g_map_fetched = true;
             u32 index = ((const ImageRequest *)data)->index;
             if ((u64)index * k_chunk >= blob.size()) return;
@@ -1847,6 +2247,14 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
         }
         break;
     case PKT_IMAGE_DATA:
+        if (h->flags == 2 && size >= (int)(sizeof(ImageData) - k_chunk)) {
+            force_write_in((const ImageData *)data, size);
+            break;
+        }
+        if (h->flags == 0 && g_role == ROLE_JOIN && !g_desc_have.empty() && size >= (int)(sizeof(ImageData) - k_chunk)) {
+            desc_write_in((ImageData *)data, size);
+            break;
+        }
         if ((g_role == ROLE_HOST || g_map_mode) && h->flags == 1 && !g_map_in.empty() && size >= (int)(sizeof(ImageData) - k_chunk)) {
             const ImageData *d = (const ImageData *)data;
             if (d->index >= g_map_have.size() || g_map_have[d->index] || d->size > k_chunk) return;
@@ -1883,8 +2291,11 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
             // The two games must be playing the same battle.  The description is each game's own file, so
             // it is worth saying out loud when they differ - that is the one thing that makes every later
             // difference unexplainable.
+            if (g_tactical && g_role == ROLE_JOIN && w->image_size && w->image_hash && w->image_hash != g_source_hash &&
+                !g_force_applied && g_host_mode != HOST_MODE_OPERATION && g_desc_have.empty() && w->image_size <= (16u << 20))
+                desc_begin(w->image_size, w->image_hash, now);     // it carries both forces: take it
             if (g_tactical && !g_image.empty() && w->image_size &&
-                (w->image_size != g_image.size() || w->image_hash != g_image_hash))
+                (w->image_size != g_image.size() || w->image_hash != g_source_hash))
                 mp_log("net: the battle description differs from the host's: %u bytes (hash %08x) here, %u bytes (hash %08x) on the host",
                        (unsigned)g_image.size(), g_image_hash, w->image_size, w->image_hash);
             memcpy(g_peer_name, w->name, sizeof g_peer_name);
@@ -1965,6 +2376,9 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
     case PKT_SHOT_ACK:
         shots_on_packet(data, size, send_peer);
         break;
+    case PKT_END:
+        end_on_packet(data, size, now);
+        break;
     case PKT_BYE:
         mp_log("net: the other player's game closed");
         g_connected = false;
@@ -2014,6 +2428,10 @@ void session_frame(ObjMan *om)
 
     install_detours();
     install_map_detours();
+    end_keys();
+    end_frame(om, now);
+    force_frame(om, now);
+    if (g_end_leave) { g_end_leave = false; g_resign_asked = true; }
     resign_if_asked(om);
     host_map_frame(om, now);
     if ((g_role == ROLE_HOST && !g_tactical) || g_map_mode) request_map_pieces(now);
@@ -2050,6 +2468,7 @@ void session_frame(ObjMan *om)
             if (g_map_mode && g_map_given && !g_map_sent) { hello.map_size = (u32)g_map_out.size(); hello.map_hash = g_map_out_hash; }
             hello.turn_done = g_map_mode && g_turn_done;
             hello.map_epoch = g_map_base_epoch;
+            force_offer_to_hello(&hello);
             send_to(g_peer, &hello, sizeof hello);
         }
     }
@@ -2076,7 +2495,7 @@ void session_frame(ObjMan *om)
         if (g_role == ROLE_JOIN && g_tactical && !g_host_lost) g_host_lost = now ? now : 1;
         if (g_role == ROLE_HOST) { g_have_peer = false; g_peer_on_map = g_peer_turn_done = false; }
     }
-    if (g_host_lost && now - g_host_lost > 4000) leave_battle_for_menu();
+    if (g_host_lost && now - g_host_lost > 4000 && !g_restart_coming) leave_battle_for_menu();
     if (now - g_last_report >= 5000) {
         if (g_connected && g_tactical && (g_stat_sent || g_stat_applied)) {
             mp_log("net: 5 s: sent %u and applied %u unit transforms, mean correction %.2f m, largest %.2f m, %u jumps, rx %.1f / tx %.1f KB/s",
