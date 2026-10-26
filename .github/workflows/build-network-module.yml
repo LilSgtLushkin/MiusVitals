@@ -120,6 +120,13 @@ jobs:
             2>&1 | tee development/net-v21/build/compare-m2.log
           exit ${PIPESTATUS[0]}
 
+      - name: Self-test the battle report (the tool a two-PC run is read with)
+        shell: bash
+        run: |
+          python development/net-v21/tools/battle_report_selftest.py \
+            2>&1 | tee development/net-v21/build/battle-report-selftest.log
+          exit ${PIPESTATUS[0]}
+
       - name: Package the test installer (proven v1.0.1 + our module beside it)
         shell: bash
         run: |
@@ -199,7 +206,7 @@ jobs:
             else
               echo "test installer: not built"
             fi
-            for name in baseline module selftest join package compare-m1 compare-m2; do
+            for name in baseline module selftest join battle-report-selftest package compare-m1 compare-m2; do
               log="development/net-v21/build/$name.log"
               echo
               echo "<details><summary>$name log</summary>"
