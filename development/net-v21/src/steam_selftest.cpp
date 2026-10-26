@@ -84,7 +84,11 @@ int main()
     int got = recvfrom(helper, buffer, sizeof(buffer), 0, (sockaddr *)&from, &from_size);
     check(got == 4 && memcmp(buffer, "ping", 4) == 0, "it arrives at the peer unchanged");
 
-    sendto(helper, "pong", 4, 0, (sockaddr *)&local, sizeof(local));
+    sockaddr_in steam_addr = {};
+    steam_addr.sin_family = AF_INET;
+    steam_addr.sin_port = htons(port);
+    steam_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    sendto(helper, "pong", 4, 0, (sockaddr *)&steam_addr, sizeof(steam_addr));
     uint64_t peer = 0;
     got = steam_recv(&peer, buffer, sizeof(buffer));
     check(got == 4 && memcmp(buffer, "pong", 4) == 0, "a datagram from the peer is delivered");
