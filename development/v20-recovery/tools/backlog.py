@@ -14,61 +14,17 @@ import argparse
 import csv
 import re
 from collections import defaultdict
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 DEFAULT_CSV = ROOT / "reports" / "v20-functions.csv"
 DEFAULT_OUT = ROOT / "reports" / "v20-backlog.md"
 
-# Milestones, in the order they are worked on.  A function is filed under the first milestone whose
-# pattern matches any of its strings; leftovers go last so they cannot silently disappear.
-MILESTONES = [
-    ("M2", "Steam", re.compile(
-        r"steam|MP_STEAM|rich presence|gtmf_join|P2P|friends", re.I)),
-    ("M4", "Lobby and forces", re.compile(
-        r"lobby|MULTIPLAYER|force|cfgpack|battle setup|MP_BATTLE_SETUP|skirmish|resign|MP_AUTOJOIN", re.I)),
-    ("M5", "Operation map", re.compile(
-        r"map:|opgame|opsave|sidecar|_known|MP_MAP|operation|_known_|adv_opmap|formation", re.I)),
-    ("M3", "Battle synchronization", re.compile(
-        r"ceasefire|MP_SYNC|MP_END|hit:|crater|trench|shot|shots|clock|anim|"
-        r"MP_HIT|MP_CRATER|MP_TRENCH|MP_SHOTS|trace: battle|MP_APPLY_DELAY|MP_TEST_TRACE|"
-        r"net:|session|battle|transform|shellphys|sync|stamp|MP_ROLE|MP_PEER|MP_VERSUS", re.I)),
-    ("M6", "Tests and tooling", re.compile(
-        r"MP_TEST|mp_cmd_|mp_join|MP_LOG|log_", re.I)),
-]
-
-PROJECT = ("@opsave@", "@Joiner@", "@Sidecar@", "lambda_")
-
-
-def kind(row: dict[str, str]) -> str:
-    """SAME / CHANGED / NEW-{logic,stl,plumbing,unknown} - what the port has to do with it."""
-    name = row["v12_name"]
-    if row["status"] == "SAME":
-        return "SAME"
-    if row["status"] == "CHANGED":
-        return "CHANGED"
-    if not name.strip():
-        return "NEW:unknown"
-    if name.startswith("??__"):
-        return "NEW:plumbing"
-    if "@std@@" in name and not any(p in name for p in PROJECT):
-        return "NEW:stl"
-    return "NEW:logic"
-
-
-def milestone(row: dict[str, str]) -> tuple[str, str]:
-    """File by what the function prints; fall back to what it is called when it prints nothing."""
-    for tag, label, pattern in MILESTONES:
-        if pattern.search(row["strings"]):
-            return tag, label
-    if not row["strings"].strip():
-        for tag, label, pattern in MILESTONES:
-            if pattern.search(row["v12_name"]):
-                return tag, label
-        if int(row["size"]) < 128:
-            return "M8", "Small deltas (<128 bytes, no log lines): one-liners to diff, not to design"
-    return "M7", "Unsorted"
+from rules import MILESTONES, kind, milestone  # noqa: E402  (module sits next to this file)
 
 
 def short(name: str, limit: int = 78) -> str:
@@ -112,8 +68,7 @@ def main() -> None:
         f"| CHANGED | {kinds['CHANGED'][0]} | {kinds['CHANGED'][1]} | take the v12 function, apply the delta |",
         f"| NEW:logic | {kinds['NEW:logic'][0]} | {kinds['NEW:logic'][1]} | write from the decompiled pseudo-C |",
         f"| NEW:unknown | {kinds['NEW:unknown'][0]} | {kinds['NEW:unknown'][1]} | read the pseudo-C first, then name and write |",
-        f"| NEW:stl | {kinds['NEW:stl'][0]} | {kinds['NEW:stl'][1]} | compiler output: comes back by itself when the source is rebuilt |",
-        f"| NEW:plumbing | {kinds['NEW:plumbing'][0]} | {kinds['NEW:plumbing'][1]} | static initializers and atexit thunks: same, compiler output |",
+        f"| NEW:stl | {kinds['NEW:stl'][0]} | {kinds['NEW:stl'][1]} | templates, static initializers, atexit thunks: compiler output, comes back by itself |",
         "",
         "`similarity` is the structural match against the nearest v12 function. Anything below ~0.5 is",
         "a guess: the name column is a hint, not a fact. Names in the tables below are hints too;",

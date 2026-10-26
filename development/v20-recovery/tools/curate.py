@@ -19,7 +19,10 @@ import argparse
 import csv
 import re
 import shutil
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -28,35 +31,10 @@ DECOMP = WORK / "decomp"
 TARGET = ROOT / "reports" / "decomp"
 CSV = ROOT / "reports" / "v20-functions.csv"
 
-MILESTONES = [
-    ("M2", "Steam", re.compile(
-        r"steam|MP_STEAM|rich presence|gtmf_join|P2P|friends", re.I)),
-    ("M5", "Operation map", re.compile(
-        r"map:|opgame|opsave|sidecar|_known|MP_MAP|operation|adv_opmap|formation", re.I)),
-    ("M4", "Lobby and forces", re.compile(
-        r"lobby|MULTIPLAYER|force|cfgpack|battle setup|MP_BATTLE_SETUP|skirmish|resign|MP_AUTOJOIN", re.I)),
-    ("M3", "Battle synchronization", re.compile(
-        r"ceasefire|MP_SYNC|MP_END|hit:|crater|trench|shot|shots|clock|anim|"
-        r"MP_HIT|MP_CRATER|MP_TRENCH|MP_SHOTS|MP_APPLY_DELAY|MP_TEST_TRACE|"
-        r"net:|session|battle|transform|shellphys|sync|stamp|MP_ROLE|MP_PEER|MP_VERSUS", re.I)),
-]
+from rules import VERIFIED, is_compiler_output, milestone  # noqa: E402  (sits next to this file)
 
 
-PROJECT = ("@opsave@", "@Joiner@", "@Sidecar@", "lambda_")
 
-
-def is_compiler_output(row: dict[str, str]) -> bool:
-    """STL instantiations and static initialisers: they come back when the source is rebuilt."""
-    name = row["v12_name"]
-    return (row["status"] == "NEW" and name.startswith("??__")) or (
-        "@std@@" in name and not any(p in name for p in PROJECT))
-
-
-def stage(row: dict[str, str]) -> str:
-    for tag, _, pattern in MILESTONES:
-        if pattern.search(row["strings"]):
-            return tag
-    return "M7"
 
 
 def safe(name: str) -> str:
@@ -90,13 +68,19 @@ def main() -> int:
         if not args.all and (row["status"] == "SAME" or int(row["size"]) < args.min_size
                              or is_compiler_output(row)):
             continue
-        target = TARGET / f"{rva:06x}_{safe(row['v12_name'])}.c"
+        try:
+            similarity = float(row["similarity"] or 0)
+        except ValueError:
+            similarity = 0.0
+        # Name the file after the symbol only when the match is strong; a 0.3 "match" is noise.
+        label = VERIFIED.get(rva) or (safe(row["v12_name"]) if similarity >= 0.5 else "unnamed")
+        target = TARGET / f"{rva:06x}_{label}.c"
         shutil.copyfile(files[rva], target)
         picked.append((rva, row, target.name))
 
     by_stage: dict[str, list] = {}
     for rva, row, name in picked:
-        by_stage.setdefault(stage(row), []).append((rva, row, name))
+        by_stage.setdefault(milestone(row)[0], []).append((rva, row, name))
 
     index = [
         "# Decompilation of v20",
@@ -108,7 +92,9 @@ def main() -> int:
         "",
         "String literals are substituted back in by `tools/polish.py`, so most log lines appear",
         "verbatim. `g_XXXX` are globals at that RVA (`v20.codelib` is loaded at 0, so RVA = address);",
-        "`sub_XXXX` are calls angr could not name.",
+        "`sub_XXXX` are calls angr could not name. `hint` is the nearest v12 symbol: a lead, not a",
+        "fact — below ~0.5 similarity it is often wrong (that is why the verified names are in",
+        "`tools/rules.py` and the files are named after them).",
         "",
         "| stage | files | bytes of original code |",
         "|---|---|---|",
@@ -119,12 +105,18 @@ def main() -> int:
     index.append("")
 
     for tag in sorted(by_stage):
-        label = dict((t, l) for t, l, _ in MILESTONES).get(tag, "Unsorted")
+        label = {"M2": "Steam", "M3": "Battle synchronization", "M4": "Lobby and forces",
+                 "M5": "Operation map", "M6": "Tests and tooling"}.get(tag, "Unsorted")
         index += [f"## {tag} — {label}", ""]
         for rva, row, name in sorted(by_stage[tag], key=lambda x: -int(x[1]["size"])):
             shown = row["strings"].replace("|", "\\|")[:110]
-            index.append(f"* [`{rva:06x}`]({name}) — {row['size']} B, {row['status'].lower()}"
-                         + (f" — {shown}" if shown else ""))
+            hint = safe(row["v12_name"]) if row["v12_name"].strip() else "—"
+            if rva in VERIFIED:
+                hint = "verified"
+            else:
+                hint = f"{hint} ({similarity:.2f})"
+            index.append(f"* [`{rva:06x}`]({name}) — {row['size']} B, {row['status'].lower()}, "
+                         f"hint `{hint}`" + (f" — {shown}" if shown else ""))
         index.append("")
 
     (TARGET / "README.md").write_text("\n".join(index) + "\n")
