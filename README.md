@@ -16,7 +16,15 @@
 
 В репозитории остался ровно один устаревший архив — [`MiusMultiplayer_OUTDATED_INSTALL.zip`](MiusMultiplayer_OUTDATED_INSTALL.zip) (бывший v1.0.0). Он сохранён только для rollback/provenance и **не** является актуальным installer.
 
-Отдельный experimental `MiusMultiplayer_beta_FPS_fix_INSTALL.zip` **удалён**: его единственный payload (Steam-preserving FPS `basic_network.codelib`) давно входит в v1.0.1, а два installer'а с разными codelib только путали установку. Вместе с архивом удалены `scripts/package_fps_beta.py` и `development/fps-beta-kit-source/`; воспроизводимая сборка самого FPS candidate остаётся в [`development/fps-beta-build/`](development/fps-beta-build/) и проверяется workflow [`verify-fps-codelib.yml`](.github/workflows/verify-fps-codelib.yml).
+Отдельный experimental `MiusMultiplayer_beta_FPS_fix_INSTALL.zip` **удалён**: его единственный payload (Steam-preserving FPS `basic_network.codelib`) давно входит в v1.0.1, а два installer'а с разными codelib только путали установку. Вместе с архивом удалены `scripts/package_fps_beta.py` и `development/fps-beta-kit-source/`; воспроизводимая сборка самого FPS candidate остаётся в [`development/fps-candidate/`](development/fps-candidate/) и проверяется workflow [`verify-fps-codelib.yml`](.github/workflows/verify-fps-codelib.yml).
+
+### GTMP_alpha — экспериментальная сборка поверх v1.0.1
+
+[`GTMP_alpha_INSTALL.zip`](GTMP_alpha_INSTALL.zip) — это копия v1.0.1, в которой заменён только `mp_vitals.dll` (пересобранная из исходника с мелкими исправлениями) и перемаркированы установщики. `basic_network.codelib` и остальные runtime-файлы побайтово совпадают с v1.0.1, поэтому alpha не может привезти другой модуль. SHA-256 архива `aacfe7dfd0cca82c0ed771e5a9088faa75565f3bf7d5757ceef8d3f532955924`, alpha-DLL `808e1d5f6cb301ac971700e0aba6e78d1df1b13b02e748b8d01dd4bfc8a9881c`.
+
+Alpha нужна для проверки исправлений DLL на живой паре ПК; она не заменяет v1.0.1 как стабильную сборку. Признак загрузки alpha в логе — строка `vitals: GTMP_alpha-1 experimental build (bugfix series 1)`.
+
+После прогона запустите `MiusMultiplayer\Collect_Logs.bat` — он соберёт один файл `MiusMultiplayer\GTMP_alpha_log.txt` (система, версия игры, хеши установленных файлов, переменные `MP_*`, отчёт Check_Install, выжимка по событиям и полные логи). Для разбора достаточно этого файла с каждого ПК. Подробности, список исправлений и откат — [`development/gtmp-alpha/README.md`](development/gtmp-alpha/README.md) и `ALPHA.txt` внутри архива.
 
 Если в игре остался withdrawn beta module `78e271…2916e` или установка `beta_FPS_fix`, просто запустите `MiusMultiplayer\\Enable_Multiplayer.bat` из v1.0.1: он заменяет codelib и program packs безусловно.
 
@@ -117,6 +125,8 @@ scripts/test_native.sh
 scripts/verify_release.sh
 ```
 
-Проверка включает ASan/UBSan native test, SHA-256 всех артефактов, PE import/export surface, проверку точного Next Turn адреса и сигнатуры, а также exact ZIP tree. Реальный двухигроковый прогон Graviteam в Linux sandbox не выполняется; перед кампанией необходим тест обоими игроками.
+Проверка включает ASan/UBSan native test, SHA-256 всех артефактов, PE import/export surface, проверку точного Next Turn адреса и сигнатуры, byte-for-byte сверку одинаковых бинарников во всех kit-источниках, а также exact ZIP tree.
+
+Оглавление всей документации: [`docs/README.md`](docs/README.md). Реальный двухигроковый прогон Graviteam в Linux sandbox не выполняется; перед кампанией необходим тест обоими игроками.
 
 Подробности сборки: [`docs/BUILD_AND_VALIDATION.md`](docs/BUILD_AND_VALIDATION.md). Проверенные причины тактической нагрузки и precondition карты: [`docs/TACTICAL_PERFORMANCE_AND_MAP_EVIDENCE_2026-10-25.md`](docs/TACTICAL_PERFORMANCE_AND_MAP_EVIDENCE_2026-10-25.md).

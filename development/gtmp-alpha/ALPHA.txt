@@ -1,0 +1,73 @@
+GTMP_alpha — экспериментальная сборка MiusMultiplayer
+=====================================================
+
+Это копия стабильного MiusMultiplayer v1.0.1, в которой заменён ровно один
+runtime-файл: mp_vitals.dll. Всё остальное — basic_network.codelib, mp_join.exe,
+opgame.progpack, tacgame.progpack, steam_appid.txt — побайтово совпадает с v1.0.1.
+
+Зачем: DLL пересобрана из исходника (сборка воспроизводима, см. ниже) и содержит
+только исправления мелких ошибок. Игровая логика, сетевой протокол и поведение
+модуля не менялись.
+
+  mp_vitals.dll (alpha)  SHA-256 808E1D5F6CB301AC971700E0ABA6E78D1DF1B13B02E748B8D01DD4BFC8A9881C
+  mp_vitals.dll (v1.0.1) SHA-256 71A1BF3A37923BBE6C8EE84448D0B91705C2BFF7382B647F990B9D671EE224DF
+  basic_network.codelib  SHA-256 7B42A69ABE58DEB1583D2F5320EEBBECD9718FFA27EA08933613E67DF1901F67  (без изменений)
+
+Что исправлено в DLL
+--------------------
+1. Переменные MP_VITALS, MP_VEHICLES, MP_STATS, MP_RENDER_GUARD: при слишком
+   длинном значении читался неинициализированный буфер. Теперь такое значение
+   считается «не задано» и действует документированное поведение по умолчанию.
+2. MP_IDLE_MS: проверка верхней границы пропускала значения больше 6000 мс
+   (например 60000). Теперь диапазон 0..6000 мс соблюдается строго.
+3. hex_of(): добавлена защита от пустого указателя.
+4. drain_mailbox(): запись короче заголовка больше не разбирается как пакет.
+
+Что добавлено в логирование
+---------------------------
+* Первая строка при старте показывает, какая DLL загружена и какие переопределения
+  реально получил процесс игры:
+    vitals: GTMP_alpha-1 experimental build (bugfix series 1); MP_VITALS=-1 ...
+* Каждые 5 секунд, если от второго игрока были пакеты, пишется строка
+    rx: last 5 s, datagrams from the other game (type:count/bytes) ...; total N
+  Она включена всегда, без MP_LOG_VITALS, и сразу показывает, доходит ли трафик
+  и какие типы пакетов идут.
+* Если за первые 10 секунд сессии не пришло ни одного пакета, пишется
+    rx: no datagrams from the other game in the first 10 s of this session
+
+Как отличить alpha в игре
+-------------------------
+После загрузки модуля в out\basic_network_*.log появляется строка:
+
+  vitals: GTMP_alpha-1 experimental build (bugfix series 1)
+
+Если этой строки нет, значит загружена другая mp_vitals.dll.
+
+Установка
+---------
+Как у v1.0.1: распакуйте архив в корень игры рядом со starter_x64.exe, затем
+запустите MiusMultiplayer\Check_Install.bat и MiusMultiplayer\Enable_Multiplayer.bat.
+Check_Install должен показать для mp_vitals.dll состояние OK (в этой сборке
+эталонный hash — alpha).
+Оба игрока должны поставить одну и ту же сборку: протокол совместим с v1.0.1,
+но логи и хеши в отчётах должны совпадать, иначе разбор усложняется.
+
+Откат
+-----
+1. Закройте игру.
+2. Запустите MiusMultiplayer\Disable_Multiplayer.bat (он удаляет именно alpha-DLL).
+3. Распакуйте MiusMultiplayer_v1.0.1_INSTALL.zip и выполните его Enable_Multiplayer.bat.
+
+Что прислать после теста
+------------------------
+Запустите MiusMultiplayer\Collect_Logs.bat. Он соберёт ОДИН файл
+MiusMultiplayer\GTMP_alpha_log.txt: система, версия игры, хеши установленных
+файлов, переменные MP_*, отчёт Check_Install, краткая выжимка по событиям и
+полные логи out\basic_network_*.log. Присылайте этот файл с обоих ПК плюс
+краткое описание сценария и времени.
+
+Воспроизводимость
+-----------------
+DLL собирается из development/kit-source/src/mp_vitals.c скриптом
+development/gtmp-alpha/rebuild.sh (Zig 0.17.0, KERNEL32-only, без CRT).
+Повторная сборка на другой машине даёт тот же SHA-256.

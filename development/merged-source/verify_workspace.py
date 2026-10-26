@@ -31,6 +31,11 @@ def source_files() -> set[str]:
         relative = path.relative_to(UPSTREAM).as_posix()
         if not path.is_file() or relative == MANIFEST.name:
             continue
+        # Importing the analysis tools leaves __pycache__ behind.  It is ignored by Git and is
+        # not part of the vendored snapshot, so it must not count as an unexpected source file
+        # (a plain `python3` run used to fail the whole release check because of it).
+        if "__pycache__" in path.parts or path.suffix in {".pyc", ".pyo"}:
+            continue
         if any(relative == prefix or relative.startswith(prefix + "/") for prefix in generated):
             continue
         out.add(relative)
