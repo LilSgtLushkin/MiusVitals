@@ -129,6 +129,13 @@ def coverage(rows: list[dict], backlog: list[dict], threshold: float = 0.55) -> 
         name = item["v12_name"].split("@")[0].lstrip("?").lower()
         if name and name in ours:
             covered.add(item["rva"])
+    # The backlog's name column is a structural hint (v20 and v12 were built by different
+    # compilers, so a 0.3 match can point at the wrong function).  For the handful of functions
+    # whose name was proven by byte-level work, the name is a fact - session_frame is in this
+    # build under that name even though the matcher only scores its body 0.30 against v20's.
+    for rva, name in rules.VERIFIED.items():
+        if name.lower() in ours:
+            covered.add(rva)
     return {"covered": covered}
 
 
