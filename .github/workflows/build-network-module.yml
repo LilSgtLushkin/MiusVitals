@@ -42,17 +42,29 @@ jobs:
 
       - name: M1 - build the published sources exactly as published
         shell: cmd
-        run: development\net-v21\build.bat baseline
+        run: |
+          if not exist development\net-v21\build mkdir development\net-v21\build
+          call development\net-v21\build.bat baseline > development\net-v21\build\baseline.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\baseline.log
+          exit /b %rc%
 
       - name: M2 - build the same tree plus the Steam layer
         shell: cmd
-        run: development\net-v21\build.bat module
+        run: |
+          call development\net-v21\build.bat module > development\net-v21\build\module.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\module.log
+          exit /b %rc%
 
       - name: M2 - build and run the Steam self-test (no Steam, no game needed)
         shell: cmd
         run: |
-          development\net-v21\build.bat selftest || exit /b 1
-          development\net-v21\build\selftest\steam_selftest.exe || exit /b 1
+          call development\net-v21\build.bat selftest > development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\steam_selftest.exe
 
       - name: M1 - compare our baseline against the released v12 module
         shell: bash
@@ -78,21 +90,23 @@ jobs:
             --json development/net-v21/build/compare-m2.json
 
       - name: Put the numbers in the job summary
+        if: always()
         shell: bash
         run: |
           {
             echo '## M1: our build of the published sources vs the released v12 module'
-            cat development/net-v21/build/compare-m1.md
+            cat development/net-v21/build/compare-m1.md 2>/dev/null || echo 'no comparison: the build did not produce a module'
             echo
             echo '## M2: our module (published sources + Steam layer) vs the v20 module'
-            cat development/net-v21/build/compare-m2.md
+            cat development/net-v21/build/compare-m2.md 2>/dev/null || echo 'no comparison: the build did not produce a module'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload the build and both comparisons
+      - name: Upload the build, the logs and both comparisons
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: network-module
           path: |
             development/net-v21/build/**
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
