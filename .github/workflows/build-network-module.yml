@@ -65,7 +65,10 @@ jobs:
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\steam_selftest.exe
+          development\net-v21\build\selftest\steam_selftest.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          exit /b %rc%
 
       - name: M1 - compare our baseline against the released v12 module
         shell: bash
