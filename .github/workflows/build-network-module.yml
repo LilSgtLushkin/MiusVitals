@@ -82,6 +82,10 @@ jobs:
           development\net-v21\build\selftest\netlog_selftest.exe >> development\net-v21\build\selftest.log 2>&1
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\protocol_selftest.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
           exit /b %rc%
 
       - name: M2 - build the command-line join launcher with the Steam layer
