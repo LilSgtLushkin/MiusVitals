@@ -2,7 +2,7 @@
 // pseudo-C from angr; strings are exact, control flow is structured, names are injected
 
 typedef struct struct_5 {
-    char padding_0[8];
+    char paddin0[8];
     unsigned long long field_8;
 } struct_5;
 
@@ -14,53 +14,39 @@ typedef struct struct_2 {
 } struct_2;
 
 typedef struct struct_6 {
-    char padding_0[64];
+    char paddin0[64];
     unsigned long long field_40;
 } struct_6;
 
 typedef struct struct_3 {
-    char padding_0[25];
+    char paddin0[25];
     char field_19;
-    char padding_1a[38];
+    char paddin26[38];
     unsigned int field_40;
 } struct_3;
 
 typedef struct struct_4 {
-    char padding_0[32];
+    char paddin0[32];
     unsigned int field_20;
 } struct_4;
 
 typedef struct struct_1 {
     struct struct_1 *field_0;
-    char padding_8[17];
+    char paddin8[17];
     char field_19;
-    char padding_1a[2];
+    char paddin26[2];
     unsigned int field_1c;
     unsigned int field_20;
 } struct_1;
 
 typedef struct struct_0 {
     struct struct_0 *field_0;
-    char padding_8[8];
+    char paddin8[8];
     unsigned long long field_10;
-    char padding_18[1];
+    char paddin24[1];
     char field_19;
 } struct_0;
 
-extern char g_0;
-extern char g_1;
-extern char g_10;
-extern char g_101;
-extern char g_18;
-extern char g_19;
-extern char g_1c;
-extern char g_20;
-extern char g_28;
-extern char g_3;
-extern char g_4;
-extern char g_40;
-extern char g_60;
-extern char g_8;
 
 int restore_tags@opsave()
 {
@@ -108,12 +94,12 @@ int restore_tags@opsave()
     v7 = &v8;
     v14 = v13;
     tagged@opsave(&v3, v12);
-    v1 = &g_0;
-    (unsigned int)v16 = sub_402d0(&g_28);
+    v1 = 0;
+    (unsigned int)v16 = sub_402d0(40);
     v16->field_0 = &v16;
-    *((struct_2 **)(v16 + &g_8)) = v16;
-    *((struct_2 **)(v16 + &g_10)) = v16;
-    *((char **)(v16 + &g_18)) = &g_101;
+    *((struct_2 **)(v16 + 8)) = v16;
+    *((struct_2 **)(v16 + 16)) = v16;
+    *((char **)(v16 + 24)) = 257;
     v1 = v16;
     v20 = *((long long *)&v3);
     v21 = *((long long *)&v4);
@@ -121,113 +107,113 @@ int restore_tags@opsave()
     {
         do
         {
-            $_Find_lower_bound@V?$basic_string@DU?$char_traits@D@std(v13 + &g_8, &v5, v20);
+            $_Find_lower_bound@V?$basic_string@DU?$char_traits@D@std(v13 + 8, &v5, v20);
             v17 = *((long long *)&v6);
-            if (!*((char *)(v17 + &g_19)) && !(char)$?MDU?$char_traits@D@std(v20, v17 + &g_20) && v17 != *((long long *)(v13 + &g_8)) && *((int *)(v17 + &g_40)) == 1380275029)
+            if (!*((char *)(v17 + 25)) && !(char)$?MDU?$char_traits@D@std(v20, v17 + 32) && v17 != *((long long *)(v13 + 8)) && *((int *)(v17 + 64)) == 1380275029)
             {
-                v18 = *((long long *)&(&g_40)[v20]);
+                v18 = *((long long *)&(64)[v20]);
                 if (v18)
                 {
-                    memcpy(&v10, *(v12) + v18, &g_4);
+                    memcpy(&v10, *(v12) + v18, 4);
                     v11 = *((int *)&v10);
-                    *((char **)&(&g_20)[*((long long *)::0x69ac::$_Try_emplace@AEBI$$V@?$map@IHU?$less@I@std(&v1, &v2, &v11))]) = &(&g_1)[*((int *)&(&g_20)[*((long long *)::0x69ac::$_Try_emplace@AEBI$$V@?$map@IHU?$less@I@std(&v1, &v2, &v11))])];
+                    *((char **)&(32)[*((long long *)$_Try_emplace@AEBI$$V@?$map@IHU?$less@I@std$_Try_emplace@AEBI$$V@?$map@IHU?$less@I@std(&v1, &v2, &v11))]) = &(1)[*((int *)&(32)[*((long long *)$_Try_emplace@AEBI$$V@?$map@IHU?$less@I@std$_Try_emplace@AEBI$$V@?$map@IHU?$less@I@std(&v1, &v2, &v11))])];
                 }
             }
-        } while ((v20 += &g_60, v20 != v21));
+        } while ((v20 += 96, v20 != v21));
         v21 = *((long long *)&v4);
         v20 = *((long long *)&v3);
     }
-    v22 = &g_0;
-    v23 = &g_0;
+    v22 = 0;
+    v23 = 0;
     v24 = v1->field_0;
-    if (!*((char *)(v24 + &g_19)))
+    if (!*((char *)(v24 + 25)))
     {
         do
         {
-            v25 = *((int *)&(&g_20)[v24]);
+            v25 = *((int *)&(32)[v24]);
             v26 = v23;
             if ((unsigned int)v25 > (unsigned int)v23)
-                v22 = *((int *)&(&g_1c)[v24]);
+                v22 = *((int *)&(28)[v24]);
             if ((unsigned int)v25 <= v26)
                 v25 = v23;
             v23 = v25;
-            v27 = *((long long *)&(&g_10)[v24]);
-            if (!*((char *)(v27 + &g_19)))
+            v27 = *((long long *)&(16)[v24]);
+            if (!*((char *)(v27 + 25)))
             {
                 v24 = v27;
                 v29 = v27->field_0;
-                if (!*((char *)(v29 + &g_19)))
+                if (!*((char *)(v29 + 25)))
                 {
                     do
                     {
                         v24 = v29;
                         v29 = *((long long *)v29);
-                    } while (!(&g_19)[v29]);
+                    } while (!(25)[v29]);
                 }
             }
             else
             {
-                for (v28 = *((long long *)&(&g_8)[v24]); !(&g_19)[v28] && v24 == *((long long *)&(&g_10)[v28]); v28 = *((long long *)&(&g_8)[v28]))
+                for (v28 = *((long long *)&(8)[v24]); !(25)[v28] && v24 == *((long long *)&(16)[v28]); v28 = *((long long *)&(8)[v28]))
                 {
                     v24 = v28;
                 }
                 v24 = v28;
             }
-        } while (!(&g_19)[v24]);
+        } while (!(25)[v24]);
     }
-    v30 = &g_0;
+    v30 = 0;
     if (v20 != v21)
     {
-        v31 = &(&g_20)[v20];
+        v31 = &(32)[v20];
         do
         {
-            $_Find_lower_bound@V?$basic_string@DU?$char_traits@D@std(v14 + &g_8, &v5, v31 - &g_20);
+            $_Find_lower_bound@V?$basic_string@DU?$char_traits@D@std(v14 + 8, &v5, v31 - 32);
             v32 = *((long long *)&v6);
-            if (!*((char *)(v32 + &g_19)) && !(char)$?MDU?$char_traits@D@std(v31 - &g_20, v32 + &g_20) && v32 != *((long long *)(v14 + &g_8)))
+            if (!*((char *)(v32 + 25)) && !(char)$?MDU?$char_traits@D@std(v31 - 32, v32 + 32) && v32 != *((long long *)(v14 + 8)))
             {
                 v33 = v9;
-                memcpy(&v10, *((long long *)v31) + *(v33), &g_4);
-                if (*((int *)&v10) != *((int *)(v32 + &g_40)))
-                    v30 = &(&g_1)[v30];
-                memcpy(*((long long *)v31) + *(v33), v32 + &g_40, &g_4);
-                if (*((long long *)&(&g_8)[v31]))
+                memcpy(&v10, *((long long *)v31) + *(v33), 4);
+                if (*((int *)&v10) != *((int *)(v32 + 64)))
+                    v30 = &(1)[v30];
+                memcpy(*((long long *)v31) + *(v33), v32 + 64, 4);
+                if (*((long long *)&(8)[v31]))
                 {
-                    v34 = *((long long *)&(&g_20)[v31]);
+                    v34 = *((long long *)&(32)[v31]);
                     if (!v34 || !(unsigned int)v22)
                     {
-                        v35 = *((int *)(v32 + &g_40));
+                        v35 = *((int *)(v32 + 64));
                         v36 = 1380275029;
                     }
                     else
                     {
-                        memcpy(&v11, *(v33) + v34, &g_4);
+                        memcpy(&v11, *(v33) + v34, 4);
                         v35 = v11;
                         v36 = v22;
                     }
                     if (v35 == v26)
                     {
-                        *((char **)&v0) = &g_3;
-                        memcpy(*((long long *)&(&g_8)[v31]) + *(v33), &v0, &g_4);
+                        *((char **)&v0) = 3;
+                        memcpy(*((long long *)&(8)[v31]) + *(v33), &v0, 4);
                     }
                 }
             }
-        } while ((v20 += &g_60, v20 != v21));
+        } while ((v20 += 96, v20 != v21));
     }
     v37 = v1;
-    v38 = *((long long *)(v37 + &g_8));
-    if (!*((char *)(v38 + &g_19)))
+    v38 = *((long long *)(v37 + 8));
+    if (!*((char *)(v38 + 25)))
     {
         do
         {
-            ::0x5d98::$_Erase_tree@V?$allocator@U?$_Tree_node@U?$pair@$$CBIH@std(&v1, &v1, *((long long *)&(&g_10)[v38]));
+            $_Erase_tree@V?$allocator@U?$_Tree_node@U?$pair@$$CBIH@std$_Erase_tree@V?$allocator@U?$_Tree_node@U?$pair@$$CBIH@std(&v1, &v1, *((long long *)&(16)[v38]));
             v39 = v38;
             v38 = *((long long *)v38);
-            sub_4030c(v39, &g_28);
-        } while (!(&g_19)[v38]);
+            sub_4030c(v39, 40);
+        } while (!(25)[v38]);
         v37 = v1;
     }
-    sub_4030c(v37, &g_28);
-    ::0xc090::_Tidy@?$vector@UTagged@opsave(&v3);
+    sub_4030c(v37, 40);
+    _Tidy@?$vector@UTagged@opsave@?$vector@UTagged@opsave(&v3);
     v40 = v7;
     return;
 }

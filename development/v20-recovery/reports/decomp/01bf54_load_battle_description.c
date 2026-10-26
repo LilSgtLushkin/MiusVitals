@@ -14,7 +14,7 @@ typedef struct struct_0 {
 
 typedef struct FILE_t {
     unsigned int _flags;
-    char padding_4[4];
+    char paddin4[4];
     char *_IO_read_ptr;
     char *_IO_read_end;
     char *_IO_read_base;
@@ -31,18 +31,18 @@ typedef struct FILE_t {
     unsigned int _fileno;
     unsigned int _flags2;
     unsigned int _old_offset;
-    char padding_7c[4];
+    char paddin124[4];
     unsigned short _cur_column;
     char _vtable_offset;
     char _shortbuf[1];
-    char padding_84[4];
+    char paddin132[4];
     struct _IO_marker *_lock;
     unsigned long long _offset;
     struct _IO_codecvt *_codecvt;
     struct _IO_wide_data *_wide_data;
     void* _freeres_list;
     char __pad5;
-    char padding_b1[7];
+    char paddin177[7];
     unsigned int _mode;
     char _unused2[20];
 } FILE_t;
@@ -70,9 +70,9 @@ typedef struct _IO_wide_data {
     unsigned short *_IO_backup_base;
     unsigned short *_IO_save_end;
     __mbstate_t _IO_state;
-    char padding_5d[3];
+    char paddin93[3];
     char _IO_last_state;
-    char padding_61[7];
+    char paddin97[7];
     unsigned short _shortbuf[1];
     _IO_marker _wide_vtable;
 } _IO_wide_data;
@@ -82,21 +82,6 @@ typedef struct __mbstate_t {
     char __value;
 } __mbstate_t;
 
-extern char g_0;
-extern char g_1;
-extern char g_10;
-extern char g_104;
-extern char g_4;
-extern unsigned long long g_46b50;
-extern char g_5a1d0;
-extern unsigned long long g_5a380;
-extern unsigned long long g_5b5c8;
-extern char g_5b5cc;
-extern unsigned long long g_5b600;
-extern unsigned long long g_5b608;
-extern unsigned long long g_5b920;
-extern char g_8;
-extern char g_c;
 
 long long load_battle_description(unsigned long a0, unsigned long long a1, unsigned long long a2, unsigned long a3)
 {
@@ -145,10 +130,10 @@ long long load_battle_description(unsigned long a0, unsigned long long a1, unsig
     v2 = a1;
     v28 = a0;
     v1 = "cloud";
-    sprintf_s(&v22, &g_104, "%s\\users\\profiles\\%s\\ccombat.cfgpack", &g_5b920);
-    *((char **)&v6) = &g_0;
-    v7 = &g_0;
-    if (!(char)::0x18420::read_file(&v22, &v6))
+    sprintf_s(&v22, 260, "%s\\users\\profiles\\%s\\ccombat.cfgpack", &g_5b920);
+    *((char **)&v6) = 0;
+    v7 = 0;
+    if (!(char)read_file(&v22, &v6))
     {
         _Tidy@?$vector@EV?$allocator@E@std(&v6);
         return security_cookie_check(v23 ^ &v0);
@@ -160,40 +145,40 @@ long long load_battle_description(unsigned long a0, unsigned long long a1, unsig
     }
     (unsigned int)v29 = find@image(&g_5b600, a1, a2);
     *((uint128_t *)&v20) = v29->field_0;
-    v21 = *((int *)(v29 + &g_10));
+    v21 = *((int *)(v29 + 16));
     v8 = "user_side";
     v9 = a0;
-    *((char **)&v10) = &g_0;
+    *((char **)&v10) = 0;
     v11 = "enemy_side";
     v12 = a1;
-    *((char **)&v13) = &g_0;
+    *((char **)&v13) = 0;
     v14 = "year";
     v15 = a2;
-    *((char **)&v16) = &g_1;
+    *((char **)&v16) = 1;
     v17 = "period";
     v18 = a3;
-    *((char **)&v19) = &g_1;
-    v32 = &g_0;
+    *((char **)&v19) = 1;
+    v32 = 0;
     v33 = &v8;
     do
     {
-        v30 = ::0x1024c::field@image(&v6, &v20, *((long long *)v33));
+        v30 = field@image@image(&v6, &v20, *((long long *)v33));
         if (v30)
         {
-            v31 = *((int *)&(&g_8)[v33]);
+            v31 = *((int *)&(8)[v33]);
             if (v31)
             {
-                memcpy(&v3, &(&g_10)[v6 + v30], &g_4);
+                memcpy(&v3, &(16)[v6 + v30], 4);
                 if (*((int *)&v3) == 4)
                 {
-                    v4 = v31 - *((int *)&(&g_c)[v33]);
-                    memcpy((long long)v6 + v30, &v4, &g_4);
-                    v32 = &(&g_1)[v32];
+                    v4 = v31 - *((int *)&(12)[v33]);
+                    memcpy((long long)v6 + v30, &v4, 4);
+                    v32 = &(1)[v32];
                 }
             }
         }
     } while ((v33 = &v11, v33 != &v20));
-    v5 = &g_0;
+    v5 = 0;
     if (v32)
     {
         (unsigned int)v34 = fopen_s(&v5, &v22, &g_46b50);
@@ -203,7 +188,7 @@ long long load_battle_description(unsigned long a0, unsigned long long a1, unsig
             if (v35)
             {
                 v36 = (long long)v6;
-                fwrite(v36, &(&g_1)[v34], (long long)(&v6)[8] - v36, v35);
+                fwrite(v36, &(1)[v34], (long long)(&v6)[8] - v36, v35);
                 fclose(v5);
                 v2 = v2;
                 v37 = "Germans";
@@ -217,8 +202,8 @@ long long load_battle_description(unsigned long a0, unsigned long long a1, unsig
                 }
                 else
                 {
-                    memcpy(&g_5b5c8, &v2, &g_4);
-                    *((char **)&g_5b5cc) = &g_0;
+                    memcpy(&g_5b5c8, &v2, 4);
+                    *((char **)&g_5b5cc) = 0;
                     v38 = &g_5b5c8;
                 }
                 v2 = v28;
@@ -230,13 +215,13 @@ long long load_battle_description(unsigned long a0, unsigned long long a1, unsig
                     }
                     else
                     {
-                        memcpy(&g_5b5c8, &v2, &g_4);
-                        *((char **)&g_5b5cc) = &g_0;
+                        memcpy(&g_5b5c8, &v2, 4);
+                        *((char **)&g_5b5cc) = 0;
                         v37 = &g_5b5c8;
                     }
                 }
                 v1 = v38;
-                ::0x27dc::mp_log("ui: CHOOSE MY FORCE - the Skirmish screen is set to the host's year (%u) and season (%u), the %s against the %s", -(&g_0 < (unsigned int)a2) & a2 - &g_1, -(&g_0 < v27) & v27 - &g_1, v37);
+                mp_log("ui: CHOOSE MY FORCE - the Skirmish screen is set to the host's year (%u) and season (%u), the %s against the %s", -(0 < (unsigned int)a2) & a2 - 1, -(0 < v27) & v27 - 1, v37);
             }
         }
     }
