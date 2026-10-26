@@ -120,12 +120,21 @@ jobs:
           body=/tmp/build-comment.md
           {
             echo "### network module build (${{ github.sha }})"
+            for report in compare-m1 compare-m2; do
+              echo
+              echo "#### $report"
+              cat "development/net-v21/build/$report.md" 2>/dev/null || echo "no $report report"
+            done
             for name in baseline module selftest compare-m1 compare-m2; do
               log="development/net-v21/build/$name.log"
               echo
+              echo "<details><summary>$name log</summary>"
+              echo
               echo '```'
-              if [ -f "$log" ]; then head -c 9000 "$log"; else echo "$name: no log produced"; fi
+              if [ -f "$log" ]; then tail -c 6000 "$log"; else echo "$name: no log produced"; fi
               echo '```'
+              echo
+              echo '</details>'
             done
           } > "$body"
           gh pr comment "${{ github.event.number }}" --body-file "$body"
