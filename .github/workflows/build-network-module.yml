@@ -23,6 +23,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
   build-and-compare:
@@ -100,6 +101,27 @@ jobs:
             echo '## M2: our module (published sources + Steam layer) vs the v20 module'
             cat development/net-v21/build/compare-m2.md 2>/dev/null || echo 'no comparison: the build did not produce a module'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # The job log is not reachable from outside this cluster (the log endpoint is blocked), so the
+      # compiler output is mirrored into a pull-request comment while the build is being brought up.
+      - name: Mirror the compiler output into the pull request
+        if: always() && github.event_name == 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          body=/tmp/build-comment.md
+          {
+            echo "### network module build (${{ github.sha }})"
+            for name in baseline module selftest; do
+              log="development/net-v21/build/$name.log"
+              echo
+              echo '```'
+              if [ -f "$log" ]; then head -c 9000 "$log"; else echo "$name: no log produced"; fi
+              echo '```'
+            done
+          } > "$body"
+          gh pr comment "${{ github.event.number }}" --body-file "$body"
 
       - name: Upload the build, the logs and both comparisons
         if: always()
