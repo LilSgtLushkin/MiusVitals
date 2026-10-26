@@ -1,0 +1,138 @@
+// v20 RVA 0088ac..008aa3  (503 bytes)  0Joiner
+// pseudo-C from angr; strings are exact, control flow is structured, names are injected
+
+typedef struct struct_0 {
+    char field_0;
+    char paddin1[7];
+    unsigned long long field_8;
+    unsigned int field_10;
+    char field_14;
+    char paddin21[159];
+    char field_b4;
+    char paddin181[127];
+    char field_134;
+    char paddin309[3];
+    unsigned long long field_138;
+    unsigned int field_140;
+    char field_144;
+    char paddin325[7];
+    uint128_t field_14c;
+    unsigned short field_15c;
+    uint128_t field_15e;
+    unsigned long long field_16e;
+    unsigned short field_176;
+    char field_178;
+    char paddin377[3];
+    unsigned int field_17c;
+    unsigned short field_180;
+    char field_182;
+    uint128_t field_183;
+    uint128_t field_193;
+    uint128_t field_1a3;
+    unsigned long long field_1b3;
+    unsigned int field_1bb;
+    unsigned short field_1bf;
+    char field_1c1;
+    char paddin450[2];
+    unsigned long long field_1c4;
+    char paddin460[4];
+    unsigned long long field_1d0;
+    unsigned long long field_1d8;
+    unsigned long long field_1e0;
+    unsigned long long field_1e8;
+    unsigned long long field_1f0;
+    unsigned long long field_1f8;
+    char field_200;
+    char paddin513[95];
+    unsigned long long field_260;
+    unsigned long long field_268;
+    uint128_t field_270;
+    unsigned long long field_280;
+    unsigned long long field_288;
+    unsigned long long field_290;
+    unsigned long long field_298;
+    unsigned long long field_2a0;
+    unsigned long long field_2a8;
+    unsigned long long field_2b0;
+    unsigned long long field_2b8;
+    unsigned long long field_2c0;
+    unsigned long long field_2c8;
+    unsigned long long field_2d0;
+    unsigned long long field_2d8;
+    unsigned long long field_2e0;
+    unsigned long long field_2e8;
+    unsigned long long field_2f0;
+    unsigned long long field_2f8;
+    unsigned long long field_300;
+    unsigned long long field_308;
+    unsigned int field_310;
+} struct_0;
+
+
+long long 0Joiner(struct_0 *a0)
+{
+    struct_0 *v0;  // [bp+0x8]
+
+    v0 = a0;
+    *((char **)&a0->field_0) = 0;
+    *((char **)(a0 + 8)) = 0;
+    *((char **)(a0 + 16)) = 0;
+    *((char **)(a0 + 20)) = 0;
+    memset(a0 + 21, 0, 159);
+    *((char **)(a0 + 180)) = 0;
+    memset(a0 + 181, 0, 127);
+    *((char **)(a0 + 308)) = 0;
+    *((char **)(a0 + 312)) = 0;
+    *((char **)(a0 + 320)) = 0;
+    *((char **)(a0 + 324)) = 0;
+    strcpy(a0 + 325, "Player");
+    *((char **)(a0 + 332)) = 0;
+    *((char **)(a0 + 348)) = 0;
+    *((char **)(a0 + 350)) = 0;
+    *((char **)(a0 + 366)) = 0;
+    *((char **)(a0 + 374)) = 0;
+    *((char **)(a0 + 376)) = 0;
+    *((char **)(a0 + 380)) = 0;
+    *((char **)(a0 + 384)) = 0;
+    *((char **)(a0 + 386)) = 0;
+    *((char **)(a0 + 387)) = 0;
+    *((char **)(a0 + 403)) = 0;
+    *((char **)(a0 + 419)) = 0;
+    *((char **)(a0 + 435)) = 0;
+    *((char **)(a0 + 443)) = 0;
+    *((char **)(a0 + 447)) = 0;
+    *((char **)(a0 + 449)) = 0;
+    *((char **)(a0 + 452)) = 0;
+    *((char **)(a0 + 464)) = 0;
+    *((char **)(a0 + 472)) = 0;
+    *((char **)(a0 + 480)) = 0;
+    *((char **)(a0 + 488)) = 0;
+    *((char **)(a0 + 496)) = 0;
+    *((char **)(a0 + 504)) = 0;
+    *((char **)(a0 + 512)) = 0;
+    memset(a0 + 513, 0, 95);
+    *((char **)(a0 + 608)) = 0;
+    *((long long *)(a0 + 616)) = -1;
+    *((char **)(a0 + 624)) = 0;
+    *((char **)(a0 + 640)) = 0;
+    *((char **)(a0 + 648)) = 0;
+    *((char **)(a0 + 656)) = 0;
+    *((char **)(a0 + 664)) = 0;
+    *((char **)(a0 + 672)) = 0;
+    *((char **)(a0 + 680)) = 0;
+    *((char **)(a0 + 688)) = 0;
+    *((char **)(a0 + 696)) = 0;
+    *((char **)(a0 + 704)) = 0;
+    *((char **)(a0 + 712)) = 0;
+    *((char **)(a0 + 720)) = 0;
+    *((char **)(a0 + 728)) = 0;
+    *((char **)(a0 + 736)) = 0;
+    *((char **)(a0 + 744)) = 0;
+    *((char **)(a0 + 752)) = 0;
+    *((char **)(a0 + 760)) = 0;
+    *((char **)(a0 + 768)) = 0;
+    *((char **)(a0 + 776)) = 0;
+    *((char **)(a0 + 784)) = 0;
+    return a0;
+}
+

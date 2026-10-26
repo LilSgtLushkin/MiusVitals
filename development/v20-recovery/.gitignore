@@ -1,0 +1,6 @@
+# Inputs (binaries) and decompilation dumps are reproducible, not source:
+#   fetch_inputs.sh          -> work/*.codelib, work/*.obj
+#   tools/v20tool.py         -> work/*.json
+#   tools/decompile.py       -> work/decomp/
+# The curated decompilation subset that ships with the repository lives in reports/.
+work/

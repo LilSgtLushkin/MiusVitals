@@ -16,6 +16,7 @@
 | [`CRASH_ANALYSIS_2026-10-25.md`](CRASH_ANALYSIS_2026-10-25.md) | второй invalid-child путь `basic_render`, guard v7.1.1 | **действует** |
 | [`CRASH_ANALYSIS_2026-10-24.md`](CRASH_ANALYSIS_2026-10-24.md) | первый разбор падения `basic_render`, guard v7.0.1 | исторический: перекрыт документами от 2026-10-25 |
 | [`UPSTREAM_V20_REPO_ANALYSIS.md`](UPSTREAM_V20_REPO_ANALYSIS.md) | полный разбор `VampyrCat/MiusPlayer`: публичный исходник — v12, v20 — только бинарник в `GTMPRelease1.zip`, дельта 293 функции | **действует** |
+| [`V20_SOURCE_RECOVERY.md`](V20_SOURCE_RECOVERY.md) | восстановление исходника v20: именованный разбор 895 функций, дельта к публичному дереву (323 работы), план порта M0–M6 с критериями приёмки | **действует** |
 | [`SOURCE_REBUILD_REQUIREMENTS.md`](SOURCE_REBUILD_REQUIREMENTS.md) | границы нашего процесса: что можно менять, что снято решением 2026-10-26, сверка Steam ABI по присланной DLL | **действует** |
 | [`VITALS_CPP_PORT_PLAN.md`](VITALS_CPP_PORT_PLAN.md) | поэтапный перенос логики `mp_vitals` в C++: модули, инварианты, точки отката, E0–E8 | **действует** |
 | [`TWO_PC_TEST_PLAN_2026-10-26.md`](TWO_PC_TEST_PLAN_2026-10-26.md) | план двух-ПК прогона v1.0.1: сценарии S1–S7, что сохранять, критерии приёмки | **действует** |
