@@ -6,13 +6,13 @@ on:
       - .github/workflows/verify-fps-codelib.yml
       - scripts/build_steam_compatible_fps_candidate.py
       - development/kit-source/files/basic_network.codelib
-      - development/fps-beta-build/**
+      - development/fps-candidate/**
   pull_request:
     paths:
       - .github/workflows/verify-fps-codelib.yml
       - scripts/build_steam_compatible_fps_candidate.py
       - development/kit-source/files/basic_network.codelib
-      - development/fps-beta-build/**
+      - development/fps-candidate/**
   workflow_dispatch:
 
 permissions:
@@ -27,7 +27,7 @@ jobs:
       - name: Rebuild and verify the deterministic Steam-preserving FPS candidate
         run: |
           python3 scripts/build_steam_compatible_fps_candidate.py build --output /tmp/basic_network.codelib
-          cmp /tmp/basic_network.codelib development/fps-beta-build/basic_network.codelib
+          cmp /tmp/basic_network.codelib development/fps-candidate/basic_network.codelib
           python3 scripts/build_steam_compatible_fps_candidate.py verify
 
       - name: Verify the current installer carrying that candidate

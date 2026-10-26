@@ -75,13 +75,13 @@ def require_sources(repo: Path) -> None:
             raise SystemExit(f"unexpected unified FPS runtime artifact {relative}: {found}, expected {expected}")
 
     candidate = (source / "files/bin/rel/x64/basic_network.codelib").read_bytes()
-    beta_candidate = (repo / "development/fps-beta-build/basic_network.codelib").read_bytes()
+    candidate_copy = (repo / "development/fps-candidate/basic_network.codelib").read_bytes()
     stable = (repo / "development/kit-source/files/basic_network.codelib").read_bytes()
     try:
         verify_candidate(candidate, stable)
     except ValueError as exc:
         raise SystemExit(f"unified FPS module is not the exact Steam-preserving candidate: {exc}") from exc
-    if candidate != beta_candidate:
+    if candidate != candidate_copy:
         raise SystemExit("unified FPS module differs from the checked FPS candidate build")
 
     for relative in ("files/root/programs/opgame.progpack", "files/root/programs/tacgame.progpack"):

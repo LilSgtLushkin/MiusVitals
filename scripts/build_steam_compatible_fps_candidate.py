@@ -30,7 +30,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 STABLE = ROOT / "development/kit-source/files/basic_network.codelib"
-DEFAULT_OUTPUT = ROOT / "development/fps-beta-build/basic_network.codelib"
+DEFAULT_OUTPUT = ROOT / "development/fps-candidate/basic_network.codelib"
 EXPECTED_STABLE_SHA256 = "485b655662bd062e16278f9d699a3097b49a08de1948d2500dd589703a3102a3"
 
 # Verified against the 6.00 build 3598/1 stable module.  The original nine-byte

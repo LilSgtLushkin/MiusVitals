@@ -14,6 +14,7 @@
 
 ```sh
 python3 development/merged-source/verify_workspace.py
+python3 scripts/check_artifacts.py     # одинаковые бинарники во всех kit-источниках, хеши архивов, пути из .gitattributes
 ```
 
 Публичный release archive содержит `basic_network.codelib` с SHA-256 `8108bd…5723`, совпадающий с input v20 текущего release pipeline. Но имеющийся upstream C++ build output имеет другой hash, поэтому не считается replacement binary: перед выпуском source rebuild нужны новая бинарная mapping, native/PE проверки и two-peer evidence. Подробности — в [`merged-source/README.md`](merged-source/README.md).
@@ -26,7 +27,7 @@ python3 development/merged-source/verify_workspace.py
 
 ## Steam-preserving FPS candidate
 
-`fps-beta-build/` хранит воспроизводимый candidate `basic_network.codelib`: `scripts/build_steam_compatible_fps_candidate.py` получает его детерминированно из проверенного Steam 3598/1 module, а workflow `../.github/workflows/verify-fps-codelib.yml` заново собирает файл и сравнивает его byte-for-byte с checked-in копией. Этот же candidate входит в актуальный `MiusMultiplayer_v1.0.1_INSTALL.zip`, поэтому `scripts/package_unified_fps_mod.py` требует с ним полного совпадения.
+`fps-candidate/` хранит воспроизводимый candidate `basic_network.codelib`: `scripts/build_steam_compatible_fps_candidate.py` получает его детерминированно из проверенного Steam 3598/1 module, а workflow `../.github/workflows/verify-fps-codelib.yml` заново собирает файл и сравнивает его byte-for-byte с checked-in копией. Этот же candidate входит в актуальный `MiusMultiplayer_v1.0.1_INSTALL.zip`, поэтому `scripts/package_unified_fps_mod.py` требует с ним полного совпадения.
 
 Отдельный `MiusMultiplayer_beta_FPS_fix_INSTALL.zip` и `fps-beta-kit-source/` удалены: второй installer с собственным codelib больше не публикуется. В игре, где остался прежний beta module (включая withdrawn `78e271…2916e`), `MiusMultiplayer\Enable_Multiplayer.bat` из v1.0.1 всё равно заменяет codelib и program packs безусловно.
 

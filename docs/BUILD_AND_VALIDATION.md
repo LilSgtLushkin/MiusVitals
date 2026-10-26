@@ -65,7 +65,7 @@ sha256sum MiusMultiplayer_OUTDATED_INSTALL.zip
 - `.fpsfix` trampoline skips `session_sim_step` only for zero-ms `ctrl_tick`; a nonzero step uses the original function;
 - the exact Steam Friends, rich-presence, Join Game, SteamNetworking P2P and Vitals import paths are retained from the base module.
 
-`scripts/package_unified_fps_mod.py` rejects a simple binary substitution: it reconstructs and byte-compares the deterministic transformation, checks the PE trampoline plus every required Steam marker, requires byte identity with `development/fps-beta-build/basic_network.codelib`, validates all runtime hashes, both program-pack module references, ZIP allow-list and fixed metadata. The v1.0.1 installer has no migration allow-list and no replacement gate: any active codelib (v1.0.0, withdrawn beta, another mod or an unknown build) is backed up best-effort and replaced. `docs/MULTIPLAYER_MENU_BUTTON_2026-10-25.md` explains why a skipped or half-applied replacement leaves the main menu without the MULTIPLAYER entry.
+`scripts/package_unified_fps_mod.py` rejects a simple binary substitution: it reconstructs and byte-compares the deterministic transformation, checks the PE trampoline plus every required Steam marker, requires byte identity with `development/fps-candidate/basic_network.codelib`, validates all runtime hashes, both program-pack module references, ZIP allow-list and fixed metadata. The v1.0.1 installer has no migration allow-list and no replacement gate: any active codelib (v1.0.0, withdrawn beta, another mod or an unknown build) is backed up best-effort and replaced. `docs/MULTIPLAYER_MENU_BUTTON_2026-10-25.md` explains why a skipped or half-applied replacement leaves the main menu without the MULTIPLAYER entry.
 
 ```sh
 python3 scripts/package_unified_fps_mod.py --output MiusMultiplayer_v1.0.1_INSTALL.zip
@@ -82,11 +82,68 @@ sha256sum MiusMultiplayer_v1.0.1_INSTALL.zip
 Сам candidate остаётся воспроизводимым и проверяемым:
 
 - `scripts/build_steam_compatible_fps_candidate.py` начинает с exact verified Steam 3598/1 module (`485b655…102a3`) и добавляет отдельную executable `.fpsfix` PE section; её 23-byte trampoline пропускает исходный `session_sim_step` только когда `on_ctrl_tick` получает zero-ms step, а non-zero path вызывает original function без изменения;
-- checked-in кандидат лежит в `development/fps-beta-build/basic_network.codelib`;
+- checked-in кандидат лежит в `development/fps-candidate/basic_network.codelib`;
 - workflow `.github/workflows/verify-fps-codelib.yml` заново собирает его, сравнивает byte-for-byte с checked-in файлом и затем проверяет v1.0.1 archive через `scripts/package_unified_fps_mod.py --verify`;
 - `scripts/package_unified_fps_mod.py` по-прежнему допускает только exact transformation: base hash, original call signature, redirected call, `.fpsfix` code, retained Vitals import и Steam runtime markers `MP_STEAM_PEER`, `+gtmf_join=`, SteamFriends, SteamUser, SteamNetworking, `SendP2PPacket`, `ReadP2PPacket`, `JoinRequested`.
 
 Retained binary surface не заменяет live evidence: до Windows Steam two-peer regression (rich presence host, friends Join Game, P2P lobby, tactical session, reconnect, обе стороны host) candidate остаётся FPS test candidate, не gameplay-certified compatibility release.
+
+## GTMP_alpha: экспериментальный архив поверх v1.0.1
+
+`GTMP_alpha_INSTALL.zip` — не новая версия мода, а **копия v1.0.1 с одной заменой**:
+пересобранной `mp_vitals.dll` и перемаркированными установщиками. Модуль
+`basic_network.codelib` и все остальные runtime-файлы берутся из стабильного комплекта без
+изменений, поэтому alpha физически не может привезти другой codelib.
+
+| Файл | SHA-256 |
+|---|---|
+| `GTMP_alpha_INSTALL.zip` | `aacfe7dfd0cca82c0ed771e5a9088faa75565f3bf7d5757ceef8d3f532955924` |
+| `development/gtmp-alpha/files/mp_vitals.dll` | `808e1d5f6cb301ac971700e0aba6e78d1df1b13b02e748b8d01dd4bfc8a9881c` |
+| `files/mp_vitals.dll` в v1.0.1 (для сравнения) | `71a1bf3a37923bbe6c8ee84448d0b91705c2bff7382b647f990b9d671ee224df` |
+
+Сборка DLL воспроизводима побайтово: `development/gtmp-alpha/rebuild.sh` собирает её тем же
+`build.sh` (Zig 0.17.0, только `KERNEL32`, без CRT) и сверяет хеш. Тот же скрипт с
+`--baseline <rev>` собирает исходник более раннего коммита и должен дать ровно
+`71a1bf3a…` — это проверка, что «съехал» не инструмент, а код.
+
+```sh
+python3 -m venv .venv && .venv/bin/pip install -r development/kit-source/src/requirements-build.txt
+development/gtmp-alpha/rebuild.sh                      # alpha DLL == 808e1d5f…
+development/gtmp-alpha/rebuild.sh --baseline e8d4a52   # stable DLL == 71a1bf3a…
+python3 scripts/package_gtmp_alpha.py --output GTMP_alpha_INSTALL.zip
+python3 scripts/package_gtmp_alpha.py --verify GTMP_alpha_INSTALL.zip
+```
+
+`package_gtmp_alpha.py` сначала вызывает `package_unified_fps_mod.require_sources()`, то есть
+alpha нельзя собрать поверх непроверенного стабильного комплекта. Затем он подменяет DLL,
+заменяет в текстах `v1.0.1` на `GTMP_alpha` и старый хеш DLL на новый, добавляет `ALPHA.txt`
+и требует, чтобы в текстах не осталось `v1.0.1`. Замена хеша обязательна и функциональна, а
+не косметическая: `Disable_Multiplayer.bat` удаляет DLL только при совпадении `VITALS=`.
+
+Что исправлено в alpha-DLL (подробно — `development/gtmp-alpha/README.md`): чтение
+`MP_VITALS`/`MP_VEHICLES`/`MP_STATS`/`MP_RENDER_GUARD` при слишком длинном значении,
+верхняя граница `MP_IDLE_MS` 6000 мс, защита `hex_of()` от пустого указателя, отбрасывание
+записи короче `VitalsHead` в mailbox, плюс одна строка лога
+`vitals: GTMP_alpha-1 experimental build (bugfix series 1)` вместе со значениями
+`MP_*`, которые реально получил процесс игры. Сетевой протокол, типы `0x34`/`0x35`,
+RVA-профили и сигнатуры не менялись.
+
+В alpha-DLL добавлено ещё два диагностических сообщения: строка
+`rx: last 5 s, datagrams from the other game (type:count/bytes) …; total N` пишется
+каждые пять секунд, если трафик был (без `MP_LOG_VITALS`), а
+`rx: no datagrams from the other game in the first 10 s of this session` — один раз,
+если за первые 10 секунд сессии не пришло ни одного пакета. Первая строка сразу
+отвечает на вопрос «доходит ли до нас второй игрок и чем именно».
+
+Для сбора отчёта в alpha-архив добавлен `Collect_Logs.bat` (+ `.ps1`): он собирает
+**один** файл `MiusMultiplayer\GTMP_alpha_log.txt` — система, версия игры и
+`steam_api64.dll`, хеши установленных файлов против эталона alpha, переменные `MP_*`,
+`build_report.txt`, выжимка по событиям и полные логи `out\basic_network_*.log`.
+Именно этот файл и присылают тестировщики; отдельных логов собирать не нужно.
+
+`sh scripts/verify_release.sh` проверяет и alpha-архив (см. `scripts/check_artifacts.py`:
+9 ролей бинарников, 3 архива). Отдельный workflow `verify-alpha-dll.yml` пересобирает DLL на
+Ubuntu и сравнивает её с закоммиченной.
 
 ## Локальная проверка
 
@@ -94,6 +151,8 @@ Retained binary surface не заменяет live evidence: до Windows Steam 
 scripts/test_native.sh
 scripts/verify_release.sh
 ```
+
+`scripts/verify_release.sh` дополнительно запускает `scripts/check_artifacts.py`: он сверяет SHA-256 каждой копии одного и того же бинарника в `development/` (один и тот же codelib/DLL/launcher/progpack лежит в нескольких kit-источниках), требует, чтобы **любой** бинарник в дереве был перечислен и проверен, сверяет хеши обоих архивов и проверяет, что пути из `.gitattributes`/`.gitignore` существуют. Это закрывает класс ошибок «обновили один kit-source, а второй остался с прежним файлом» и «правило .gitattributes ссылается на переименованный файл».
 
 `scripts/package_unified_mod.py` и `scripts/package_unified_fps_mod.py` теперь не только проверяют байты и ZIP tree, но и **запрещают возврат гейтов замены**: если в `Enable_Multiplayer.bat` снова появится `certutil`, `known_network`, `copy_checked`, `foreign_network`, `ODD`, `game_build_3598_1.sha256` или `SHA-256 verification failed`, сборка архива падает. Это превращает «файлы заменяются всегда» в проверяемый инвариант, а не в обещание.
 

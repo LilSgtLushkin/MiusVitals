@@ -2,7 +2,7 @@ name: Verify MiusMultiplayer release archives
 
 on:
   push:
-    branches: ["arena/a496e0bd-miusvitals"]
+    branches: ["main"]
   pull_request:
   workflow_dispatch:
 
@@ -24,4 +24,10 @@ jobs:
         with:
           name: MiusMultiplayer_OUTDATED_INSTALL
           path: MiusMultiplayer_OUTDATED_INSTALL.zip
+          if-no-files-found: error
+      - name: Upload experimental GTMP_alpha installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: GTMP_alpha_INSTALL
+          path: GTMP_alpha_INSTALL.zip
           if-no-files-found: error

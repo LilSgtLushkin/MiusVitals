@@ -108,6 +108,7 @@ static const char *last_us(const char *s) { const char *r = 0; for (; *s; s++) i
 static u32 hex_of(const char *s)
 {
     u32 v = 0;
+    if (!s) return 0;
     for (;; s++) {
         int c = *s, d;
         if (c >= '0' && c <= '9') d = c - '0'; else if (c >= 'a' && c <= 'f') d = c - 'a' + 10; else if (c >= 'A' && c <= 'F') d = c - 'A' + 10; else break;
@@ -116,6 +117,19 @@ static u32 hex_of(const char *s)
     return v;
 }
 static int num_of(const char *s) { int v = 0; while (*s >= '0' && *s <= '9') v = v * 10 + (*s++ - '0'); return v; }
+
+// Read a diagnostic override without parsing an undefined buffer.  GetEnvironmentVariableA leaves the
+// buffer untouched when the value does not fit, so a too-long value is treated as "not set" and the
+// documented default applies; every accepted value is a small integer, never free text.
+static int env_int(const char *name, int *value)
+{
+    char v[12];
+    DWORD n = GetEnvironmentVariableA(name, v, sizeof v);
+    if (!n || n >= sizeof v) return 0;
+    *value = num_of(v);
+    return 1;
+}
+static int env_value(const char *name) { int v; return env_int(name, &v) ? v : -1; }   // -1: not set
 
 // A tactical operation is named by the game as YYYY_MM_campaign:battle.  The native module normally
 // receives MP_HOST_MODE=operation from opgame; a direct tactical launch can lose that inherited setting
@@ -326,8 +340,8 @@ static int mode(void)
 {
     static int forced = -2;
     if (forced == -2) {
-        char v[8];
-        forced = GetEnvironmentVariableA("MP_VITALS", v, sizeof v) ? num_of(v) : -1;
+        int value;
+        forced = env_int("MP_VITALS", &value) ? value : -1;
     }
     if (forced >= 0) return forced > 3 ? 3 : forced;
     return *g_host_mode == 2 ? 3 : 1;
@@ -516,8 +530,8 @@ static void try_render_guard(void)
     const u8 *b = (const u8 *)GetModuleHandleA("basic_render.codelib");
     if (!b) return;                                        // it can load after the first network frame
     g_render_tried = 1;
-    char v[8];
-    if (GetEnvironmentVariableA("MP_RENDER_GUARD", v, sizeof v) && num_of(v) == 0) {
+    int guard_mode;
+    if (env_int("MP_RENDER_GUARD", &guard_mode) && guard_mode == 0) {
         if (g_log) g_log("vitals: basic_render crash guard disabled by MP_RENDER_GUARD=0");
         return;
     }
@@ -845,7 +859,7 @@ static void drain_mailbox(void)
             g_box_n--;
         }
         LeaveCriticalSection(&g_cs);
-        if (!size) return;
+        if (size < (int)sizeof(VitalsHead)) return;      // nothing queued, or a truncated record
         const VitalsHead *h = (const VitalsHead *)data;
         const Entry *e = (const Entry *)(data + sizeof(VitalsHead));
         g_s_rx += h->h.count;
@@ -884,8 +898,8 @@ static int veh_mode(int m)
 {
     static int forced = -2;
     if (forced == -2) {
-        char v[8];
-        forced = GetEnvironmentVariableA("MP_VEHICLES", v, sizeof v) ? num_of(v) : -1;
+        int value;
+        forced = env_int("MP_VEHICLES", &value) ? value : -1;
     }
     if (m == 0) return 0;
     if (forced >= 0) return forced > 2 ? 2 : forced;
@@ -901,6 +915,7 @@ static volatile u32 g_rx_type[64], g_rx_size[64];
 // Only Vitals types 0x34/0x35 have transport logic below. The pre-existing native reliable stream (types 10/11) is not
 // inspected for recovery and its receive/ACK state is never written by this DLL.
 static int g_idle_msg = -1;
+static u32 g_rx_datagrams;          // every datagram the module handed to us, our type or a native one
 static int wsprintfA_lite(char *out, u32 t, u32 c, u32 b)
 {
     char tmp[40]; int k = 0, n = 0;
@@ -918,6 +933,16 @@ static int wsprintfA_lite(char *out, u32 t, u32 c, u32 b)
 static void vitals_frame(void *om)
 {
     static DWORD last_scan, last_digest, last_vdigest, last_report;
+    static int banner;
+    // One unambiguous line (written from the first frame, when the module's own logger is ready) so a
+    // log proves which DLL a test loaded and which overrides the game process actually received.
+    if (!banner && g_log) {
+        banner = 1;
+        g_log("vitals: GTMP_alpha-1 experimental build (bugfix series 1); MP_VITALS=%d MP_VEHICLES=%d MP_STATS=%d MP_RENDER_GUARD=%d MP_IDLE_MS=%d MP_LOG_VITALS=%d MP_STEAM=%d MP_STEAM_FAKE=%d MP_SYNC_STATE=%d idle-patch=%d",
+              env_value("MP_VITALS"), env_value("MP_VEHICLES"), env_value("MP_STATS"), env_value("MP_RENDER_GUARD"),
+              env_value("MP_IDLE_MS"), log_events(), env_value("MP_STEAM"), env_value("MP_STEAM_FAKE"),
+              env_value("MP_SYNC_STATE"), g_idle_msg);
+    }
     if (g_broken) return;
     if (!g_phys && (g_phys = GetModuleHandleA("adv_physic.codelib")) != 0) {
         if (!locate_get_member((const u8 *)g_phys) && g_log) g_log("vitals: get_member not found - the squad's own record is not used, soldiers are killed without it");
@@ -1167,10 +1192,18 @@ static void vitals_frame(void *om)
                   g_s_veh, g_s_veh_flag, g_s_veh_peer, g_s_veh_set, g_s_veh_note);
             g_log("vitals: state channel v7.5: packets sent %u, acked %u, retried %u, replaced %u, pending %d; received %u, duplicates %u, inbox full %u, ACK sent %u, unmatched ACK %u; final scans %u",
                   g_s_vtx, g_s_vack, g_s_vretry, g_s_vreplace, vitals_pending(), g_s_vrx, g_s_vdup, g_s_vfull, g_s_vack_sent, g_s_vack_unknown, g_s_final_scans);
+            g_log("vitals: object-number exchange latched: %s (requested %u times before first completion)", g_num_complete ? "yes" : "NO", g_nudges);
+        }
+        {   // Always on: one short line per five seconds that had traffic.  It answers "does the other
+            // game reach us, and with which packet types" without asking a tester to set MP_LOG_VITALS.
             char tl[400]; int n = 0; tl[0] = 0;
             for (int t = 0; t < 64 && n < 360; t++) if (g_rx_type[t]) n += wsprintfA_lite(tl + n, t, g_rx_type[t], g_rx_size[t]);
-            if (n) g_log("rx: datagrams of the other game by type (type:count/bytes) %s", tl);
-            g_log("vitals: object-number exchange latched: %s (requested %u times before first completion)", g_num_complete ? "yes" : "NO", g_nudges);
+            if (n && g_log) g_log("rx: last 5 s, datagrams from the other game (type:count/bytes) %s; total %u", tl, g_rx_datagrams);
+            static int no_traffic_reported;
+            if (!no_traffic_reported && !g_rx_datagrams && now - g_on_since >= 10000) {
+                no_traffic_reported = 1;
+                if (g_log) g_log("rx: no datagrams from the other game in the first 10 s of this session");
+            }
         }
         memset((void *)g_rx_type, 0, sizeof g_rx_type); memset((void *)g_rx_size, 0, sizeof g_rx_size);
         g_s_sent_delta = g_s_sent_digest = g_s_rx = g_s_killed = g_s_notice = g_s_dropped = g_s_rec_ok = g_s_rec_bad = g_s_merged = g_s_merged_rec = g_s_veh_set = g_s_veh_note = 0;
@@ -1188,7 +1221,8 @@ static void hook_frame(void *om, void *a2, u64 a3, void *a4)
 
 static void hook_packet(const void *from, const unsigned char *data, int size, u32 now)
 {
-    if (size < 8) return;                               // what the module's own first check does (the hook sits behind it)
+    g_rx_datagrams++;
+    if (size < 8) return;                           // what the module's own first check does (the hook sits behind it)
     const Head *h = (const Head *)data;
     if (h->magic == MAGIC && h->type < 64) { g_rx_type[h->type]++; g_rx_size[h->type] += (u32)size; }   // diagnostics only; native types below are passed through unchanged
     if (h->magic == MAGIC && h->type == PKT_VITALS_ACK) {
@@ -1255,7 +1289,7 @@ static void *install_detour(u8 *fn, size_t len, void *hook)
 static int stats_mode(void)
 {
     static int forced = -2;
-    if (forced == -2) { char v[8]; forced = GetEnvironmentVariableA("MP_STATS", v, sizeof v) ? num_of(v) : -1; }
+    if (forced == -2) { int value; forced = env_int("MP_STATS", &value) ? value : -1; }
     if (forced >= 0) return forced != 0;
     return 1;
 }
@@ -1308,8 +1342,9 @@ static void patch_idle(u8 *b)
     if (!n || n >= sizeof v) return;                         // absent/too long: preserve native cadence
     for (DWORD i = 0; i < n; i++) {
         int d = v[i] - '0';
-        if (d < 0 || d > 9 || T > 6000 || (T == 6000 && d > 0)) return;
+        if (d < 0 || d > 9) return;
         T = T * 10 + d;
+        if (T > 6000) return;                            // the documented range is 0 .. 6000 ms
     }
     if (T == 2000) return;                                   // the module's own value (the (id & 15) * 30 part is then left too)
     u8 *at = b + RVA_IDLE;

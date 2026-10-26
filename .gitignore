@@ -17,6 +17,10 @@ development/merged-source/candidates/
 *.lib
 *.pdb
 *.exe
+# ...but the checked-in join launcher ships inside both kits; an ignored copy would
+# silently disappear from a fresh `git add -A`.
+!development/unified-kit-source/files/mp_join.exe
+!development/unified-fps-kit-source/files/mp_join.exe
 *.log
 
 # Python / editor noise
