@@ -16,7 +16,7 @@
 | [`CRASH_ANALYSIS_2026-10-25.md`](CRASH_ANALYSIS_2026-10-25.md) | второй invalid-child путь `basic_render`, guard v7.1.1 | **действует** |
 | [`CRASH_ANALYSIS_2026-10-24.md`](CRASH_ANALYSIS_2026-10-24.md) | первый разбор падения `basic_render`, guard v7.0.1 | исторический: перекрыт документами от 2026-10-25 |
 | [`UPSTREAM_V20_REPO_ANALYSIS.md`](UPSTREAM_V20_REPO_ANALYSIS.md) | полный разбор `VampyrCat/MiusPlayer`: публичный исходник — v12, v20 — только бинарник в `GTMPRelease1.zip`, дельта 293 функции | **действует** |
-| [`V20_SOURCE_RECOVERY.md`](V20_SOURCE_RECOVERY.md) | восстановление исходника v20: именованный разбор 895 функций, дельта к публичному дереву (323 работы), план порта M0–M6 с критериями приёмки | **действует** |
+| [`V20_SOURCE_RECOVERY.md`](V20_SOURCE_RECOVERY.md) | восстановление исходника v20: именованный разбор 895 функций, дельта к публичному дереву (323 работы), план порта M0–M6; **M1 и M2 выполнены**, цифры сравнений в §6a | **действует** |
 | [`V20_STEAM_LAYER.md`](V20_STEAM_LAYER.md) | Steam-слой v20 по декомпиляции: 21 слот `GetProcAddress`, callback'и 1202/1203/336/337, `gtmf`/`+gtmf_join`, режимы `MP_STEAM`/`MP_STEAM_FAKE` | **действует** |
 | [`V20_NETWORK_LAYER.md`](V20_NETWORK_LAYER.md) | транспорт v20: UDP 1943, UPnP через COM (`UPnPNAT`, два GUID'а), маркер Steam-пира `sa_family=0x5354` | **действует** |
 | [`SOURCE_REBUILD_REQUIREMENTS.md`](SOURCE_REBUILD_REQUIREMENTS.md) | границы нашего процесса: что можно менять, что снято решением 2026-10-26, сверка Steam ABI по присланной DLL | **действует** |

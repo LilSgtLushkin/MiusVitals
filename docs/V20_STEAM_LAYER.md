@@ -178,12 +178,47 @@ else
 протокол (`on_packet`, HELLO, `MP_STEAM_PEER`) остаётся общим. Это и есть причина, по которой
 Steam-джойн в v20 работает так же надёжно, как IP: для верхнего кода разницы нет.
 
-## 8. Что ещё не доказано
+## 8. Что было не доказано — и чем кончилось
 
-* Точный формат значения presence (`"%u %s"` — номер операции и строка хранилища; что именно
-  во втором поле, видно только по коду `snapshot_operation_saves` целиком).
-* Как именно P2P-канал складывается в существующий `send_peer_packet`/`on_packet`
-  (функция `0x16230` будет досмотрена в общем дампе): ожидаемо — тот же буфер датаграммы,
-  другой транспорт.
-* Обработчик `GameConnectedFriendChatMsg` (337) зарегистрирован, но его тело пока не выделено —
-  возможно, это способ передать приглашение в чате.
+* **Формат presence.** Доказано: ключей два, а не один.
+  `gtmf` = `"<номер операции> game"` (`sprintf_s(buf, 20, "%u %s", op, "game")` в
+  `snapshot_operation_saves`, `0x3EFA8`), а `connect` =
+  `"root\\programs\\opgame.progpack, +gtmf_join=steam:<наш SteamID>"`. Второй ключ Steam
+  показывает другу как пункт «Join Game»; нажатие запускает игру с `+gtmf_join=steam:<id>` в
+  командной строке. Первый пишется и тут же перечитывается `GetFriendRichPresence`, и если Steam
+  его не принял, в лог идёт `steam: Steam did not take the note for friends (asked for '%s', it
+  holds '%s')` — то есть проверка записи чтением не наша выдумка, а поведение v20.
+  При выходе оба ключа очищаются, лог `steam: no longer shown to friends as a game to join`.
+  Реализовано в `steam_broadcast()` и проверено самотестом.
+* **Как P2P-канал складывается в `on_packet`.** Доказано: `on_packet` (`0x16230`) различает
+  источник по `sa_family == 0x5354`, берёт Steam ID из адреса (+8 байт), имя пира — из самого
+  пакета (смещение +32), чистит его (всё, кроме `[A-Za-z0-9_-]`, заменяется на `_`) и пишет
+  `SetEnvironmentVariableA("MP_STEAM_PEER", id)` плюс строку
+  `net: player connected through Steam (steam:%s, %s)`. Для IP-пира — та же ветка с `inet_ntop`
+  и `net: player connected from %s:%u (%s)`. Никакого отдельного «Steam-протокола» нет: тот же
+  буфер датаграммы, другой транспорт.
+* **Тело обработчика `GameConnectedFriendChatMsg` (337)** — единственное, что осталось не
+  разобрано: callback регистрируется, но его `run()` в дампе пока пуст по смыслу (сохраняет
+  `user` и `message` и ничего не делает). Рабочая гипотеза «приглашение через чат» не
+  подтвердилась; считаем, что v20 его только регистрирует, и у нас так же.
+
+## 9. Что сделано в M2
+
+`development/net-v21/src/steam.cpp` + `steam_module.cpp` + `steam_selftest.cpp`:
+
+* 21 `GetProcAddress` — **те же имена**, что в v20 (`SteamAPI_SteamFriends_v017`,
+  `..._SteamUser_v021`, `..._SteamNetworking_v006`, `..._SteamUtils_v010` и 17 методов);
+  сверено с дампом `steam_bind_interfaces` (`0x3EB34`), список совпал дословно.
+* `MP_STEAM=0` — выключено; `MP_STEAM_FAKE=<n>` — стенд (личность `steam:<n>`, датаграммы по
+  loopback, файл-записка `%TEMP%\gtmf_fake_steam_<n>.txt` с ключами `persona`, `gtmf`,
+  `connect`); иначе — настоящий Steam из `steam_api64.dll` игры.
+* P2P: `SEND_UNRELIABLE`, канал 0, `AllowP2PPacketRelay(true)`, `AcceptP2PSessionWithUser` на
+  `SessionRequest`, счётчик неудач на `SessionFail`.
+* Join: `+gtmf_join=steam:<id>` с командной строки и из `GameJoinRequested`; запрос отдаётся
+  ровно один раз.
+* Самотест: **21 проверка, 0 падений**, на машине без Steam.
+* Якорь `gtmf_steam_layer[]` (экспорт) — чтобы `/OPT:REF` не выбрасывал слой из образа, пока его
+  никто не вызывает.
+
+Чего это не доказывает: настоящий Steam, P2P-ретрансляцию и переход друга в лобби. Это M6 —
+два ПК, см. [`TWO_PC_TEST_PLAN_2026-10-26`](TWO_PC_TEST_PLAN_2026-10-26.md).
