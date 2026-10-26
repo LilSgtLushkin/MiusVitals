@@ -107,11 +107,13 @@ def main() -> int:
     ref_names = reference_names(args.reference_kind, reference)
 
     rows = v20tool._classify(candidate, cand_names, reference, ref_names, args.label)
+    for row in rows:
+        row["own"] = cand_names.get(row["rva"], "")
 
     focus = [f for f in args.focus.split(",") if f]
     if focus:
         for row in rows:
-            row["focus"] = any(f.lower() in row["name"].lower() for f in focus)
+            row["focus"] = any(f.lower() in row["own"].lower() for f in focus)
     else:
         for row in rows:
             row["focus"] = False
@@ -144,11 +146,14 @@ def main() -> int:
             "",
         ]
         if focus:
-            lines += ["## Focus", "", "| RVA | name | bytes | status | reference | similarity |",
-                      "|---|---|---|---|---|---|"]
-            for row in sorted((r for r in rows if r["focus"]), key=lambda r: -r["similarity"]):
-                lines.append(f"| `{row['rva']:06x}` | `{row['name'] or '—'}` | {row['size']} | "
-                             f"{row['status']} | `{row['ref'] or '—'}` | {row['similarity']:.2f} |")
+            lines += ["## Our functions the focus names (" + ", ".join(f"`{f}`" for f in focus) + ")", "",
+                      "These are functions **we wrote**; the reference is the v20 function the matcher",
+                      "considered closest. A reimplementation is not expected to match v20 byte for byte -",
+                      "what it has to match is behaviour, which the self-test and the two-PC run check.", "",
+                      "| RVA | our name | bytes | closest v20 | similarity |", "|---|---|---|---|---|"]
+            for row in sorted((r for r in rows if r["focus"]), key=lambda r: r["own"]):
+                lines.append(f"| `{row['rva']:06x}` | `{row['own']}` | {row['size']} | "
+                             f"`{row['ref'] or '—'}` | {row['similarity']:.2f} |")
             lines.append("")
         lines += ["## Largest unmatched functions", "",
                   "| RVA | name | bytes | closest reference | similarity | strings |", "|---|---|---|---|---|---|"]
@@ -156,6 +161,23 @@ def main() -> int:
             strings = " \\| ".join(row["strings"][:3])[:110]
             lines.append(f"| `{row['rva']:06x}` | `{row['name'] or '—'}` | {row['size']} | "
                          f"`{row['ref'] or '—'}` | {row['similarity']:.2f} | {strings} |")
+        buckets = {"1.00": 0, ">=0.90": 0, ">=0.75": 0, ">=0.55": 0, "<0.55": 0}
+        for row in rows:
+            score = row["similarity"]
+            if score >= 0.999:
+                buckets["1.00"] += 1
+            elif score >= 0.90:
+                buckets[">=0.90"] += 1
+            elif score >= 0.75:
+                buckets[">=0.75"] += 1
+            elif score >= 0.55:
+                buckets[">=0.55"] += 1
+            else:
+                buckets["<0.55"] += 1
+        lines += ["", "## How close", "", "| similarity to the closest reference function | functions |",
+                  "|---|---|"]
+        for label, count in buckets.items():
+            lines.append(f"| {label} | {count} |")
         lines += ["", "## Closest matches", "", "| RVA | name | bytes | status | reference | similarity |",
                   "|---|---|---|---|---|---|"]
         for row in sorted(rows, key=lambda r: -r["similarity"])[:15]:
