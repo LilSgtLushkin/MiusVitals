@@ -13,6 +13,7 @@
 // transforms about 15 times a second (this file) and the full saved state when it changes (statesync.cpp).
 #include "common.h"
 #include "netlog.h"
+#include "steam.h"
 #include "protocol.h"
 #include "image.h"
 #include "detour.h"
@@ -252,8 +253,15 @@ const char *session_status(void)
     return g_status;
 }
 
+// One send path for both transports, exactly the seam v20 has: the address says where the bytes go,
+// and a Steam peer (family 0x5354) is handed to Steam instead of to the socket.  Everything above
+// this line - HELLO, the image transfer, the state and shot packets - is transport-agnostic.
 static void send_to(const sockaddr_in &to, const void *data, int size)
 {
+    if (to.sin_family == STEAM_FAMILY) {
+        if (steam_send(steam_peer_id(&to), data, size)) g_stat_bytes += size;
+        return;
+    }
     sendto(g_sock, (const char *)data, size, 0, (const sockaddr *)&to, sizeof to);
     g_stat_bytes += size;
 }
@@ -1108,6 +1116,9 @@ static void request_map_pieces(DWORD now)
 void session_start(ObjMan *)
 {
     char v[128];
+    // Command line first: a friend's Join Game puts +gtmf_join=steam:<id> there, and the menu reads
+    // that request, so the layer has to be up before the first frame.
+    steam_install();
     g_tactical = !strcmp(g_program, "tacgame");
     strcpy_s(g_root, g_out_dir);
     if (char *s = strrchr(g_root, '\\')) *s = 0;
@@ -1152,9 +1163,21 @@ void session_start(ObjMan *)
     } else if (g_role == ROLE_JOIN && (g_tactical || g_map_mode)) {
         char peer[128] = "127.0.0.1";
         GetEnvironmentVariableA("MP_PEER", peer, sizeof peer);
+        g_peer = {};
+        if (!_strnicmp(peer, "steam:", 6)) {
+            // A friend's game, reached through Steam: the id is all the address there is.
+            if (!steam_peer_make(_strtoui64(peer + 6, 0, 10), &g_peer)) {
+                mp_log("net: '%s' is not a Steam address", peer);
+                return;
+            }
+            if (open_socket(0)) {
+                g_have_peer = true;
+                mp_log("net: joining %s through Steam", peer);
+            }
+            return;
+        }
         unsigned short port = g_port;
         if (char *colon = strchr(peer, ':')) { *colon = 0; port = (unsigned short)atoi(colon + 1); }
-        g_peer = {};
         g_peer.sin_family = AF_INET;
         g_peer.sin_port = htons(port);
         if (inet_pton(AF_INET, peer, &g_peer.sin_addr) != 1) {
@@ -1662,7 +1685,9 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
     // that is dropped for a wrong magic is exactly the kind of thing a battle log has to show.
     netlog_packet("rx", data, size, ntohl(from.sin_addr.s_addr), ntohs(from.sin_port), from.sin_family);
     if (size < (int)sizeof(Head) || h->magic != k_magic) return;
-    bool from_peer = g_have_peer && from.sin_addr.s_addr == g_peer.sin_addr.s_addr && from.sin_port == g_peer.sin_port;
+    bool from_peer = g_have_peer && (from.sin_family == STEAM_FAMILY || g_peer.sin_family == STEAM_FAMILY)
+        ? steam_peer_id(&from) == steam_peer_id(&g_peer)
+        : from.sin_addr.s_addr == g_peer.sin_addr.s_addr && from.sin_port == g_peer.sin_port;
 
     if (g_role == ROLE_HOST && h->type == PKT_HELLO) {
         if (size < 24) return;
@@ -1891,11 +1916,26 @@ void session_frame(ObjMan *om)
     DWORD now = GetTickCount();
     g_prof_frames++;
     netlog_frame();
+    steam_tick();
     update_ai_commander();
     if (g_tactical && (g_role != ROLE_NONE || GetEnvironmentVariableA("MP_LOG_SHOTS", 0, 0))) shots_install(om);
     if (g_tactical && g_role != ROLE_NONE) trench_install();
     shorten_battle_for_tests(om);
     if (g_role == ROLE_HOST && g_bind_pending && now - g_last_bind_try >= 500) host_listen();
+    // Steam's P2P packets arrive through Steam, not through the socket, so they are drained here and
+    // turned into the same on_packet() call the UDP path makes - the header, the version check and
+    // every handler above stay identical for both transports.
+    if (steam_ready()) {
+        uint64_t from_id = 0;
+        for (int guard = 0; guard < 64; guard++) {
+            unsigned char steam_buf[2048];
+            int n = steam_recv(&from_id, steam_buf, sizeof steam_buf);
+            if (n <= 0) break;
+            sockaddr_in from = {};
+            steam_peer_make(from_id, &from);
+            on_packet(from, steam_buf, n, now);
+        }
+    }
     if (g_sock == INVALID_SOCKET) return;
 
     unsigned char buf[2048];

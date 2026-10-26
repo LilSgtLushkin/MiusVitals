@@ -84,6 +84,14 @@ jobs:
           type development\net-v21\build\selftest.log
           exit /b %rc%
 
+      - name: M2 - build the command-line join launcher with the Steam layer
+        shell: cmd
+        run: |
+          call development\net-v21\build.bat join > development\net-v21\build\join.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\join.log
+          exit /b %rc%
+
       - name: M1 - compare our baseline against the released v12 module
         shell: bash
         run: |
@@ -183,7 +191,7 @@ jobs:
             else
               echo "test installer: not built"
             fi
-            for name in baseline module selftest package compare-m1 compare-m2; do
+            for name in baseline module selftest join package compare-m1 compare-m2; do
               log="development/net-v21/build/$name.log"
               echo
               echo "<details><summary>$name log</summary>"

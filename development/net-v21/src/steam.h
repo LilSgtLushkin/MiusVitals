@@ -20,6 +20,7 @@
 #include <winsock2.h>
 #include <windows.h>
 #include <stdint.h>
+#include <string.h>
 
 // A peer that lives inside Steam: sa_family is STEAM_FAMILY, the Steam ID sits at +8, the name
 // at +32.  Same encoding as v20, so a packet can be addressed the same way for both transports.
@@ -53,6 +54,29 @@ int steam_friend_count();
 // Pump: delivers callbacks and drains P2P packets.  Call once per frame.
 void steam_frame();
 
+// A peer on the Steam transport is an ordinary sockaddr_in whose family is STEAM_FAMILY and whose
+// Steam ID sits at +8, where sin_zero starts - the encoding v20 uses, so one address describes a peer
+// whichever way its bytes travel.  These two turn it around; they are inline so the session code and
+// the joiner can use them without linking anything extra.
+inline bool steam_peer_make(uint64_t id, sockaddr_in *out)
+{
+    if (!out || !id)
+        return false;
+    *out = sockaddr_in();
+    out->sin_family = STEAM_FAMILY;
+    memcpy(out->sin_zero, &id, sizeof id);
+    return true;
+}
+
+inline uint64_t steam_peer_id(const sockaddr_in *address)
+{
+    if (!address || address->sin_family != STEAM_FAMILY)
+        return 0;
+    uint64_t id = 0;
+    memcpy(&id, address->sin_zero, sizeof id);
+    return id;
+}
+
 // Datagrams.  Returns false when the peer is unreachable or the transport is off.
 bool steam_send(uint64_t peer, const void *data, int len);
 // >0 bytes received, 0 nothing pending, -1 transport off.  Fills *peer when something arrives.
@@ -77,6 +101,11 @@ const char *steam_connect_text();            // the last "connect" text, for the
 void steam_note_command_line(const char *command_line);
 bool steam_join_take(uint64_t *id);          // true once per request
 const char *steam_join_source();             // "the command line" / "a friend's game"
+
+// Glue supplied by steam_module.cpp: read the command line for a join request and bring the layer
+// up; deliver callbacks and P2P packets once per frame.  Both are cheap to call repeatedly.
+void steam_install();
+void steam_tick();
 
 // Test hooks (self-test only; the module never calls them).
 void steam_test_set_command_line(const char *text);

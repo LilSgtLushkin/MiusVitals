@@ -7,6 +7,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <stdio.h>
+#include "steam.h"
 #include <stdlib.h>
 #include <string.h>
 #include <vector>
@@ -65,20 +66,28 @@ struct Joiner {
         strcpy_s(address, addr);
         char name[128];
         strcpy_s(name, addr);
-        unsigned short port = k_default_port;
-        if (char *colon = strchr(name, ':')) { *colon = 0; port = (unsigned short)atoi(colon + 1); }
         WSADATA wsa;
         WSAStartup(MAKEWORD(2, 2), &wsa);
         host = {};
-        host.sin_family = AF_INET;
-        host.sin_port = htons(port);
         if (!name[0]) return fail("Enter the host's address first.");
-        if (inet_pton(AF_INET, name, &host.sin_addr) != 1) {
-            addrinfo hints = {}, *res = 0;
-            hints.ai_family = AF_INET;
-            if (getaddrinfo(name, 0, &hints, &res) || !res) return fail("That address could not be found.");
-            host.sin_addr = ((sockaddr_in *)res->ai_addr)->sin_addr;
-            freeaddrinfo(res);
+        if (!_strnicmp(name, "steam:", 6)) {
+            // A friend's game: the Steam ID is the whole address, and the bytes go through Steam's P2P
+            // relay instead of the socket.  Checked before the host:port split, which would otherwise
+            // read the ID as a port number.
+            if (!steam_peer_make(_strtoui64(name + 6, 0, 10), &host))
+                return fail("That Steam ID is not a number.");
+        } else {
+            unsigned short port = k_default_port;
+            if (char *colon = strchr(name, ':')) { *colon = 0; port = (unsigned short)atoi(colon + 1); }
+            host.sin_family = AF_INET;
+            host.sin_port = htons(port);
+            if (inet_pton(AF_INET, name, &host.sin_addr) != 1) {
+                addrinfo hints = {}, *res = 0;
+                hints.ai_family = AF_INET;
+                if (getaddrinfo(name, 0, &hints, &res) || !res) return fail("That address could not be found.");
+                host.sin_addr = ((sockaddr_in *)res->ai_addr)->sin_addr;
+                freeaddrinfo(res);
+            }
         }
         sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
         u_long nonblocking = 1;
@@ -97,6 +106,13 @@ struct Joiner {
     float progress() const { return have.empty() ? 0 : (float)got / have.size(); }
     unsigned waited_seconds() const { return (GetTickCount() - started) / 1000; }
 
+    // Same seam as the module: the address decides the transport.
+    void send_host(const void *data, int size)
+    {
+        if (host.sin_family == STEAM_FAMILY) steam_send(steam_peer_id(&host), data, size);
+        else sendto(sock, (const char *)data, size, 0, (sockaddr *)&host, sizeof host);
+    }
+
     void poll()
     {
         if (state != CONNECTING && state != WAITING_FOR_BATTLE && state != RECEIVING) return;
@@ -111,7 +127,7 @@ struct Joiner {
             hello.lobby_ready = lobby_ready;
             hello.swap_req = swap_req;
             strncpy_s(hello.name, my_name, sizeof hello.name - 1);
-            sendto(sock, (char *)&hello, sizeof hello, 0, (sockaddr *)&host, sizeof host);
+            send_host(&hello, sizeof hello);
             last_hello = now;
         }
         if (state == RECEIVING) {
@@ -120,18 +136,27 @@ struct Joiner {
                 if (have[i] || now - asked[i] < 300) continue;
                 ImageRequest r = { make_head(PKT_IMAGE_REQUEST), i };
                 r.h.flags = want_map ? 1 : 0;
-                sendto(sock, (char *)&r, sizeof r, 0, (sockaddr *)&host, sizeof host);
+                send_host(&r, sizeof r);
                 asked[i] = now;
                 sent++;
             }
         }
         for (int guard = 0; guard < 256; guard++) {
             unsigned char buf[2048];
-            sockaddr_in from;
-            int flen = sizeof from;
-            int n = recvfrom(sock, (char *)buf, sizeof buf, 0, (sockaddr *)&from, &flen);
-            if (n <= 0) break;
-            if (n < (int)sizeof(Head) || from.sin_addr.s_addr != host.sin_addr.s_addr) continue;
+            sockaddr_in from = {};
+            int n;
+            if (host.sin_family == STEAM_FAMILY) {
+                uint64_t id = 0;
+                n = steam_recv(&id, buf, sizeof buf);
+                if (n <= 0) break;
+                if (!steam_peer_make(id, &from) || id != steam_peer_id(&host)) continue;
+            } else {
+                int flen = sizeof from;
+                n = recvfrom(sock, (char *)buf, sizeof buf, 0, (sockaddr *)&from, &flen);
+                if (n <= 0) break;
+                if (from.sin_addr.s_addr != host.sin_addr.s_addr) continue;
+            }
+            if (n < (int)sizeof(Head)) continue;
             const Head *h = (const Head *)buf;
             if (h->magic != k_magic) continue;
             if (h->type == PKT_WELCOME && n >= 24 && state != RECEIVING) {
