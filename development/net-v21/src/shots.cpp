@@ -40,7 +40,7 @@ static bool g_injecting, g_enabled = true;
 static FILE *g_file;
 static u32 g_seq, g_epoch, g_last_seq_in, g_epoch_in, g_dumped;
 static u64 g_stat_own, g_stat_dropped, g_stat_injected, g_stat_refused, g_stat_free, g_stat_sent_bytes, g_stat_repeats;
-struct Pending { ShotRec rec; DWORD sent; };
+struct Pending { ShotRec rec; DWORD sent; unsigned char tries; };
 static std::deque<Pending> g_out;               // launched here, not yet acknowledged by the other game
 static std::vector<ShotRec> g_in;               // received, carried out before the next simulation step
 
@@ -144,7 +144,7 @@ static void queue_shot(char kind, const char *rec, u64 flags, const float *pos, 
         s.desc3 = 0xffffffffu;
         memcpy(s.launch, rec, 0x40);                // an explosion is a place and the two descriptions
     }
-    g_out.push_back({ s, 0 });
+    g_out.push_back({ s, 0, 0 });
 }
 
 // Another kind of record for the same channel (trench.cpp).
@@ -152,7 +152,7 @@ void shots_queue(ShotRec &s)
 {
     if (!g_epoch) g_epoch = (GetTickCount() ^ (GetCurrentProcessId() << 16)) | 1;
     s.seq = ++g_seq;
-    g_out.push_back({ s, 0 });
+    g_out.push_back({ s, 0, 0 });
 }
 
 static void launch_hook(char *sp, char *rec, u64 flags, float *pos, void *obj5, u32 arg6)
@@ -227,8 +227,13 @@ void shots_frame(void (*send)(const void *, int))
     DWORD now = GetTickCount();
     size_t n = g_out.size() < window ? g_out.size() : window, at = 0;
     while (at < n) {
-        // a datagram starts at the first launch that is due and carries the ones after it
-        if (g_out[at].sent && now - g_out[at].sent < 150) { at++; continue; }
+        // a datagram starts at the first launch that is due and carries the ones after it; a launch the
+        // other game keeps missing is repeated with a growing pause instead of six times a second
+        if (g_out[at].sent) {
+            const Pending &p = g_out[at];
+            DWORD wait = 150u << (p.tries < 4 ? p.tries : 4);        // 150, 300, 600, 1200, 1200 ms
+            if (now - p.sent < wait) { at++; continue; }
+        }
         unsigned char packet[sizeof(ShotHead) + per * sizeof(ShotRec)];
         size_t k = n - at < per ? n - at : per;
         ShotHead h = { make_head(PKT_SHOT, (int)k), g_epoch };
@@ -236,6 +241,7 @@ void shots_frame(void (*send)(const void *, int))
         for (size_t i = 0; i < k; i++) {
             memcpy(packet + sizeof h + i * sizeof(ShotRec), &g_out[at + i].rec, sizeof(ShotRec));
             if (g_out[at + i].sent) g_stat_repeats++;
+            if (g_out[at + i].tries < 4) g_out[at + i].tries++;
             g_out[at + i].sent = now ? now : 1;
         }
         send(packet, (int)(sizeof h + k * sizeof(ShotRec)));

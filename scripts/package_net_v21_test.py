@@ -5,7 +5,7 @@ Why a separate archive and not a new release
 --------------------------------------------
 The module built in `development/net-v21/` is our own code, but it is not v20: the battle delta of
 M3-M5 is still being written, and it deliberately does not import `mp_vitals.dll`.  Shipping it as
-*the* module would make every player's first v1.0.2 experience worse than v1.0.1, which is exactly
+*the* module would make every player's first v1.0.0 experience worse than v1.0.1, which is exactly
 what this project must not do.
 
 So this archive installs exactly what v1.0.1 installs - the same bytes, checked against the same
@@ -17,8 +17,8 @@ The one thing that is new is that our module logs: identity, traffic and battle 
 `out/net_v21_<program>.log`.  That log is the point of the test.
 
     python scripts/package_net_v21_test.py --codelib build/module/basic_network.codelib \
-        --output MiusMultiplayer_v1.0.2_TEST_INSTALL.zip
-    python scripts/package_net_v21_test.py --verify MiusMultiplayer_v1.0.2_TEST_INSTALL.zip
+        --output MiusMultiplayer_v1.0.0_TEST_INSTALL.zip
+    python scripts/package_net_v21_test.py --verify MiusMultiplayer_v1.0.0_TEST_INSTALL.zip
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ import os
 from pathlib import Path
 import zipfile
 
-VERSION = "1.0.2-test"
+VERSION = "1.0.0"
 ROOT = "MiusMultiplayer"
 PROVEN = Path("development/unified-fps-kit-source")
 KIT = Path("development/net-v21-kit")
