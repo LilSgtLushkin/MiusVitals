@@ -121,7 +121,7 @@ static u32 g_peer_result;
 static DWORD g_end_at, g_end_last_tx, g_peer_over_at, g_end_key_was;
 // The host is starting the battle again with both forces: the joining game must not take the silence that
 // follows for the host leaving.
-static bool g_restart_coming;
+static bool g_restart_coming, g_restart_say;
 static DWORD g_restart_until;
 
 // M4: the two players' forces (see the "two players' forces" section below).
@@ -135,6 +135,8 @@ static std::vector<unsigned char> g_desc_in, g_desc_have;
 static std::vector<DWORD> g_desc_asked;
 static u32 g_desc_hash, g_desc_got;
 static DWORD g_desc_last_ask, g_desc_since;
+static int g_desc_tries;
+static bool g_desc_dead;
 typedef u64 (*StartAction)(Object *, u64, u64, u64);
 typedef void (*InputAction)(Object *, u64, const char *);
 typedef void (*BoxResult)(Object *, int, u64, u64);
@@ -406,6 +408,40 @@ static bool read_file(const char *path, std::vector<unsigned char> &out)
     return got == out.size() && n > 0;
 }
 
+// A description that a two-player battle was started from carries the other player's force as well. The next
+// battle must start from this player's own - otherwise the previous opponent's squads would be fought again -
+// so what went in last time is remembered beside the file, and the copy taken before it is put back when the
+// file has not been set up again since. (A new Skirmish setup by the player changes the file, and then the
+// remembered hash no longer matches: nothing is restored.)
+static void force_restore_leftover(char *path)
+{
+    char v[16];
+    // The battle that was just started again on purpose carries both forces: it is no leftover.
+    if (GetEnvironmentVariableA("MP_FORCE_APPLIED", v, sizeof v) && atoi(v)) return;
+    char sidecar[MAX_PATH], backup[MAX_PATH];
+    sprintf_s(sidecar, "%s.mp_combined", path);
+    sprintf_s(backup, "%s.before_mp", path);
+    FILE *f = 0;
+    if (fopen_s(&f, sidecar, "rb") || !f) return;
+    unsigned was = 0;
+    size_t got = fread(&was, 1, sizeof was, f);
+    fclose(f);
+    std::vector<unsigned char> now;
+    if (got != sizeof was || !read_file(path, now)) return;
+    if (fnv(now.data(), now.size()) != was) {
+        // the player has set a battle up since: the remembered pair is stale
+        DeleteFileA(sidecar);
+        DeleteFileA(backup);
+        return;
+    }
+    if (!CopyFileA(backup, path, FALSE)) {
+        mp_log("lobby: the description still carries the last battle's other force and %s cannot be put back", backup);
+        return;
+    }
+    DeleteFileA(sidecar);
+    mp_log("lobby: the battle description still carried the last two-player battle's other force - the previous one is back");
+}
+
 static void load_battle_description(void)
 {
     // the description this battle was started from: second item on the command line
@@ -419,6 +455,7 @@ static void load_battle_description(void)
     }
     sprintf_s(path, "%s\\%s", g_root, rel);
     strcpy_s(g_image_file, path);
+    force_restore_leftover(path);
     if (!read_file(path, g_image)) { mp_log("net: cannot read the battle description %s", path); return; }
     g_image_hash = fnv(g_image.data(), g_image.size());
     // The host serves its description as it is; a joining game mirrors the copy it was given, so the hash of
@@ -1807,6 +1844,7 @@ static void end_send(DWORD now, unsigned char extra)
     if (!extra && g_end_last_tx && now - g_end_last_tx < 500) return;
     g_end_last_tx = now;
     EndState e = { make_head(PKT_END) };
+    if (g_restart_say) extra |= 4;                      // "this host is starting the battle again"
     e.h.flags = (unsigned char)((g_end_proposed ? 1 : 0) | (g_end_left ? 2 : 0) | extra);
     e.sim_ms = (unsigned)g_sim_ms;
     e.result = 0;
@@ -1994,6 +2032,12 @@ static bool force_apply(ObjMan *)
     fclose(f);
     g_image.swap(combined);
     g_image_hash = fnv(g_image.data(), g_image.size());
+    {
+        char sidecar[MAX_PATH];
+        sprintf_s(sidecar, "%s.mp_combined", g_image_file);
+        FILE *m = 0;
+        if (!fopen_s(&m, sidecar, "wb") && m) { fwrite(&g_image_hash, 1, sizeof g_image_hash, m); fclose(m); }
+    }
     g_source_hash = g_image_hash;
     g_force_applied = true;
     mp_log("lobby: the other player's own force is put into the battle: %u squads and %u units of his come in, "
@@ -2007,7 +2051,9 @@ static bool force_apply(ObjMan *)
 static void force_restart(void)
 {
     SetEnvironmentVariableA("MP_FORCE_APPLIED", "1");
+    g_restart_say = true;
     for (int i = 0; i < 3; i++) {
+        g_end_last_tx = 0;
         end_send(GetTickCount(), 4);
         Sleep(15);
     }
@@ -2028,8 +2074,11 @@ static void force_restart(void)
 
 // The joining game: the host's description has changed (it carries both forces now). Download it, mirror it
 // - this player commands the other side - and start the battle again from it.
+static void desc_give_up(const char *why);
+
 static void desc_begin(u32 size, u32 hash, DWORD now)
 {
+    if (++g_desc_tries > 6) { desc_give_up("it was tried six times"); return; }
     g_desc_in.assign(size, 0);
     g_desc_have.assign((size + k_chunk - 1) / k_chunk, 0);
     g_desc_asked.assign(g_desc_have.size(), 0);
@@ -2038,6 +2087,22 @@ static void desc_begin(u32 size, u32 hash, DWORD now)
     g_desc_last_ask = 0;
     g_desc_since = now;
     mp_log("lobby: the host's battle has changed (%u bytes, hash %08x) - fetching it, it carries both forces", size, hash);
+}
+
+// The battle the host has started with cannot be taken: this game keeps its own. It says so plainly, stops
+// asking, and lets the session go on - the battle it plays is its own, which is what it played before M4.
+static void desc_give_up(const char *why)
+{
+    if (g_desc_dead) return;
+    g_desc_dead = true;
+    g_desc_in.clear();
+    g_desc_have.clear();
+    g_desc_asked.clear();
+    g_desc_got = 0;
+    g_desc_last_ask = 0;
+    SetEnvironmentVariableA("MP_FORCE_APPLIED", 0);
+    mp_log("lobby: the host's battle cannot be taken over (%s) - this game keeps the battle it started with", why);
+    netlog_mark("the host's battle was not taken over");
 }
 
 static void desc_ask(DWORD now)
@@ -2064,18 +2129,22 @@ static void desc_write_in(ImageData *d, int size)
     g_desc_have[d->index] = 1;
     if (++g_desc_got != g_desc_have.size()) return;
     if (fnv(g_desc_in.data(), g_desc_in.size()) != g_desc_hash) {
-        mp_log("lobby: the battle arrived damaged, fetching it again");
-        desc_begin((u32)g_desc_in.size(), g_desc_hash, GetTickCount());
+        if (g_desc_tries < 6) {
+            mp_log("lobby: the battle arrived damaged, fetching it again");
+            desc_begin((u32)g_desc_in.size(), g_desc_hash, GetTickCount());
+        } else {
+            desc_give_up("it arrived damaged every time");
+        }
         return;
     }
     std::vector<unsigned char> out = g_desc_in;
     if (g_versus && !image::mirror(out)) {
-        mp_log("lobby: the host's battle could not be prepared for this side - playing it as it is");
+        desc_give_up("it could not be prepared for this side");
         return;
     }
     FILE *f = 0;
     if (fopen_s(&f, g_image_file, "wb") || !f) {
-        mp_log("lobby: cannot write the battle to %s - playing it as it is", g_image_file);
+        desc_give_up("it cannot be written");
         return;
     }
     fwrite(out.data(), 1, out.size(), f);
@@ -2291,8 +2360,12 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
             // The two games must be playing the same battle.  The description is each game's own file, so
             // it is worth saying out loud when they differ - that is the one thing that makes every later
             // difference unexplainable.
-            if (g_tactical && g_role == ROLE_JOIN && w->image_size && w->image_hash && w->image_hash != g_source_hash &&
-                !g_force_applied && g_host_mode != HOST_MODE_OPERATION && g_desc_have.empty() && w->image_size <= (16u << 20))
+            // Only when the host has said it is starting the battle again: then its description carries both
+            // forces and this game has to take it over. Without the exchange (an operation, MP_FORCE_EXCHANGE=0,
+            // a force that could not be put in) nothing restarts, and each game keeps the battle it started with.
+            if (g_tactical && g_role == ROLE_JOIN && g_restart_coming && w->image_size && w->image_hash &&
+                w->image_hash != g_source_hash && !g_force_applied && !g_desc_dead && g_desc_have.empty() &&
+                g_host_mode != HOST_MODE_OPERATION && w->image_size <= (16u << 20))
                 desc_begin(w->image_size, w->image_hash, now);     // it carries both forces: take it
             if (g_tactical && !g_image.empty() && w->image_size &&
                 (w->image_size != g_image.size() || w->image_hash != g_source_hash))

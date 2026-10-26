@@ -221,6 +221,38 @@ static void test_insert()
     expect(image::sides(mine, &side, &enemy) && side == k_ger && enemy == k_ussr, "the sides did not change");
 }
 
+// The second battle: the description still carries the last opponent's force on the other side. A new force
+// must replace it, not add to it - and must never touch this player's own side.
+static void test_second_battle()
+{
+    std::vector<byte> mine = description(k_ger, k_ussr, { { 0x100, k_ger, k_user } }, { { 0x100, true, "pz3" } });
+    std::vector<byte> first = description(k_ussr, k_ger, { { 0x300, k_ussr, k_user } }, { { 0x300, true, "kv1" } });
+    std::vector<byte> second = description(k_ussr, k_ger, { { 0x500, k_ussr, k_user } }, { { 0x500, true, "t70" } });
+    expect(force::insert(mine, first).ok, "the first battle takes a force");
+    std::vector<byte> was = mine;
+    force::Result r = force::insert(mine, second);
+    expect(r.ok, "the next battle takes the next force");
+    expect_eq(r.added_squads, 1, "of one squad");
+    force::Table s = force::table(mine, "squads"), u = force::table(mine, "units");
+    expect_eq(s.rows, 2, "the squads table is not doubled");
+    expect_eq(u.rows, 2, "nor is the units table");
+    // the last opponent's squad is gone, the new one is there, this player's is untouched
+    bool old = false, fresh = false, own = false;
+    for (unsigned row = 0; row < s.rows; row++) {
+        unsigned id = force::squad_id(mine, s, row);
+        old |= id == 0x300;
+        fresh |= id == 0x500;
+        own |= id == 0x100;
+    }
+    expect(!old, "the previous opponent's squad is not still there");
+    expect(fresh, "the new opponent's squad is there");
+    expect(own, "this player's squad is there");
+    force::Counts c = force::user_force(mine);
+    expect_eq(c.squads, 1, "and this player still commands one squad");
+    expect_eq(c.units, 1, "of one unit");
+    expect(!force::is_description(was) || force::is_description(mine), "the battle is still readable");
+}
+
 static void test_refusals()
 {
     std::vector<byte> mine = description(k_ger, k_ussr, { { 0x100, k_ger, k_user } }, { { 0x100, true, "pz3" } });
@@ -286,6 +318,7 @@ static void test_copy_is_exact(const char *path)
 int main()
 {
     test_insert();
+    test_second_battle();
     test_refusals();
     test_copy_is_exact("development/unified-kit-source/files/root/programs/tacgame.progpack");
     test_copy_is_exact("development/unified-kit-source/files/root/programs/opgame.progpack");
