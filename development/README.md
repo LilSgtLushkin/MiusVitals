@@ -34,3 +34,29 @@ python3 scripts/check_artifacts.py     # одинаковые бинарники
 ## Separate ordered-operation source candidate
 
 `merged-source/patches/0002-ordered-operation-turns-and-network-hygiene.patch` — отдельный C++ overlay, не включённый ни в один player archive. Он serializes operational turns `host → client → host resolution`, передаёт authoritative host snapshot перед client input, оставляет client attack в merged orders и coalesces tactical receive bursts во всех battle modes. Подготовка/проверка candidate описана в [`merged-source/README.md`](merged-source/README.md); до rebuild matching codelib + `mp_join.exe` и live two-peer tests это не installable runtime.
+
+## Восстановление исходника v20 (`v20-recovery/`)
+
+Каталог отвечает на вопрос «что именно делает v20 и что из этого надо написать», а не
+«где лежит готовый исходник». Он воспроизводим с нуля: `fetch_inputs.sh` забирает из публичного
+репозитория v20-бинарник, v12-бинарник и MSVC `.obj` (в них — настоящие C++-имена), остальное
+считается скриптами.
+
+```sh
+development/v20-recovery/fetch_inputs.sh
+python3 development/v20-recovery/tools/v20tool.py objects && ... names && ... classify
+python3 development/v20-recovery/tools/backlog.py     # дельта по этапам -> reports/v20-backlog.md
+```
+
+- `tools/` — разбор PE, сопоставление v12↔v20, декомпиляция, чистка дампа, отбор;
+- `reports/v20-functions.csv` — все 895 функций v20: RVA, размер, статус (SAME/CHANGED/NEW), имя;
+- `reports/v20-backlog.md` — 323 работы, разложенные по этапам M2–M8;
+- `reports/decomp/` — 155 файлов псевдо-C: те функции, которые предстоит писать (индекс — `README.md` внутри);
+- `docs/V20_STEAM_LAYER.md`, `docs/V20_NETWORK_LAYER.md` — спецификации слоёв, которые нельзя потерять;
+- `work/` — бинарники и полный дамп: **не коммитится**, воспроизводится скриптами.
+
+Смысл в цифрах: 572 из 895 функций v20 структурно совпадают с публичным деревом (их исходник уже
+есть), 105 отличаются правками, 218 новые, из которых 143 — логика, 39 — вывод компилятора
+(STL-инстанцирования и инициализаторы вернутся сами), 36 — пока безымянные. План и критерии
+приёмки — [`docs/V20_SOURCE_RECOVERY.md`](../docs/V20_SOURCE_RECOVERY.md),
+Steam-слой отдельно — [`docs/V20_STEAM_LAYER.md`](../docs/V20_STEAM_LAYER.md).

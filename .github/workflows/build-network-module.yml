@@ -1,0 +1,198 @@
+name: Build network module
+
+# M1 and M2 from docs/V20_SOURCE_RECOVERY.md, done the only way that can be trusted: build the tree
+# with the author's own compiler settings on Windows, then measure the result against the two
+# modules that exist - v12 (published source build) and v20 (what players run).
+#
+#   baseline  the published sources, untouched  -> should reproduce v12 function for function
+#   module    the same sources plus our Steam layer -> compared against v20 with focus on Steam
+#   selftest  the Steam layer alone, on a machine with no Steam at all
+#
+# A red comparison is information, not a failure: the job prints the numbers and the tables.
+
+on:
+  push:
+    paths:
+      - "development/net-v21/**"
+      - "development/net-v21-kit/**"
+      - "scripts/package_net_v21_test.py"
+      - ".github/workflows/build-network-module.yml"
+  pull_request:
+    paths:
+      - "development/net-v21/**"
+      - "development/net-v21-kit/**"
+      - "scripts/package_net_v21_test.py"
+      - ".github/workflows/build-network-module.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write    # the test installer is committed back into the branch, see the last steps
+  pull-requests: write
+
+# A new push makes the previous run's installer stale, and two runs committing the same file would
+# race each other; the newest run wins.
+concurrency:
+  group: network-module-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-compare:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install the disassembler the comparison needs
+        run: python -m pip install --quiet capstone
+
+      - name: Fetch the two reference modules (pinned, SHA-256 checked)
+        run: python development/net-v21/tools/fetch_references.py
+
+      - name: M1 - build the published sources exactly as published
+        shell: cmd
+        run: |
+          if not exist development\net-v21\build mkdir development\net-v21\build
+          call development\net-v21\build.bat baseline > development\net-v21\build\baseline.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\baseline.log
+          exit /b %rc%
+
+      - name: M2 - build the same tree plus the Steam layer
+        shell: cmd
+        run: |
+          call development\net-v21\build.bat module > development\net-v21\build\module.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\module.log
+          exit /b %rc%
+
+      - name: M2 - build and run the Steam self-test (no Steam, no game needed)
+        shell: cmd
+        run: |
+          call development\net-v21\build.bat selftest > development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\steam_selftest.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\netlog_selftest.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          exit /b %rc%
+
+      - name: M1 - compare our baseline against the released v12 module
+        shell: bash
+        run: |
+          python development/net-v21/tools/compare.py \
+            --candidate development/net-v21/build/baseline/basic_network.codelib \
+            --candidate-map development/net-v21/build/baseline/basic_network.map \
+            --reference development/net-v21/references/v12.codelib \
+            --reference-kind v12 --label "M1 baseline vs v12" \
+            --out development/net-v21/build/compare-m1.md \
+            --json development/net-v21/build/compare-m1.json \
+            2>&1 | tee development/net-v21/build/compare-m1.log
+          exit ${PIPESTATUS[0]}
+
+      - name: M2 - compare our module against the v20 module players run
+        shell: bash
+        run: |
+          python development/net-v21/tools/compare.py \
+            --candidate development/net-v21/build/module/basic_network.codelib \
+            --candidate-map development/net-v21/build/module/basic_network.map \
+            --reference development/net-v21/references/v20.codelib \
+            --reference-kind v20 --label "M2 module vs v20" \
+            --focus steam,gtmf,presence,upnp,find_local \
+            --out development/net-v21/build/compare-m2.md \
+            --json development/net-v21/build/compare-m2.json \
+            2>&1 | tee development/net-v21/build/compare-m2.log
+          exit ${PIPESTATUS[0]}
+
+      - name: Package the test installer (proven v1.0.1 + our module beside it)
+        shell: bash
+        run: |
+          python scripts/package_net_v21_test.py \
+            --codelib development/net-v21/build/module/basic_network.codelib \
+            --output MiusMultiplayer_v1.0.2_TEST_INSTALL.zip \
+            2>&1 | tee development/net-v21/build/package.log
+          exit ${PIPESTATUS[0]}
+
+      - name: Publish the test installer into the branch
+        if: always() && github.event_name == 'push'
+        shell: bash
+        run: |
+          # The archive has to be reachable without the Actions API (artifact downloads are blocked
+          # where this build is checked), so it is committed into the branch it was built from and
+          # travels to main with the pull request.
+          archive=MiusMultiplayer_v1.0.2_TEST_INSTALL.zip
+          if [ ! -f "$archive" ]; then echo "no archive was built; nothing to publish"; exit 0; fi
+          git config user.name "net-v21 build"
+          git config user.email "net-v21-build@users.noreply.github.com"
+          git add "$archive"
+          # The archive is deterministic: the same module produces the same bytes, so an
+          # unchanged source tree does not add a commit every run.
+          if git diff --cached --quiet; then echo "the archive has not changed"; exit 0; fi
+          git commit -m "build: refresh the net_v21 test installer [skip ci]"
+          git push
+
+      - name: Put the numbers in the job summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## M1: our build of the published sources vs the released v12 module'
+            cat development/net-v21/build/compare-m1.md 2>/dev/null || echo 'no comparison: the build did not produce a module'
+            echo
+            echo '## M2: our module (published sources + Steam layer) vs the v20 module'
+            cat development/net-v21/build/compare-m2.md 2>/dev/null || echo 'no comparison: the build did not produce a module'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # The job log is not reachable from outside this cluster (the log endpoint is blocked), so the
+      # compiler output is mirrored into a pull-request comment while the build is being brought up.
+      - name: Mirror the compiler output into the pull request
+        if: always() && github.event_name == 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          body=/tmp/build-comment.md
+          {
+            echo "### network module build (${{ github.sha }})"
+            for report in compare-m1 compare-m2; do
+              echo
+              echo "#### $report"
+              cat "development/net-v21/build/$report.md" 2>/dev/null || echo "no $report report"
+            done
+            echo
+            if [ -f MiusMultiplayer_v1.0.2_TEST_INSTALL.zip ]; then
+              echo "test installer: MiusMultiplayer_v1.0.2_TEST_INSTALL.zip, sha256 $(sha256sum MiusMultiplayer_v1.0.2_TEST_INSTALL.zip | cut -d' ' -f1)"
+            else
+              echo "test installer: not built"
+            fi
+            for name in baseline module selftest package compare-m1 compare-m2; do
+              log="development/net-v21/build/$name.log"
+              echo
+              echo "<details><summary>$name log</summary>"
+              echo
+              echo '```'
+              if [ -f "$log" ]; then tail -c 6000 "$log"; else echo "$name: no log produced"; fi
+              echo '```'
+              echo
+              echo '</details>'
+            done
+          } > "$body"
+          gh pr comment "${{ github.event.number }}" --body-file "$body"
+
+      - name: Upload the build, the logs and both comparisons
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: network-module
+          path: |
+            development/net-v21/build/**
+            MiusMultiplayer_v1.0.2_TEST_INSTALL.zip
+          if-no-files-found: warn
+          retention-days: 14

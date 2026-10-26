@@ -1,0 +1,55 @@
+name: Verify v20 recovery tools
+
+# The recovery tools parse a PE file with hand-rolled struct.unpack offsets and are the only source
+# of the numbers in docs/V20_SOURCE_RECOVERY.md.  They are cheap to check and expensive to get
+# wrong, so every change to them is compiled and exercised on the smallest input that needs no
+# network: the classification report must regenerate from the committed CSV, and the backlog must
+# stay in sync with it.
+
+on:
+  pull_request:
+    paths:
+      - "development/v20-recovery/**"
+      - "docs/V20_SOURCE_RECOVERY.md"
+      - "docs/V20_STEAM_LAYER.md"
+  workflow_dispatch:
+
+jobs:
+  tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Compile every tool (no third-party imports needed for this check)
+        run: python -m py_compile development/v20-recovery/tools/*.py
+
+      - name: Regenerate the backlog and fail if the committed copy differs
+        run: |
+          python development/v20-recovery/tools/backlog.py --out /tmp/v20-backlog.md
+          diff -u development/v20-recovery/reports/v20-backlog.md /tmp/v20-backlog.md
+
+      - name: The committed reports agree with each other
+        run: |
+          python - <<'PY'
+          import csv, pathlib, re
+          root = pathlib.Path("development/v20-recovery/reports")
+          rows = list(csv.DictReader((root / "v20-functions.csv").open(newline="")))
+          assert rows, "v20-functions.csv is empty"
+          assert len(rows) == 895, f"expected 895 functions, found {len(rows)}"
+          status = {r["status"] for r in rows}
+          assert status == {"SAME", "CHANGED", "NEW"}, status
+          total = sum(int(r["size"]) for r in rows)
+          assert total == 263242, total
+          text = (root / "v20-status.md").read_text()
+          for name, count in (("SAME", 572), ("CHANGED", 105), ("NEW", 218)):
+              assert re.search(rf"\| {name} \| {count} \|", text), (name, count)
+          index = (root / "decomp" / "README.md").read_text()
+          files = {p.name for p in (root / "decomp").glob("*.c")}
+          linked = set(re.findall(r"\]\((\d{6}_[^)]+\.c)\)", index))
+          assert linked <= files, sorted(linked - files)[:5]
+          print(f"OK {len(rows)} functions, {total} bytes, {len(files)} curated dumps")
+          PY

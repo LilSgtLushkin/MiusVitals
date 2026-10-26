@@ -1,0 +1,9 @@
+# Tools for recovering the v20 source from the shipped binary.
+#   capstone  - disassembly for the canonical comparison
+#   angr      - decompiler (pseudo-C) for the functions that have no public source
+# angr 9.2.213+ currently breaks on its own pycparser/bitstring pins; these are the versions
+# that were verified to import and decompile the v20 module.
+capstone==5.0.6
+angr==9.2.117
+pycparser<3
+bitstring==4.2.3

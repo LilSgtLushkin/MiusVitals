@@ -95,7 +95,8 @@ ARCHIVES: dict[str, str] = {
 
 BINARY_SUFFIXES = {".codelib", ".dll", ".exe", ".progpack"}
 # Local build output, ignored by Git and by verify_workspace.py as well.
-SKIP_PARTS = {"build", "Multiplayer_DropIn", "__pycache__", "state", "out", "candidates"}
+# "work" holds scratch downloaded by tools (development/v20-recovery/work/): not shipped.
+SKIP_PARTS = {"build", "Multiplayer_DropIn", "__pycache__", "state", "out", "candidates", "work"}
 
 
 def sha256(path: Path) -> str:

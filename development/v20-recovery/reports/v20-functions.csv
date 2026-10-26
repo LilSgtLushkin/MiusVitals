@@ -1,0 +1,896 @@
+rva,size,status,v12_name,similarity,strings
+001000,51,CHANGED,??__Eg_my_units@@YAXXZ,0.9,
+001064,51,CHANGED,??__Eg_my_units@@YAXXZ,0.9,
+0010d4,32,SAME,??__Eg_map_sidecar@@YAXXZ,1.0,
+0010f4,51,CHANGED,??__Eg_my_units@@YAXXZ,0.9,
+001134,51,CHANGED,??__Eg_my_units@@YAXXZ,0.9,
+001168,51,CHANGED,??__Eg_my_units@@YAXXZ,0.9,
+0011a8,51,CHANGED,??__Eg_my_units@@YAXXZ,0.9,
+0011dc,51,CHANGED,??__Eg_my_units@@YAXXZ,0.9,
+001210,32,SAME,??__Eg_map_sidecar@@YAXXZ,1.0,
+00123c,51,CHANGED,??__Eg_my_units@@YAXXZ,0.9,
+001270,51,CHANGED,??__Eg_my_units@@YAXXZ,0.9,
+0012a4,51,CHANGED,??__Eg_my_units@@YAXXZ,0.9,
+0012d8,51,CHANGED,??__Eg_my_units@@YAXXZ,0.9,
+001318,55,SAME,??__Eg_out@@YAXXZ,1.0,
+00138c,51,CHANGED,??__Eg_my_units@@YAXXZ,0.9,
+0013c0,51,CHANGED,??__Eg_my_units@@YAXXZ,0.9,
+001418,51,CHANGED,??__Eg_my_units@@YAXXZ,0.9,
+00144c,51,CHANGED,??__Eg_my_units@@YAXXZ,0.9,
+0014a4,51,CHANGED,??__Eg_my_units@@YAXXZ,0.9,
+0014e4,51,CHANGED,??__Eg_my_units@@YAXXZ,0.9,
+001518,51,CHANGED,??__Eg_my_units@@YAXXZ,0.9,
+00154c,51,CHANGED,??__Eg_my_units@@YAXXZ,0.9,
+0015b0,216,SAME,?net_dtor@@YAPEAXPEAUNetwork@@_K@Z,1.0,"destroy '%s' flags=%llu, ticks=%llu generates=%llu ctrl_ticks=%llu rand=%lld |   unhandled command '%s' received %llu times"
+001698,471,SAME,?net_dispatch@@YAXPEAUNetwork@@PEAUMsg@@@Z,1.0,<no msg> | gamemode | actmode | %s at frame %llu sim %llu ms
+001870,26,SAME,?net_extra@@YA_KPEAX@Z,1.0,unexpected extra virtual call on %p
+00188c,57,SAME,?fac_create@@YAPEAXPEAUFactory@@PEBDPEAUCreateCtx@@@Z,1.0,i_network
+0018ec,88,SAME,??$sprintf_s@$0BAE@@@YAHAEAY0BAE@DPEBDZZ,1.0,
+001944,88,SAME,??$sprintf_s@$0EA@@@YAHAEAY0EA@DPEBDZZ,1.0,
+00199c,88,SAME,??$sprintf_s@$0EAA@@@YAHAEAY0EAA@DPEBDZZ,1.0,
+0019f4,158,SAME,?add_cmd@@YAXPEAUNetwork@@PEBDP6AXPEAUObject@@PEAX@Z@Z,1.0,
+001a94,83,SAME,?engine_hash@@YAIPEAPEBDI@Z,1.0,
+001ae8,200,SAME,?engine_lookup@@YAP6AXPEAUObject@@PEAX@Z0PEBD@Z,1.0,
+001bb0,100,SAME,?find_main_window@@YAHPEAUHWND__@@_J@Z,1.0,
+001c14,150,SAME,?focus_wndproc@@YA_JPEAUHWND__@@I_K_J@Z,1.0,
+001cac,950,SAME,,1.0,MP_BG_FPS | MP_FG_FPS | Local\gtmf_mp_frame_pacing
+002064,39,SAME,?hook_GetAsyncKeyState@@YAFH@Z,1.0,
+00208c,39,SAME,?hook_GetAsyncKeyState@@YAFH@Z,1.0,
+0020b4,68,SAME,?hook_GetKeyboardState@@YAHPEAE@Z,1.0,
+0020f8,124,SAME,?hook_GetRawInputData@@YAIPEAUHRAWINPUT__@@IPEAXPEAII@Z,1.0,
+002174,164,SAME,?hook_rand@@YAHXZ,1.0,
+002218,103,SAME,?hook_srand@@YAXI@Z,1.0,srand(%u) from %s
+002280,328,SAME,?isolate_input@@YAXXZ,0.956,user32.dll | GetRawInputData | GetAsyncKeyState | GetKeyState
+0023c8,391,SAME,?keep_running_unfocused@@YAXPEAUObjMan@@@Z,0.982,i_loader | loader | i_window | window
+002550,288,SAME,?log_hex@@YAXPEBDPEBX_K@Z,1.0,%s: %p <unreadable> | %02x%s | %s +0x%02zx: %s
+002670,317,SAME,?log_open@@YAXPEAUHINSTANCE__@@@Z,1.0,root\programs\ | opgame | %s\basic_network_%s_%lu.log
+0027b0,41,CHANGED,?main_window@@YAPEAUHWND__@@XZ,0.875,
+0027dc,253,SAME,?mp_log@@YAXPEBDZZ,1.0,%02u:%02u:%02u.%03u [t%05lu] 
+0028dc,662,SAME,?network_create@@YAPEAUObject@@PEAUCreateCtx@@@Z,0.967,i_network:%.31s | i_network | community | generate
+002b74,1054,SAME,?on_ctrl_tick@@YAXPEAUObject@@PEAX@Z,1.0,first ctrl_tick at frame %llu (msg=%p) | opgame | %s\mp_trace_%s_%lu.txt | MP_DUMP
+002f94,205,CHANGED,?on_generate@@YAXPEAUObject@@PEAX@Z,0.804,first generate (msg=%p) | tacgame | opgame | i_timer
+003064,51,SAME,?on_render@@YAXPEAUObject@@PEAX@Z,1.0,render pipeline reached the network object
+003098,347,SAME,?on_sync@@YAXPEAUObject@@PEAX@Z,0.981,sync: objman=%p | ucrtbase.dll | srand | random probe: %s rand x%d srand x%d
+0031f4,659,SAME,?on_tick@@YAXPEAUObject@@PEAX@Z,0.995,first tick (msg=%p) | MP_PROFILE | i_ctrltimer | ctrltimer
+003488,176,SAME,?patch_imports@@YAHPEAUHINSTANCE__@@PEAX1@Z,1.0,
+003538,233,SAME,?place_window_from_env@@YAXXZ,0.986,"MP_WINDOW | %d,%d,%d,%d | window placed at %d,%d %dx%d"
+003624,474,SAME,?profile_thread@@YAKPEAX@Z,1.0,profile: rip=%s stack:
+003800,98,SAME,?readable@@YA_NPEBX_K@Z,1.0,
+003864,178,SAME,?safe_str@@YAPEBDPEBXPEAD_K@Z,1.0,<bad ptr> | <not text>
+003918,1002,SAME,?survey@@YAXPEAUObjMan@@@Z,1.0,opgame | %s\mp_objects_%s.txt | i_window |   deps:
+003d04,209,SAME,?where@@YAPEBDPEBXPEAD_K@Z,1.0,%s+0x%llx
+003dd8,220,SAME,DllMain,1.0,"opgame | basic_network.codelib loaded, program '%s', pid %lu | command line: %s | MP_LOCKSTEP"
+003ecc,68,SAME,fprintf,1.0,
+003f10,86,SAME,sprintf_s,1.0,
+003f68,82,SAME,sscanf_s,1.0,
+003fbc,129,NEW,??$?0AEBUpiecewise_construct_t@std@@V?$tuple@AEBI@1@V?$tuple@$$V@1@@?$_Tree_temp_node@V?$allocator@U?$_Tree_node@U?$pair@$$CBIH@std@@PEAX@std@@@std@@@std@@QEAA@AEAV?$allocator@U?$_Tree_node@U?$pair@$$CBIH@std@@PEAX@std@@@1@PEAU?$_Tree_node@U?$pair@$$CBIH@std@@PEAX@1@AEBUpiecewise_construct_t@1@$$QEAV?$tuple@AEBI@1@$$QEAV?$tuple@$$V@1@@Z,0.496,
+004040,131,SAME,??$?0AEBUpiecewise_construct_t@std@@V?$tuple@AEBI@1@V?$tuple@$$V@1@@?$_Tree_temp_node@V?$allocator@U?$_Tree_node@U?$pair@$$CBIH@std@@PEAX@std@@@std@@@std@@QEAA@AEAV?$allocator@U?$_Tree_node@U?$pair@$$CBIH@std@@PEAX@std@@@1@PEAU?$_Tree_node@U?$pair@$$CBIH@std@@PEAX@1@AEBUpiecewise_construct_t@1@$$QEAV?$tuple@AEBI@1@$$QEAV?$tuple@$$V@1@@Z,1.0,
+0040c4,211,SAME,??$?0AEBUpiecewise_construct_t@std@@V?$tuple@$$QEAU?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@@1@V?$tuple@$$V@1@@?$_Tree_temp_node@V?$allocator@U?$_Tree_node@U?$pair@$$CBU?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@_K@std@@PEAX@std@@@std@@@std@@QEAA@AEAV?$allocator@U?$_Tree_node@U?$pair@$$CBU?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@_K@std@@PEAX@std@@@1@PEAU?$_Tree_node@U?$pair@$$CBU?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@_K@std@@PEAX@1@AEBUpiecewise_construct_t@1@$$QEAV?$tuple@$$QEAU?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@@1@$$QEAV?$tuple@$$V@1@@Z,1.0,
+004198,199,SAME,??$?0AEBUpiecewise_construct_t@std@@V?$tuple@$$QEAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@1@V?$tuple@$$V@1@@?$_Tree_temp_node@V?$allocator@U?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@I@std@@PEAX@std@@@std@@@std@@QEAA@AEAV?$allocator@U?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@I@std@@PEAX@std@@@1@PEAU?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@I@std@@PEAX@1@AEBUpiecewise_construct_t@1@$$QEAV?$tuple@$$QEAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@1@$$QEAV?$tuple@$$V@1@@Z,1.0,
+004260,227,SAME,??$?0AEBUpiecewise_construct_t@std@@V?$tuple@$$QEAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@1@V?$tuple@$$V@1@@?$_Tree_temp_node@V?$allocator@U?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UFields@opsave@@@std@@PEAX@std@@@std@@@std@@QEAA@AEAV?$allocator@U?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UFields@opsave@@@std@@PEAX@std@@@1@PEAU?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UFields@opsave@@@std@@PEAX@1@AEBUpiecewise_construct_t@1@$$QEAV?$tuple@$$QEAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@1@$$QEAV?$tuple@$$V@1@@Z,1.0,
+004344,113,SAME,??$?0AEBUpiecewise_construct_t@std@@V?$tuple@$$QEA_K@1@V?$tuple@$$V@1@@?$_List_node_emplace_op2@V?$allocator@U?$_List_node@U?$pair@$$CB_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@std@@PEAX@std@@@std@@@std@@QEAA@AEAV?$allocator@U?$_List_node@U?$pair@$$CB_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@std@@PEAX@std@@@1@AEBUpiecewise_construct_t@1@$$QEAV?$tuple@$$QEA_K@1@$$QEAV?$tuple@$$V@1@@Z,1.0,
+0043b8,193,SAME,??$?0AEBUpiecewise_construct_t@std@@V?$tuple@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@1@V?$tuple@$$V@1@@?$_Tree_temp_node@V?$allocator@U?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@PEAX@std@@@std@@@std@@QEAA@AEAV?$allocator@U?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@PEAX@std@@@1@PEAU?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@PEAX@1@AEBUpiecewise_construct_t@1@$$QEAV?$tuple@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@1@$$QEAV?$tuple@$$V@1@@Z,1.0,
+00447c,117,CHANGED,??$?0AEBUpiecewise_construct_t@std@@V?$tuple@$$QEA_K@1@V?$tuple@$$V@1@@?$_List_node_emplace_op2@V?$allocator@U?$_List_node@U?$pair@$$CB_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@std@@PEAX@std@@@std@@@std@@QEAA@AEAV?$allocator@U?$_List_node@U?$pair@$$CB_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@std@@PEAX@std@@@1@AEBUpiecewise_construct_t@1@$$QEAV?$tuple@$$QEA_K@1@$$QEAV?$tuple@$$V@1@@Z,0.562,
+0044f4,127,CHANGED,??0NodeRef@opsave@@QEAA@$$QEAU01@@Z,0.64,
+004574,138,SAME,??$?HDU?$char_traits@D@std@@V?$allocator@D@1@@std@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@0@$$QEAV10@AEBV10@@Z,1.0,
+004600,147,SAME,??$?HDU?$char_traits@D@std@@V?$allocator@D@1@@std@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@0@$$QEAV10@QEBD@Z,1.0,
+004694,124,NEW,?substr@?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@QEBA?AV12@_K0@Z,0.34,
+004710,141,SAME,??$?HDU?$char_traits@D@std@@V?$allocator@D@1@@std@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@0@AEBV10@QEBD@Z,1.0,
+0047a0,149,SAME,??$?HDU?$char_traits@D@std@@V?$allocator@D@1@@std@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@0@QEBDAEBV10@@Z,1.0,
+004838,101,SAME,??$?MDU?$char_traits@D@std@@V?$allocator@D@1@@std@@YA_NAEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@0@0@Z,1.0,
+0048a0,72,SAME,??$_Allocate_manually_vector_aligned@U_Default_allocate_traits@std@@@std@@YAPEAX_K@Z,1.0,
+0048e8,163,SAME,??$_Assign_counted_range@PEBE@?$vector@EV?$allocator@E@std@@@std@@AEAAXPEBE_K@Z,1.0,
+00498c,222,SAME,??$_Construct@$00PEBD@?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEAAXQEBD_K@Z,1.0,
+004a6c,197,SAME,??$_Construct@$01PEBD@?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEAAXQEBD_K@Z,1.0,
+004b34,158,SAME,??$_Construct_n@AEBD@?$vector@DV?$allocator@D@std@@@std@@AEAAX_KAEBD@Z,1.0,
+004bd4,166,SAME,??$_Construct_n@PEAEPEAE@?$vector@EV?$allocator@E@std@@@std@@AEAAX_K$$QEAPEAE1@Z,1.0,
+004c7c,48,SAME,??$_Copy_memmove@PEAEPEAE@std@@YAPEAEPEAE00@Z,1.0,
+004cac,45,SAME,??$_Copy_memmove_n@PEBEPEAE@std@@YAPEAEPEBE_KPEAE@Z,1.0,
+004cdc,249,CHANGED,??$_Try_emplace@AEBI$$V@?$map@IHU?$less@I@std@@V?$allocator@U?$pair@$$CBIH@std@@@2@@std@@AEAA?AU?$pair@PEAU?$_Tree_node@U?$pair@$$CBIH@std@@PEAX@std@@_N@1@AEBI@Z,0.609,
+004dd8,108,NEW,??__Fg_held@@YAXXZ,0.297,
+004e44,117,NEW,?ammo_check@@YAXPEAXPEAMPEAI@Z,0.416,
+004ebc,350,SAME,??$_Emplace_reallocate@AEBI@?$vector@IV?$allocator@I@std@@@std@@AEAAPEAIQEAIAEBI@Z,1.0,
+00501c,469,SAME,??$_Emplace_reallocate@AEBUNodeRef@opsave@@@?$vector@UNodeRef@opsave@@V?$allocator@UNodeRef@opsave@@@std@@@std@@AEAAPEAUNodeRef@opsave@@QEAU23@AEBU23@@Z,1.0,
+0051f4,538,CHANGED,??$_Emplace_reallocate@AEBUTagged@opsave@@@?$vector@UTagged@opsave@@V?$allocator@UTagged@opsave@@@std@@@std@@AEAAPEAUTagged@opsave@@QEAU23@AEBU23@@Z,0.895,
+005410,309,SAME,??$_Emplace_reallocate@E@?$vector@EV?$allocator@E@std@@@std@@AEAAPEAEQEAE$$QEAE@Z,1.0,
+005548,350,SAME,??$_Emplace_reallocate@U?$pair@HH@std@@@?$vector@U?$pair@HH@std@@V?$allocator@U?$pair@HH@std@@@2@@std@@AEAAPEAU?$pair@HH@1@QEAU21@$$QEAU21@@Z,1.0,
+0056a8,463,CHANGED,??$_Emplace_reallocate@AEBUSaveSlot@@@?$vector@USaveSlot@@V?$allocator@USaveSlot@@@std@@@std@@AEAAPEAUSaveSlot@@QEAU2@AEBU2@@Z,0.604,
+005878,696,NEW,??$_Emplace_reallocate@AEBUTagged@opsave@@@?$vector@UTagged@opsave@@V?$allocator@UTagged@opsave@@@std@@@std@@AEAAPEAUTagged@opsave@@QEAU23@AEBU23@@Z,0.329,
+005b30,418,CHANGED,??$_Emplace_reallocate@USent@@@?$vector@USent@@V?$allocator@USent@@@std@@@std@@AEAAPEAUSent@@QEAU2@$$QEAU2@@Z,0.913,
+005cd4,111,SAME,??$_Erase_head@V?$allocator@U?$_Tree_node@U?$pair@$$CBU?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@_K@std@@PEAX@std@@@std@@@?$_Tree_val@U?$_Tree_simple_types@U?$pair@$$CBU?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@_K@std@@@std@@@std@@QEAAXAEAV?$allocator@U?$_Tree_node@U?$pair@$$CBU?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@_K@std@@PEAX@std@@@1@@Z,1.0,
+005d44,84,SAME,??$_Erase_tree@V?$allocator@U?$_Tree_node@U?$pair@$$CBIH@std@@PEAX@std@@@std@@@?$_Tree_val@U?$_Tree_simple_types@U?$pair@$$CBIH@std@@@std@@@std@@QEAAXAEAV?$allocator@U?$_Tree_node@U?$pair@$$CBIH@std@@PEAX@std@@@1@PEAU?$_Tree_node@U?$pair@$$CBIH@std@@PEAX@1@@Z,0.958,
+005d98,84,SAME,??$_Erase_tree@V?$allocator@U?$_Tree_node@U?$pair@$$CBIH@std@@PEAX@std@@@std@@@?$_Tree_val@U?$_Tree_simple_types@U?$pair@$$CBIH@std@@@std@@@std@@QEAAXAEAV?$allocator@U?$_Tree_node@U?$pair@$$CBIH@std@@PEAX@std@@@1@PEAU?$_Tree_node@U?$pair@$$CBIH@std@@PEAX@1@@Z,1.0,
+005dec,100,SAME,??$_Erase_tree@V?$allocator@U?$_Tree_node@U?$pair@$$CBU?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@_K@std@@PEAX@std@@@std@@@?$_Tree_val@U?$_Tree_simple_types@U?$pair@$$CBU?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@_K@std@@@std@@@std@@QEAAXAEAV?$allocator@U?$_Tree_node@U?$pair@$$CBU?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@_K@std@@PEAX@std@@@1@PEAU?$_Tree_node@U?$pair@$$CBU?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@_K@std@@PEAX@1@@Z,1.0,
+005e50,111,SAME,??$_Erase_tree@V?$allocator@U?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@I@std@@PEAX@std@@@std@@@?$_Tree_val@U?$_Tree_simple_types@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@I@std@@@std@@@std@@QEAAXAEAV?$allocator@U?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@I@std@@PEAX@std@@@1@PEAU?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@I@std@@PEAX@1@@Z,1.0,
+005ec0,111,SAME,??$_Erase_tree@V?$allocator@U?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UFields@opsave@@@std@@PEAX@std@@@std@@@?$_Tree_val@U?$_Tree_simple_types@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UFields@opsave@@@std@@@std@@@std@@QEAAXAEAV?$allocator@U?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UFields@opsave@@@std@@PEAX@std@@@1@PEAU?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UFields@opsave@@@std@@PEAX@1@@Z,1.0,
+005f30,120,SAME,??$_Find@U?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@@?$_Tree@V?$_Tmap_traits@U?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@_KU?$less@U?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@@2@V?$allocator@U?$pair@$$CBU?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@_K@std@@@2@$0A@@std@@@std@@AEBAPEAU?$_Tree_node@U?$pair@$$CBU?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@_K@std@@PEAX@1@AEBU?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@1@@Z,1.0,
+005fa8,188,SAME,??$_Find_last@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@?$_Hash@V?$_Umap_traits@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@V?$_Uhash_compare@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@U?$hash@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@U?$equal_to@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@@2@V?$allocator@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@@2@$0A@@std@@@std@@IEBA?AU?$_Hash_find_last_result@PEAU?$_List_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@PEAX@std@@@1@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@1@_K@Z,1.0,
+006064,145,SAME,??$_Find_lower_bound@U?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@@?$_Tree@V?$_Tmap_traits@U?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@_KU?$less@U?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@@2@V?$allocator@U?$pair@$$CBU?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@_K@std@@@2@$0A@@std@@@std@@IEBA?AU?$_Tree_find_result@PEAU?$_Tree_node@U?$pair@$$CBU?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@_K@std@@PEAX@std@@@1@AEBU?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@1@@Z,1.0,
+0060f8,111,SAME,??$_Find_lower_bound@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@?$_Tree@V?$_Tmap_traits@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@HU?$less@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@V?$allocator@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@@2@$0A@@std@@@std@@IEBA?AU?$_Tree_find_result@PEAU?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@PEAX@std@@@1@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@1@@Z,1.0,
+0061fc,537,SAME,??$_Insert_counted_range@PEAE@?$vector@EV?$allocator@E@std@@@std@@AEAAXV?$_Vector_const_iterator@V?$_Vector_val@U?$_Simple_types@E@std@@@std@@@1@PEAE_K@Z,1.0,
+006418,38,SAME,??$_Is_all_bits_zero@K@std@@YA_NAEBK@Z,1.0,
+006448,288,SAME,??$_Reallocate_for@V<lambda_66f57f934f28d61049862f64df852ff0>@@PEBD@?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEAAAEAV01@_KV<lambda_66f57f934f28d61049862f64df852ff0>@@PEBD@Z,1.0,
+006568,339,CHANGED,??$_Reallocate_grow_by@V<lambda_65e615be2a453ca0576c979606f46740>@@PEBD_K@?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEAAAEAV01@_KV<lambda_65e615be2a453ca0576c979606f46740>@@PEBD_K@Z,0.635,
+0066bc,367,SAME,??$_Reallocate_grow_by@V<lambda_65e615be2a453ca0576c979606f46740>@@PEBD_K@?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEAAAEAV01@_KV<lambda_65e615be2a453ca0576c979606f46740>@@PEBD_K@Z,1.0,
+00682c,112,SAME,??$_Resize@U_Value_init_tag@std@@@?$vector@EV?$allocator@E@std@@@std@@AEAAX_KAEBU_Value_init_tag@1@@Z,1.0,
+00689c,272,SAME,??$_Resize_reallocate@U_Value_init_tag@std@@@?$vector@EV?$allocator@E@std@@@std@@AEAAX_KAEBU_Value_init_tag@1@@Z,1.0,
+0069ac,292,SAME,??$_Try_emplace@AEBI$$V@?$map@IHU?$less@I@std@@V?$allocator@U?$pair@$$CBIH@std@@@2@@std@@AEAA?AU?$pair@PEAU?$_Tree_node@U?$pair@$$CBIH@std@@PEAX@std@@_N@1@AEBI@Z,1.0,
+006ad0,256,SAME,??$_Try_emplace@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@$$V@?$map@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@HU?$less@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@V?$allocator@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@@2@@std@@AEAA?AU?$pair@PEAU?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@PEAX@std@@_N@1@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@1@@Z,1.0,
+006bd0,512,SAME,??$_Try_emplace@AEB_K$$V@?$_Hash@V?$_Umap_traits@_KPEAUObject@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KPEAUObject@@@std@@@3@$0A@@std@@@std@@IEAA?AU?$pair@PEAU?$_List_node@U?$pair@$$CB_KPEAUObject@@@std@@PEAX@std@@_N@1@AEB_K@Z,1.0,unordered_map/set too long
+006dd0,522,SAME,??$_Try_emplace@AEB_K$$V@?$_Hash@V?$_Umap_traits@_KUHeld@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KUHeld@@@std@@@3@$0A@@std@@@std@@IEAA?AU?$pair@PEAU?$_List_node@U?$pair@$$CB_KUHeld@@@std@@PEAX@std@@_N@1@AEB_K@Z,0.984,unordered_map/set too long
+006fdc,520,SAME,??$_Try_emplace@AEB_K$$V@?$_Hash@V?$_Umap_traits@_KUSent@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KUSent@@@std@@@3@$0A@@std@@@std@@IEAA?AU?$pair@PEAU?$_List_node@U?$pair@$$CB_KUSent@@@std@@PEAX@std@@_N@1@AEB_K@Z,1.0,unordered_map/set too long
+0071e4,508,SAME,??$_Try_emplace@I$$V@?$_Hash@V?$_Umap_traits@IIV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@std@@V?$allocator@U?$pair@$$CBII@std@@@2@$0A@@std@@@std@@IEAA?AU?$pair@PEAU?$_List_node@U?$pair@$$CBII@std@@PEAX@std@@_N@1@$$QEAI@Z,1.0,unordered_map/set too long
+0073e0,584,SAME,??$_Try_emplace@_K$$V@?$_Hash@V?$_Umap_traits@_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@2@V?$allocator@U?$pair@$$CB_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@std@@@2@$0A@@std@@@std@@IEAA?AU?$pair@PEAU?$_List_node@U?$pair@$$CB_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@std@@PEAX@std@@_N@1@$$QEA_K@Z,1.0,unordered_map/set too long
+007628,52,SAME,??$_Uninitialized_copy@PEAEPEAEV?$allocator@E@std@@@std@@YAPEAEPEAE00AEAV?$allocator@E@0@@Z,1.0,
+00765c,142,NEW,??$?HDU?$char_traits@D@std@@V?$allocator@D@1@@std@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@0@QEBDAEBV10@@Z,0.334,
+0076ec,501,SAME,??$emplace@I@?$_Hash@V?$_Uset_traits@IV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@std@@V?$allocator@I@2@$0A@@std@@@std@@QEAA?AU?$pair@V?$_List_const_iterator@V?$_List_val@U?$_List_simple_types@I@std@@@std@@@std@@_N@1@$$QEAI@Z,1.0,unordered_map/set too long
+0078e4,468,CHANGED,??$_Try_emplace@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@$$V@?$_Hash@V?$_Umap_traits@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@V?$_Uhash_compare@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@U?$hash@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@U?$equal_to@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@@2@V?$allocator@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@@2@$0A@@std@@@std@@IEAA?AU?$pair@PEAU?$_List_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@PEAX@std@@_N@1@$$QEAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@1@@Z,0.822,unordered_map/set too long
+007ab8,505,SAME,??$emplace@_K@?$_Hash@V?$_Uset_traits@_KV?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@_K@2@$0A@@std@@@std@@QEAA?AU?$pair@V?$_List_const_iterator@V?$_List_val@U?$_List_simple_types@_K@std@@@std@@@std@@_N@1@$$QEA_K@Z,1.0,unordered_map/set too long
+007cb4,468,CHANGED,??$_Try_emplace@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@$$V@?$_Hash@V?$_Umap_traits@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@V?$_Uhash_compare@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@U?$hash@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@U?$equal_to@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@@2@V?$allocator@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@@2@$0A@@std@@@std@@IEAA?AU?$pair@PEAU?$_List_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@PEAX@std@@_N@1@$$QEAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@1@@Z,0.822,unordered_map/set too long
+007e88,176,SAME,??$fill@PEAKK@std@@YAXQEAK0AEBK@Z,1.0,
+007f38,110,SAME,??$fill@PEAV?$_List_unchecked_const_iterator@V?$_List_val@U?$_List_simple_types@I@std@@@std@@U_Iterator_base0@2@@std@@V12@@std@@YAXQEAV?$_List_unchecked_const_iterator@V?$_List_val@U?$_List_simple_types@I@std@@@std@@U_Iterator_base0@2@@0@0AEBV10@@Z,1.0,
+007fa8,121,SAME,??$find_if@V?$_Vector_iterator@V?$_Vector_val@U?$_Simple_types@UNodeRef@opsave@@@std@@@std@@@std@@V<lambda_88ed88c8b7a4e46dcbc00b53ee566eab>@@@std@@YA?AV?$_Vector_iterator@V?$_Vector_val@U?$_Simple_types@UNodeRef@opsave@@@std@@@std@@@0@V10@V10@V<lambda_88ed88c8b7a4e46dcbc00b53ee566eab>@@@Z,1.0,user_orders
+008024,88,SAME,??$sprintf_s@$0BAE@@@YAHAEAY0BAE@DPEBDZZ,0.963,
+00807c,88,SAME,??$sprintf_s@$0BA@@@YAHAEAY0BA@DPEBDZZ,1.0,
+0080d4,88,SAME,??$sprintf_s@$0BAM@@@YAHAEAY0BAM@DPEBDZZ,1.0,
+00812c,88,SAME,??$sprintf_s@$0BEA@@@YAHAEAY0BEA@DPEBDZZ,1.0,
+008184,88,SAME,??$sprintf_s@$0BJA@@@YAHAEAY0BJA@DPEBDZZ,1.0,
+0081dc,88,SAME,??$sprintf_s@$0BKE@@@YAHAEAY0BKE@DPEBDZZ,1.0,
+008234,88,SAME,??$sprintf_s@$0BAE@@@YAHAEAY0BAE@DPEBDZZ,0.963,
+00828c,88,SAME,??$sprintf_s@$0BAE@@@YAHAEAY0BAE@DPEBDZZ,0.963,
+0082e4,88,SAME,??$sprintf_s@$0GA@@@YAHAEAY0GA@DPEBDZZ,1.0,
+00833c,88,SAME,??$sprintf_s@$0IA@@@YAHAEAY0IA@DPEBDZZ,1.0,
+008394,88,SAME,??$sprintf_s@$0IM@@@YAHAEAY0IM@DPEBDZZ,1.0,
+0083ec,88,SAME,??$sprintf_s@$0JG@@@YAHAEAY0JG@DPEBDZZ,1.0,
+008444,88,SAME,??$sprintf_s@$0MI@@@YAHAEAY0MI@DPEBDZZ,1.0,
+00849c,127,SAME,??0?$_Hash@V?$_Umap_traits@IIV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@std@@V?$allocator@U?$pair@$$CBII@std@@@2@$0A@@std@@@std@@IEAA@AEBV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@1@AEBV?$allocator@U?$pair@$$CBII@std@@@1@@Z,1.0,
+00851c,127,SAME,??0?$_Hash@V?$_Umap_traits@_KPEAUObject@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KPEAUObject@@@std@@@3@$0A@@std@@@std@@IEAA@AEBV?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@1@AEBV?$allocator@U?$pair@$$CB_KPEAUObject@@@std@@@1@@Z,1.0,
+00859c,127,SAME,??0?$_Hash@V?$_Umap_traits@IIV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@std@@V?$allocator@U?$pair@$$CBII@std@@@2@$0A@@std@@@std@@IEAA@AEBV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@1@AEBV?$allocator@U?$pair@$$CBII@std@@@1@@Z,0.964,
+00861c,127,SAME,??0?$_Hash@V?$_Umap_traits@_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@2@V?$allocator@U?$pair@$$CB_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@std@@@2@$0A@@std@@@std@@IEAA@AEBV?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@1@AEBV?$allocator@U?$pair@$$CB_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@std@@@1@@Z,1.0,
+00869c,127,SAME,??0?$_Hash@V?$_Umap_traits@_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@2@V?$allocator@U?$pair@$$CB_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@std@@@2@$0A@@std@@@std@@IEAA@AEBV?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@1@AEBV?$allocator@U?$pair@$$CB_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@std@@@1@@Z,1.0,
+00871c,127,SAME,??0?$_Hash@V?$_Umap_traits@IIV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@std@@V?$allocator@U?$pair@$$CBII@std@@@2@$0A@@std@@@std@@IEAA@AEBV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@1@AEBV?$allocator@U?$pair@$$CBII@std@@@1@@Z,0.964,
+00879c,249,SAME,??0?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@QEAA@U_String_constructor_concat_tag@1@AEBV01@QEBD_K23@Z,1.0,
+0088ac,503,CHANGED,??0Joiner@@QEAA@XZ,0.711,Player
+008aa4,121,SAME,??0NodeRef@opsave@@QEAA@$$QEAU01@@Z,1.0,
+008b20,111,SAME,??0NodeRef@opsave@@QEAA@AEBU01@@Z,1.0,
+008b90,122,NEW,??0Tagged@opsave@@QEAA@AEBU01@@Z,0.474,
+008c0c,146,SAME,??0Sidecar@opsave@@QEAA@XZ,1.0,
+008ca0,149,CHANGED,??0Tagged@opsave@@QEAA@$$QEAU01@@Z,0.891,
+008d38,139,CHANGED,??0Tagged@opsave@@QEAA@AEBU01@@Z,0.889,
+008dc4,65,SAME,??0bad_alloc@std@@QEAA@AEBV01@@Z,1.0,
+008e08,75,SAME,??0bad_array_new_length@std@@QEAA@AEBV01@@Z,1.0,
+008e54,58,SAME,??0bad_array_new_length@std@@QEAA@XZ,1.0,bad array new length
+008e90,50,SAME,??0exception@std@@QEAA@AEBV01@@Z,1.0,
+008ec4,29,SAME,??1?$_Alloc_construct_ptr@V?$allocator@U?$_List_node@IPEAX@std@@@std@@@std@@QEAA@XZ,1.0,
+008ee4,29,SAME,??1?$_Alloc_construct_ptr@V?$allocator@U?$_List_node@U?$pair@$$CB_KPEAUObject@@@std@@PEAX@std@@@std@@@std@@QEAA@XZ,1.0,
+008f04,29,CHANGED,??1?$_Alloc_construct_ptr@V?$allocator@U?$_List_node@IPEAX@std@@@std@@@std@@QEAA@XZ,0.889,
+008f24,29,SAME,??1?$_Alloc_construct_ptr@V?$allocator@U?$_List_node@U?$pair@$$CB_KUSent@@@std@@PEAX@std@@@std@@@std@@QEAA@XZ,1.0,
+008f44,29,SAME,??1?$_Alloc_construct_ptr@V?$allocator@U?$_Tree_node@U?$pair@$$CBI_K@std@@PEAX@std@@@std@@@std@@QEAA@XZ,1.0,
+008f64,29,SAME,??1?$_Alloc_construct_ptr@V?$allocator@U?$_Tree_node@U?$pair@$$CBIH@std@@PEAX@std@@@std@@@std@@QEAA@XZ,1.0,
+008f84,29,SAME,??1?$_Alloc_construct_ptr@V?$allocator@U?$_Tree_node@U?$pair@$$CBU?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@_K@std@@PEAX@std@@@std@@@std@@QEAA@XZ,1.0,
+008fa4,29,SAME,??1?$_Alloc_construct_ptr@V?$allocator@U?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@PEAX@std@@@std@@@std@@QEAA@XZ,1.0,
+008fc4,96,SAME,??1?$_Hash@V?$_Umap_traits@IIV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@std@@V?$allocator@U?$pair@$$CBII@std@@@2@$0A@@std@@@std@@QEAA@XZ,1.0,
+009024,96,SAME,??1?$_Hash@V?$_Umap_traits@_KPEAUObject@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KPEAUObject@@@std@@@3@$0A@@std@@@std@@QEAA@XZ,1.0,
+009084,96,SAME,??1?$_Hash@V?$_Umap_traits@IIV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@std@@V?$allocator@U?$pair@$$CBII@std@@@2@$0A@@std@@@std@@QEAA@XZ,0.923,
+0090e4,96,SAME,??1?$_Hash@V?$_Umap_traits@_KUSent@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KUSent@@@std@@@3@$0A@@std@@@std@@QEAA@XZ,1.0,
+009144,37,SAME,??1?$_Hash@V?$_Umap_traits@_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@2@V?$allocator@U?$pair@$$CB_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@std@@@2@$0A@@std@@@std@@QEAA@XZ,1.0,
+00916c,37,SAME,??1?$_Hash@V?$_Umap_traits@_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@2@V?$allocator@U?$pair@$$CB_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@std@@@2@$0A@@std@@@std@@QEAA@XZ,1.0,
+00919c,34,SAME,??1?$_List_node_emplace_op2@V?$allocator@U?$_List_node@IPEAX@std@@@std@@@std@@QEAA@XZ,1.0,
+0091c0,34,SAME,??1?$_List_node_emplace_op2@V?$allocator@U?$_List_node@U?$pair@$$CB_KPEAUObject@@@std@@PEAX@std@@@std@@@std@@QEAA@XZ,1.0,
+0091e4,34,CHANGED,??1?$_List_node_emplace_op2@V?$allocator@U?$_List_node@IPEAX@std@@@std@@@std@@QEAA@XZ,0.9,
+009208,34,SAME,??1?$_List_node_emplace_op2@V?$allocator@U?$_List_node@U?$pair@$$CB_KUSent@@@std@@PEAX@std@@@std@@@std@@QEAA@XZ,1.0,
+00922c,67,SAME,??1?$_List_node_emplace_op2@V?$allocator@U?$_List_node@U?$pair@$$CB_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@std@@PEAX@std@@@std@@@std@@QEAA@XZ,1.0,
+009270,58,CHANGED,??1?$_List_node_emplace_op2@V?$allocator@U?$_List_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@PEAX@std@@@std@@@std@@QEAA@XZ,0.886,
+0092ac,22,SAME,??1?$_Tidy_guard@V?$vector@EV?$allocator@E@std@@@std@@@std@@QEAA@XZ,1.0,
+0092c4,82,SAME,??1?$_Tree@V?$_Tmap_traits@IHU?$less@I@std@@V?$allocator@U?$pair@$$CBIH@std@@@2@$0A@@std@@@std@@QEAA@XZ,1.0,
+009320,42,SAME,??1?$_Tree@V?$_Tmap_traits@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@IU?$less@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@V?$allocator@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@I@std@@@2@$0A@@std@@@std@@QEAA@XZ,1.0,
+00934c,42,SAME,??1?$_Tree@V?$_Tmap_traits@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UFields@opsave@@U?$less@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@V?$allocator@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UFields@opsave@@@std@@@2@$0A@@std@@@std@@QEAA@XZ,1.0,
+009378,82,CHANGED,??1?$_Tree@V?$_Tmap_traits@IHU?$less@I@std@@V?$allocator@U?$pair@$$CBIH@std@@@2@$0A@@std@@@std@@QEAA@XZ,0.913,
+0093cc,34,SAME,??1?$_List_node_emplace_op2@V?$allocator@U?$_List_node@U?$pair@$$CB_KPEAUObject@@@std@@PEAX@std@@@std@@@std@@QEAA@XZ,1.0,
+0093f0,34,SAME,??1?$_Tree_temp_node_alloc@V?$allocator@U?$_Tree_node@U?$pair@$$CBIH@std@@PEAX@std@@@std@@@std@@QEAA@XZ,1.0,
+009414,68,SAME,??1?$_Tree_temp_node@V?$allocator@U?$_Tree_node@U?$pair@$$CBU?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@_K@std@@PEAX@std@@@std@@@std@@QEAA@XZ,1.0,
+009458,63,SAME,??1?$_Tree_temp_node@V?$allocator@U?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@PEAX@std@@@std@@@std@@QEAA@XZ,1.0,
+009498,63,SAME,??1?$_Tree_temp_node@V?$allocator@U?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UFields@opsave@@@std@@PEAX@std@@@std@@@std@@QEAA@XZ,1.0,
+0094d8,34,SAME,??1?$_Tree_temp_node_alloc@V?$allocator@U?$_Tree_node@U?$pair@$$CBIH@std@@PEAX@std@@@std@@@std@@QEAA@XZ,1.0,
+0094fc,34,SAME,??1?$_Tree_temp_node_alloc@V?$allocator@U?$_Tree_node@U?$pair@$$CBU?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@_K@std@@PEAX@std@@@std@@@std@@QEAA@XZ,1.0,
+009520,34,SAME,??1?$_Tree_temp_node_alloc@V?$allocator@U?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@PEAX@std@@@std@@@std@@QEAA@XZ,1.0,
+009544,52,SAME,??1?$_Uninitialized_backout_al@V?$allocator@UNodeRef@opsave@@@std@@@std@@QEAA@XZ,1.0,
+009578,52,SAME,??1?$_Uninitialized_backout_al@V?$allocator@UNodeRef@opsave@@@std@@@std@@QEAA@XZ,0.938,
+0095ac,47,CHANGED,??1?$_Uninitialized_backout_al@V?$allocator@UNodeRef@opsave@@@std@@@std@@QEAA@XZ,0.86,
+0095dc,47,CHANGED,??1?$_Uninitialized_backout_al@V?$allocator@UNodeRef@opsave@@@std@@@std@@QEAA@XZ,0.86,
+009614,79,SAME,??1?$list@U?$pair@$$CBII@std@@V?$allocator@U?$pair@$$CBII@std@@@2@@std@@QEAA@XZ,1.0,
+009664,79,SAME,??1?$list@U?$pair@$$CB_KPEAUObject@@@std@@V?$allocator@U?$pair@$$CB_KPEAUObject@@@std@@@2@@std@@QEAA@XZ,1.0,
+0096b4,79,CHANGED,??1?$list@U?$pair@$$CBII@std@@V?$allocator@U?$pair@$$CBII@std@@@2@@std@@QEAA@XZ,0.909,
+009704,79,SAME,??1?$list@U?$pair@$$CB_KUSent@@@std@@V?$allocator@U?$pair@$$CB_KUSent@@@std@@@2@@std@@QEAA@XZ,1.0,
+009764,87,SAME,??1?$map@IHU?$less@I@std@@V?$allocator@U?$pair@$$CBIH@std@@@2@@std@@QEAA@XZ,1.0,
+0097bc,21,SAME,??1?$map@U?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@_KU?$less@U?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@@2@V?$allocator@U?$pair@$$CBU?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@_K@std@@@2@@std@@QEAA@XZ,1.0,
+0097d4,46,SAME,??1?$map@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@IU?$less@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@V?$allocator@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@I@std@@@2@@std@@QEAA@XZ,1.0,
+009804,46,SAME,??1?$map@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UFields@opsave@@U?$less@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@V?$allocator@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UFields@opsave@@@std@@@2@@std@@QEAA@XZ,1.0,
+009834,23,SAME,??1?$pair@$$CBU?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@_K@std@@QEAA@XZ,1.0,
+00984c,18,SAME,??1Tagged@opsave@@QEAA@XZ,1.0,
+009860,22,SAME,??1?$pair@$$CB_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@std@@QEAA@XZ,1.0,
+009878,87,CHANGED,??1?$map@IHU?$less@I@std@@V?$allocator@U?$pair@$$CBIH@std@@@2@@std@@QEAA@XZ,0.917,
+0098d0,96,SAME,??1?$unordered_map@IIU?$hash@I@std@@U?$equal_to@I@2@V?$allocator@U?$pair@$$CBII@std@@@2@@std@@QEAA@XZ,1.0,
+009930,37,SAME,??1?$_Hash@V?$_Umap_traits@_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@2@V?$allocator@U?$pair@$$CB_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@std@@@2@$0A@@std@@@std@@QEAA@XZ,1.0,
+009958,37,SAME,??1?$_Hash@V?$_Umap_traits@_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@2@V?$allocator@U?$pair@$$CB_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@std@@@2@$0A@@std@@@std@@QEAA@XZ,1.0,
+0099b0,95,CHANGED,??1Joiner@@QEAA@XZ,0.558,
+009a10,109,SAME,??1Sidecar@opsave@@QEAA@XZ,1.0,
+009a80,22,SAME,??1?$_Tidy_guard@V?$vector@EV?$allocator@E@std@@@std@@@std@@QEAA@XZ,1.0,
+009a98,22,SAME,??1?$_Tidy_guard@V?$vector@EV?$allocator@E@std@@@std@@@std@@QEAA@XZ,1.0,
+009ab0,22,SAME,??1?$_Tidy_guard@V?$vector@EV?$allocator@E@std@@@std@@@std@@QEAA@XZ,1.0,
+009ac8,22,SAME,??1?$_Tidy_guard@V?$vector@EV?$allocator@E@std@@@std@@@std@@QEAA@XZ,1.0,
+009ae0,22,SAME,??1?$_Tidy_guard@V?$vector@EV?$allocator@E@std@@@std@@@std@@QEAA@XZ,1.0,
+009af8,22,SAME,??1?$_Tidy_guard@V?$vector@EV?$allocator@E@std@@@std@@@std@@QEAA@XZ,1.0,
+009b10,22,SAME,??1?$_Tidy_guard@V?$vector@EV?$allocator@E@std@@@std@@@std@@QEAA@XZ,1.0,
+009b40,90,SAME,??1_Reallocation_guard@?$vector@EV?$allocator@E@std@@@std@@QEAA@XZ,1.0,
+009b9c,94,SAME,??1_Reallocation_guard@?$vector@IV?$allocator@I@std@@@std@@QEAA@XZ,1.0,
+009bfc,94,SAME,??1_Reallocation_guard@?$vector@U?$pair@HH@std@@V?$allocator@U?$pair@HH@std@@@2@@std@@QEAA@XZ,1.0,
+009c5c,150,SAME,??1_Reallocation_guard@?$vector@UNodeRef@opsave@@V?$allocator@UNodeRef@opsave@@@std@@@std@@QEAA@XZ,1.0,
+009cf4,91,SAME,??1_Reallocation_guard@?$vector@UShotRec@@V?$allocator@UShotRec@@@std@@@std@@QEAA@XZ,0.946,
+009d50,154,SAME,??1_Reallocation_guard@?$vector@UTagged@opsave@@V?$allocator@UTagged@opsave@@@std@@@std@@QEAA@XZ,0.93,
+009dec,145,CHANGED,??1_Reallocation_guard@?$vector@USent@@V?$allocator@USent@@@std@@@std@@QEAA@XZ,0.945,
+009e80,149,CHANGED,??1_Reallocation_guard@?$vector@UTagged@opsave@@V?$allocator@UTagged@opsave@@@std@@@std@@QEAA@XZ,0.903,
+009f2c,34,SAME,??1bad_alloc@std@@UEAA@XZ,1.0,
+009f50,34,SAME,??1bad_alloc@std@@UEAA@XZ,1.0,
+009f74,29,SAME,??1exception@std@@UEAA@XZ,1.0,
+009f94,156,SAME,??4?$_Hash@V?$_Uset_traits@_KV?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@_K@2@$0A@@std@@@std@@QEAAAEAV01@$$QEAV01@@Z,1.0,
+00a030,907,SAME,??R<lambda_4850e5e4fe7cad2db8d8b8fa5a62506f>@@QEBA@AEBV?$vector@UNodeRef@opsave@@V?$allocator@UNodeRef@opsave@@@std@@@std@@@Z,1.0,
+00a3bc,352,CHANGED,??R<lambda_2889f9a17ff5fad6acda773f20e0e82a>@@QEBA@XZ,0.833,
+00a51c,71,SAME,??_Gbad_alloc@std@@UEAAPEAXI@Z,1.0,
+00a564,71,SAME,??_Gbad_alloc@std@@UEAAPEAXI@Z,1.0,
+00a5ac,66,SAME,??_Gexception@std@@UEAAPEAXI@Z,1.0,
+00a5f0,277,SAME,?_Assign_grow@?$_Hash_vec@V?$allocator@V?$_List_unchecked_iterator@V?$_List_val@U?$_List_simple_types@U?$pair@$$CBII@std@@@std@@@std@@@std@@@std@@@std@@QEAAX_KV?$_List_unchecked_iterator@V?$_List_val@U?$_List_simple_types@U?$pair@$$CBII@std@@@std@@@std@@@2@@Z,1.0,
+00a708,151,SAME,?_Change_array@?$vector@EV?$allocator@E@std@@@std@@AEAAXQEAE_K1@Z,1.0,
+00a7a0,155,SAME,?_Change_array@?$vector@IV?$allocator@I@std@@@std@@AEAAXQEAI_K1@Z,1.0,
+00a83c,155,SAME,?_Change_array@?$vector@U?$pair@HH@std@@V?$allocator@U?$pair@HH@std@@@2@@std@@AEAAXQEAU?$pair@HH@2@_K1@Z,1.0,
+00a8d8,200,SAME,?_Change_array@?$vector@UNodeRef@opsave@@V?$allocator@UNodeRef@opsave@@@std@@@std@@AEAAXQEAUNodeRef@opsave@@_K1@Z,1.0,
+00a9a0,188,CHANGED,?_Change_array@?$vector@UShotRec@@V?$allocator@UShotRec@@@std@@@std@@AEAAXQEAUShotRec@@_K1@Z,0.881,
+00aa5c,242,CHANGED,?_Change_array@?$vector@UTagged@opsave@@V?$allocator@UTagged@opsave@@@std@@@std@@AEAAXQEAUTagged@opsave@@_K1@Z,0.868,
+00ab50,195,CHANGED,?_Change_array@?$vector@USent@@V?$allocator@USent@@@std@@@std@@AEAAXQEAUSent@@_K1@Z,0.959,
+00ac14,233,CHANGED,?_Change_array@?$vector@UTagged@opsave@@V?$allocator@UTagged@opsave@@@std@@@std@@AEAAXQEAUTagged@opsave@@_K1@Z,0.679,
+00ad00,225,SAME,?_Clear_and_reserve_geometric@?$vector@EV?$allocator@E@std@@@std@@AEAAX_K@Z,1.0,
+00ade4,265,SAME,?_Clear_and_reserve_geometric@?$vector@KV?$allocator@K@std@@@std@@AEAAX_K@Z,1.0,
+00aef0,153,SAME,?_Desired_grow_bucket_count@?$_Hash@V?$_Umap_traits@IIV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@std@@V?$allocator@U?$pair@$$CBII@std@@@2@$0A@@std@@@std@@IEBA_K_K@Z,1.0,
+00af8c,380,SAME,?_Forced_rehash@?$_Hash@V?$_Umap_traits@IIV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@std@@V?$allocator@U?$pair@$$CBII@std@@@2@$0A@@std@@@std@@IEAAX_K@Z,1.0,invalid hash bucket count
+00b108,383,SAME,?_Forced_rehash@?$_Hash@V?$_Uset_traits@_KV?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@_K@2@$0A@@std@@@std@@IEAAX_K@Z,1.0,invalid hash bucket count
+00b288,383,SAME,?_Forced_rehash@?$_Hash@V?$_Uset_traits@_KV?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@_K@2@$0A@@std@@@std@@IEAAX_K@Z,1.0,invalid hash bucket count
+00b408,383,SAME,?_Forced_rehash@?$_Hash@V?$_Uset_traits@_KV?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@_K@2@$0A@@std@@@std@@IEAAX_K@Z,1.0,invalid hash bucket count
+00b588,383,SAME,?_Forced_rehash@?$_Hash@V?$_Uset_traits@_KV?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@_K@2@$0A@@std@@@std@@IEAAX_K@Z,1.0,invalid hash bucket count
+00b708,543,SAME,?_Forced_rehash@?$_Hash@V?$_Umap_traits@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@V?$_Uhash_compare@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@U?$hash@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@U?$equal_to@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@@2@V?$allocator@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@@2@$0A@@std@@@std@@IEAAX_K@Z,1.0,invalid hash bucket count
+00b928,383,SAME,?_Forced_rehash@?$_Hash@V?$_Uset_traits@_KV?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@_K@2@$0A@@std@@@std@@IEAAX_K@Z,1.0,invalid hash bucket count
+00baa8,553,SAME,?_Insert_node@?$_Tree_val@U?$_Tree_simple_types@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@I@std@@@std@@@std@@QEAAPEAU?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@I@std@@PEAX@2@U?$_Tree_id@PEAU?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@I@std@@PEAX@std@@@2@QEAU32@@Z,1.0,
+00bcd4,32,SAME,?_Throw_bad_array_new_length@std@@YAXXZ,1.0,
+00bcf4,17,SAME,?_Xlen_string@std@@YAXXZ,1.0,map/set too long
+00bd08,121,SAME,?_Tidy@?$_Hash_vec@V?$allocator@V?$_List_unchecked_iterator@V?$_List_val@U?$_List_simple_types@U?$pair@$$CBII@std@@@std@@@std@@@std@@@std@@@std@@QEAAXXZ,1.0,
+00bd84,110,SAME,?_Tidy@?$list@U?$pair@$$CB_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@std@@V?$allocator@U?$pair@$$CB_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@std@@@2@@std@@AEAAXXZ,1.0,
+00bdf4,101,CHANGED,?_Tidy@?$list@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@V?$allocator@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@@2@@std@@AEAAXXZ,0.888,
+00be5c,117,SAME,?_Tidy@?$vector@EV?$allocator@E@std@@@std@@AEAAXXZ,1.0,
+00bed4,121,SAME,?_Tidy@?$vector@KV?$allocator@K@std@@@std@@AEAAXXZ,1.0,
+00bf50,171,SAME,?_Tidy@?$vector@UNodeRef@opsave@@V?$allocator@UNodeRef@opsave@@@std@@@std@@AEAAXXZ,1.0,
+00bffc,148,CHANGED,?_Tidy@?$vector@UShotRec@@V?$allocator@UShotRec@@@std@@@std@@AEAAXXZ,0.912,
+00c090,209,CHANGED,?_Tidy@?$vector@UTagged@opsave@@V?$allocator@UTagged@opsave@@@std@@@std@@AEAAXXZ,0.906,
+00c164,166,CHANGED,?_Tidy@?$vector@USent@@V?$allocator@USent@@@std@@@std@@AEAAXXZ,0.949,
+00c20c,204,CHANGED,?_Tidy@?$vector@UTagged@opsave@@V?$allocator@UTagged@opsave@@@std@@@std@@AEAAXXZ,0.885,
+00c2d8,114,SAME,?_Tidy_deallocate@?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEAAXXZ,1.0,
+00c34c,355,SAME,?_Unchecked_erase@?$_Hash@V?$_Umap_traits@IIV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@std@@V?$allocator@U?$pair@$$CBII@std@@@2@$0A@@std@@@std@@AEAAPEAU?$_List_node@U?$pair@$$CBII@std@@PEAX@2@PEAU32@QEAU32@@Z,1.0,
+00c4b0,355,SAME,?_Unchecked_erase@?$_Hash@V?$_Umap_traits@_KPEAUObject@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KPEAUObject@@@std@@@3@$0A@@std@@@std@@AEAAPEAU?$_List_node@U?$pair@$$CB_KPEAUObject@@@std@@PEAX@2@PEAU32@QEAU32@@Z,1.0,
+00c614,355,SAME,?_Unchecked_erase@?$_Hash@V?$_Umap_traits@IIV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@std@@V?$allocator@U?$pair@$$CBII@std@@@2@$0A@@std@@@std@@AEAAPEAU?$_List_node@U?$pair@$$CBII@std@@PEAX@2@PEAU32@QEAU32@@Z,0.98,
+00c778,355,SAME,?_Unchecked_erase@?$_Hash@V?$_Umap_traits@_KUSent@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KUSent@@@std@@@3@$0A@@std@@@std@@AEAAPEAU?$_List_node@U?$pair@$$CB_KUSent@@@std@@PEAX@2@PEAU32@QEAU32@@Z,1.0,
+00c8dc,442,SAME,?_Unchecked_erase@?$_Hash@V?$_Umap_traits@_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@2@V?$allocator@U?$pair@$$CB_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@std@@@2@$0A@@std@@@std@@AEAAPEAU?$_List_node@U?$pair@$$CB_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@std@@PEAX@2@PEAU32@QEAU32@@Z,1.0,
+00ca98,422,CHANGED,?_Unchecked_erase@?$_Hash@V?$_Umap_traits@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@V?$_Uhash_compare@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@U?$hash@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@U?$equal_to@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@@2@V?$allocator@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@@2@$0A@@std@@@std@@AEAAPEAU?$_List_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@PEAX@2@PEAU32@QEAU32@@Z,0.943,
+00cc40,355,SAME,?_Unchecked_erase@?$_Hash@V?$_Umap_traits@IIV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@std@@V?$allocator@U?$pair@$$CBII@std@@@2@$0A@@std@@@std@@AEAAPEAU?$_List_node@U?$pair@$$CBII@std@@PEAX@2@PEAU32@QEAU32@@Z,1.0,
+00cda4,17,SAME,?_Xran@?$_String_val@U?$_Simple_types@D@std@@@std@@SAXXZ,1.0,string too long
+00cdb8,17,SAME,?_Xlength@?$vector@EV?$allocator@E@std@@@std@@CAXXZ,1.0,vector too long
+00cdcc,17,SAME,?_Throw_tree_length_error@std@@YAXXZ,1.0,invalid string position
+00cde0,457,NEW,?net_dispatch@@YAXPEAUNetwork@@PEAUMsg@@@Z,0.258,"map: abilities pass - intelligence found out %u battle groups this turn, %u of them the host's (now known to the other p"
+00cfac,181,NEW,?put_varint@@YAXAEAV?$vector@EV?$allocator@E@std@@@std@@I@Z,0.364,
+00d064,1321,NEW,?nodes@opsave@@YA?AV?$vector@UNodeRef@opsave@@V?$allocator@UNodeRef@opsave@@@std@@@std@@AEBV?$vector@EV?$allocator@E@std@@@3@@Z,0.124,squads
+00d5cc,267,SAME,?all_player_led@opsave@@YAIAEAV?$vector@EV?$allocator@E@std@@@std@@@Z,0.987,
+00d6d8,117,SAME,?append@?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@QEAAAEAV12@QEBD_K@Z,1.0,
+00d750,124,SAME,?assign@?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@QEAAAEAV12@QEBD@Z,1.0,
+00d7cc,162,SAME,?assign@?$vector@EV?$allocator@E@std@@@std@@QEAAX_KAEBE@Z,1.0,
+00d870,219,SAME,?assign@?$vector@KV?$allocator@K@std@@@std@@QEAAX_KAEBK@Z,1.0,
+00d94c,177,NEW,?assign@?$vector@EV?$allocator@E@std@@@std@@QEAAX_KAEBE@Z,0.379,
+00da10,110,NEW,??$_Erase_tree@V?$allocator@U?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@I@std@@PEAX@std@@@std@@@?$_Tree_val@U?$_Tree_simple_types@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@I@std@@@std@@@std@@QEAAXAEAV?$allocator@U?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@I@std@@PEAX@std@@@1@PEAU?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@I@std@@PEAX@1@@Z,0.294,adv_interf.codelib
+00da80,3209,NEW,?merge_moves@opsave@@YAIAEAV?$vector@EV?$allocator@E@std@@@std@@AEBV23@1PEAI@Z,0.146,supports | i_divisions:divisions | squads
+00e70c,295,NEW,??$?HDU?$char_traits@D@std@@V?$allocator@D@1@@std@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@0@$$QEAV10@QEBD@Z,0.266,
+00e834,156,SAME,?clear@?$_Hash@V?$_Umap_traits@IIV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@std@@V?$allocator@U?$pair@$$CBII@std@@@2@$0A@@std@@@std@@QEAAXXZ,1.0,
+00e8d0,156,SAME,?clear@?$_Hash@V?$_Umap_traits@_KPEAUObject@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KPEAUObject@@@std@@@3@$0A@@std@@@std@@QEAAXXZ,1.0,
+00e96c,156,SAME,?clear@?$_Hash@V?$_Umap_traits@IIV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@std@@V?$allocator@U?$pair@$$CBII@std@@@2@$0A@@std@@@std@@QEAAXXZ,0.977,
+00ea08,156,SAME,?clear@?$_Hash@V?$_Umap_traits@_KUSent@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KUSent@@@std@@@3@$0A@@std@@@std@@QEAAXXZ,1.0,
+00eaa4,99,SAME,?clear@?$_Hash@V?$_Umap_traits@_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@2@V?$allocator@U?$pair@$$CB_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@std@@@2@$0A@@std@@@std@@QEAAXXZ,1.0,
+00eb08,99,SAME,?clear@?$_Hash@V?$_Umap_traits@_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@2@V?$allocator@U?$pair@$$CB_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@std@@@2@$0A@@std@@@std@@QEAAXXZ,1.0,
+00eb6c,156,SAME,?clear@?$_Hash@V?$_Umap_traits@IIV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@std@@V?$allocator@U?$pair@$$CBII@std@@@2@$0A@@std@@@std@@QEAAXXZ,1.0,
+00ec08,119,SAME,?clear@?$list@U?$pair@$$CB_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@std@@V?$allocator@U?$pair@$$CB_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@std@@@2@@std@@QEAAXXZ,1.0,
+00ec80,110,CHANGED,?clear@?$list@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@V?$allocator@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@@2@@std@@QEAAXXZ,0.93,
+00ecf0,2498,NEW,?host_map_frame@@YAXPEAUObjMan@@K@Z,0.122,"%s, %s, %s | _*.damsav2 | net: this battle belongs to the operation %s: %u files of what earlier battles left behind (%zu bytes) go to a game that"
+00f6b4,119,SAME,?compare@?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@QEBAH_K0AEBV12@@Z,1.0,
+00f72c,155,SAME,?compare@?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@QEBAH_K0QEBD@Z,1.0,
+00f7c8,257,SAME,?copy_matching@@YAHPEBD00@Z,1.0,%s\%s
+00f8cc,857,NEW,??R<lambda_4850e5e4fe7cad2db8d8b8fa5a62506f>@@QEBA@AEBV?$vector@UNodeRef@opsave@@V?$allocator@UNodeRef@opsave@@@std@@@std@@@Z,0.207,
+00fc28,364,NEW,?squad_owners@image@@YA?AV?$unordered_map@IIU?$hash@I@std@@U?$equal_to@I@2@V?$allocator@U?$pair@$$CBII@std@@@2@@std@@AEBV?$vector@EV?$allocator@E@std@@@3@@Z,0.338,squads | units
+00fd94,589,SAME,?counterpart@opsave@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEBV23@@Z,1.0,
+00ffe4,359,NEW,?leave_battle_for_menu@@YAXXZ,0.458,"opgame.progpack | net: the battle is over - back to the menu, not to the host's operation (%s) | MP_ROLE | MP_PEER"
+010150,227,SAME,?end_turn_here@@YAXPEAUObjMan@@@Z,1.0,adv_opgame.codelib | map: ending the turn | map: the turn could not be ended from here
+010234,24,CHANGED,?node_lookup_hook@@YAIPEAD_KH@Z,0.592,
+01024c,134,SAME,?field@image@@YA_KAEBV?$vector@EV?$allocator@E@std@@@std@@AEBUNode@1@PEBD@Z,1.0,
+0102d4,110,SAME,?find@?$_Hash@V?$_Umap_traits@IIV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@std@@V?$allocator@U?$pair@$$CBII@std@@@2@$0A@@std@@@std@@QEAA?AV?$_List_iterator@V?$_List_val@U?$_List_simple_types@U?$pair@$$CBII@std@@@std@@@std@@@2@AEBI@Z,1.0,
+010344,112,SAME,?find@?$_Hash@V?$_Umap_traits@_KPEAUObject@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KPEAUObject@@@std@@@3@$0A@@std@@@std@@QEAA?AV?$_List_iterator@V?$_List_val@U?$_List_simple_types@U?$pair@$$CB_KPEAUObject@@@std@@@std@@@std@@@2@AEB_K@Z,1.0,
+0103b4,138,SAME,?find@?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@QEBA_KQEBD_K@Z,1.0,
+010440,407,SAME,?find@image@@YA?AUNode@1@AEBV?$vector@EV?$allocator@E@std@@@std@@PEBD@Z,1.0,
+0105d8,234,SAME,?find_local_ip@@YAXXZ,1.0,8.8.8.8
+0106c4,373,SAME,?find_position_only_units@@YAXXZ,1.0,"opel,zis5,zis_5,gaz_aa,gaz_mm,truck | gaz_aa,gaz_mm,truck | MP_STATE_SKIP | net: %zu units are followed by position only (%s)"
+01083c,295,NEW,?isolate_input@@YAXXZ,0.179,the other player | lobby: %s is sending the force he picked (%u bytes) | he has none any more
+010964,1144,NEW,?load_battle_description@@YAXXZ,0.161,"lobby: the other player's force arrived damaged, fetching it again | %s\users\mp_peer_force.cfgpack | MP_PEER_FORCE | Germans"
+010ddc,79,NEW,,0.409,
+010e84,145,SAME,?has_node@opsave@@YA_NAEBV?$vector@EV?$allocator@E@std@@@std@@PEBD@Z,1.0,
+010f18,557,NEW,?snapshot_operation_saves@@YAXXZ,0.219,player | MP_PEER_NAME | map: %u more of the host's battle groups have fought %s - identified for him from now on (%zu in all)
+011148,416,NEW,?host_listen@@YAXXZ,0.313,mission | skirmish | operation | MP_STEAM_PEER
+0112e8,1869,CHANGED,?host_map_frame@@YAXPEAUObjMan@@K@Z,0.877,"%s\users\mp_saves\_map_sidecar.txt | map: after the turn the host sees %u of the other player's %u battle groups, has identified %u (the game's own scouting) | cloud | %s\users\profiles\%s\%s"
+011a38,1488,SAME,?host_merge_and_restart@@YAXPEAUObjMan@@@Z,1.0,the other player | map: the host's own map could not be saved; ending the turn without %s's moves | user_orders | cloud
+012008,327,NEW,?operation_id@opsave@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEBV23@0@Z,0.223,"MP_SWAPPED | MP_BATTLE_SETUP | MP_PEER_FORCE | lobby: sides swapped, restarting the battle from the turned description"
+012150,24,CHANGED,?node_lookup_hook@@YAIPEAD_KH@Z,0.592,
+012168,124,SAME,?input_action_hook@@YAXPEAUObject@@_KPEBD@Z,1.0,
+0121e4,367,SAME,?install_detour@@YAPEAXPEAX_K0@Z,1.0,
+012354,701,CHANGED,?install_detours@@YAXXZ,0.72,"adv_interf.codelib | base_main.codelib | net: unknown game build, the other player's units can be selected | MP_SIM_HZ"
+012614,369,NEW,??$_Construct@$00PEBD@?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEAAXQEBD_K@Z,0.219,
+012788,81,NEW,??1?$list@U?$pair@$$CBII@std@@V?$allocator@U?$pair@$$CBII@std@@@2@@std@@QEAA@XZ,0.325,%s\users\mp_saves | %s\users\mp_saves\_intel_found.txt
+0127dc,146,SAME,?joiner_back_to_lobby@@YAXXZ,1.0,MP_PEER | map: returning to the lobby | MP_AUTOJOIN | MP_ROLE
+012870,338,CHANGED,?joiner_into_battle@@YAXXZ,0.79,MP_PEER | map: the host has started a battle; entering it | steam: | MP_AUTOJOIN
+0129c4,242,SAME,?joiner_reload_map@@YAXXZ,0.983,MP_PEER | map: the new turn has arrived (%zu bytes); reloading the map | map: %s
+012ab8,527,NEW,?launch_hook@@YAXPEAD0_KPEAMPEAXI@Z,0.18,"adv_opgame.codelib | map: this side's own scouting worked out: of the host's %u groups %u seen now (the copy said %u), %u identified | map: this map is the host's operation, not this side's: scouting left as the host's copy has it | map: the operation's groups were not found, scouting not worked out"
+012cc8,318,CHANGED,?all_player_led@opsave@@YAIAEAV?$vector@EV?$allocator@E@std@@@std@@@Z,0.559,
+012e08,110,NEW,?append@?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@QEAAAEAV12@QEBD_K@Z,0.334,%s\users\mp_saves | %s\users\mp_saves\_known_%s.txt
+012e78,98,NEW,?ui_blocks_input@@YA_NXZ,0.367,
+012edc,425,NEW,?xlate_frame@@YAXPEAUObjMan@@@Z,0.268,MP_BATTLE_SETUP | lobby: the other player's own force could not be put into this battle - his side is played as it is | lobby: the other player's own force arrived during deployment - restarting the battle with it
+013088,2199,SAME,?launch_map@Joiner@@QEAA_NPEBD@Z,0.999,cloud | %s\users\profiles\cur_profile.engcfg | cur_id | The host's operation save could not be recognised.
+013920,296,NEW,?all_player_led@opsave@@YAIAEAV?$vector@EV?$allocator@E@std@@@std@@@Z,0.464,
+013a48,356,NEW,?all_player_led@opsave@@YAIAEAV?$vector@EV?$allocator@E@std@@@std@@@Z,0.332,
+013bac,325,SAME,?leave_battle_for_menu@@YAXXZ,1.0,"net: leaving the battle, back to the menu | MP_ROLE | MP_PEER | MP_VERSUS"
+013cf4,863,CHANGED,?load_battle_description@@YAXXZ,0.638,data\common\shared\config\tacgame_image.cfgpack | %s\%s | net: cannot read the battle description %s | Germans
+014054,696,NEW,?read_sidecar@opsave@@YA_NPEBDPEAUSidecar@1@@Z,0.221,MP_PEER_FORCE | lobby: the other player's force (%s) cannot be read - his side is played as set up | Germans | Soviets
+01430c,125,SAME,?map_moved_on@@YAXXZ,1.0,MP_MAP_EPOCH
+01438c,98,SAME,,1.0,", waiting for the other player | the initial orders | deployment | ready: this player has finished %s%s"
+0143f0,101,SAME,?menu_controller_of@@YAPEAXPEAUObjMan@@@Z,1.0,i_opgame | opgame
+014458,545,NEW,,0.235,opened | closed | test: the game's menu is %s | i_gamespec
+01467c,2333,SAME,?merge_moves@opsave@@YAIAEAV?$vector@EV?$allocator@E@std@@@std@@AEBV23@1PEAI@Z,1.0,user_orders | vis_mode
+014f9c,827,SAME,?mirror@image@@YA_NAEAV?$vector@EV?$allocator@E@std@@@std@@@Z,1.0,i_gamespec:gamespec | squads | pools | user_side
+0152d8,1805,NEW,?mirror@opsave@@YA_NAEAV?$vector@EV?$allocator@E@std@@@std@@PEAUSidecar@1@PEAI@Z,0.488,
+0159e8,201,SAME,?next_turn_hook@@YAXPEAX_KPEBD@Z,1.0,
+015ab4,203,NEW,?send_table@@YAXAEBV?$vector@U?$pair@II@std@@V?$allocator@U?$pair@II@std@@@2@@std@@E@Z,0.259,
+015b80,245,NEW,?operation_name@opsave@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEBV?$vector@EV?$allocator@E@std@@@3@@Z,0.322,
+015c78,171,NEW,?turns@opsave@@YAIAEBV?$vector@EV?$allocator@E@std@@@std@@@Z,0.332,
+015d24,935,SAME,?nodes@opsave@@YA?AV?$vector@UNodeRef@opsave@@V?$allocator@UNodeRef@opsave@@@std@@@std@@AEBV?$vector@EV?$allocator@E@std@@@3@@Z,1.0,
+0160cc,356,NEW,?turn_phase@opsave@@YAHAEBV?$vector@EV?$allocator@E@std@@@std@@@Z,0.231,MP_PEER_FORCE
+016230,4906,NEW,?on_packet@@YAXAEBUsockaddr_in@@PEBEHK@Z,0.494,GTMF_TA_A1 | Player | MP_STEAM_PEER | no name
+01755c,416,SAME,,1.0,
+0176fc,115,NEW,?is_object@@YA_NPEAX@Z,0.413,
+017770,112,SAME,?operation_exists@Joiner@@SA_NPEBD00@Z,1.0,%s\data
+0177e0,429,SAME,?operation_id@opsave@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEBV23@0@Z,1.0,.opsave
+017990,304,SAME,?operation_in@Joiner@@SA_NPEBD00H@Z,1.0,%s\shared\camps\%s\%s.campack2 | %s\%s
+017ac0,263,SAME,?operation_name@opsave@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEBV?$vector@EV?$allocator@E@std@@@3@@Z,1.0,
+017bc8,87,SAME,?operation_on_screen@@YAPEAXPEAUObjMan@@@Z,1.0,
+017c20,208,NEW,?menu_controller_of@@YAPEAXPEAUObjMan@@@Z,0.199,i_aicolonel | aicolonel
+017cf0,242,NEW,?owns_object@@YA_NPEAUObject@@@Z,0.483,
+017de4,278,NEW,?explode_hook@@YAXPEAD0@Z,0.217,lobby: the other player's own force is dropped (%s) | MP_PEER_FORCE | %s\users\mp_peer_force.cfgpack
+017efc,478,NEW,?operation_id@opsave@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEBV23@0@Z,0.24,cloud | %s\users\profiles\%s\ccombat.cfgpack | i_opgame:opgame | user_side
+0180dc,721,NEW,?counterpart@opsave@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEBV23@@Z,0.248,pools
+018420,217,SAME,?read_file@@YA_NPEBDAEAV?$vector@EV?$allocator@E@std@@@std@@@Z,1.0,
+0184fc,767,NEW,?read_sidecar@opsave@@YA_NPEBDPEAUSidecar@1@@Z,0.506,%95s %u
+0187fc,479,SAME,?read_profile_name@@YAXXZ,1.0,%s\users\profiles\cur_profile.engcfg | cur_profile | Player | cur_id
+0189dc,696,SAME,?read_sidecar@opsave@@YA_NPEBDPEAUSidecar@1@@Z,1.0,%63s %u
+018c94,652,NEW,?counterpart@opsave@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEBV23@@Z,0.408,
+018f20,800,NEW,?host_swap_sides_if_asked@@YAXXZ,0.442,"MP_SWAPPED | %s\users\mp_battle_setup.cfgpack | MP_BATTLE_SETUP | lobby: could not restart the battle (%lu), playing it as it is"
+019240,697,NEW,?restore_tags@opsave@@YAIAEAV?$vector@EV?$allocator@E@std@@@std@@AEBUSidecar@1@@Z,0.464,
+0194fc,251,NEW,?operation_name@opsave@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEBV?$vector@EV?$allocator@E@std@@@3@@Z,0.219,
+0195f8,196,NEW,?state_load@@YAHPEAUObject@@PEBE_K@Z,0.262,
+0196bc,150,SAME,?rows_of@opsave@@YAIAEBV?$vector@EV?$allocator@E@std@@@std@@PEBD@Z,1.0,
+019754,136,SAME,?safe_file_name@opsave@@YA_NPEBD@Z,1.0,.opsave
+0197dc,626,SAME,?save_operation@@YA_NPEAUObjMan@@AEAV?$vector@EV?$allocator@E@std@@@std@@PEAD_K@Z,1.0,"adv_opgame.codelib | map: unknown game build, the operation cannot be saved from here | *.opsave | cloud"
+019a50,69,SAME,?seconds_now@@YANXZ,1.0,
+019a98,46,SAME,?send_peer@@YAXPEBXH@Z,1.0,
+019ac8,110,NEW,?input_action_hook@@YAXPEAUObject@@_KPEBD@Z,0.34,
+019b38,982,CHANGED,?send_transforms@@YAXPEAUObjMan@@K@Z,0.763,i_ctrltimer | ctrltimer
+019f20,104,NEW,?sync_state_enabled@@YA_NXZ,0.34,MP_FORCE_LIMIT
+019f88,4743,NEW,,0.549,base_shell.codelib | KERNEL32.dll | CreateProcessA | net: when this battle ends the game goes back to the menu (and from there to the host)
+01b210,200,NEW,?end_turn_here@@YAXPEAUObjMan@@@Z,0.271,adv_interf.codelib | i_intereff | intereff
+01b2d8,168,CHANGED,,0.955,MP_ROLE | mission | skirmish | MP_HOST_MODE
+01b3d0,1085,NEW,?session_map_give@@YAXPEAUObjMan@@@Z,0.497,"the operation could not be saved | map: %s has no formations to hand over | this operation cannot be handed over | map: not shared, the turn is past its orders phase"
+01b818,76,NEW,??1?$_Tree_temp_node@V?$allocator@U?$_Tree_node@U?$pair@$$CBU?$pair@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@_K@std@@PEAX@std@@@std@@@std@@QEAA@XZ,0.406,
+01b8c8,20,SAME,?session_on_op_map@@YA_NPEAUObjMan@@@Z,1.0,
+01b8dc,211,NEW,?all_player_led@opsave@@YAIAEAV?$vector@EV?$allocator@E@std@@@std@@@Z,0.25,
+01b9b0,281,NEW,??$_Try_emplace@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@$$V@?$map@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@HU?$less@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@V?$allocator@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@@2@@std@@AEAA?AU?$pair@PEAU?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@PEAX@std@@_N@1@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@1@@Z,0.277,
+01bb14,446,CHANGED,,0.655,
+01bcd4,74,SAME,?session_peer@@YA_NPEAD_KPEA_N@Z,1.0,player
+01bd64,488,NEW,?operation_id@opsave@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEBV23@0@Z,0.265,cloud | %s\users\profiles\%s\ccombat.cfgpack | i_opgame:opgame | user_side
+01bf54,753,NEW,?load_battle_description@@YAXXZ,0.211,cloud | %s\users\profiles\%s\ccombat.cfgpack | i_opgame:opgame | user_side
+01c250,225,NEW,?start_program@@YAXPEBD@Z,0.252,cloud | %s\users\profiles\%s\ccombat.cfgpack
+01c33c,118,NEW,?hook_srand@@YAXI@Z,0.331,MP_FORCE_LIMIT | lobby: the host's force costs %u - the other player's force may cost as much
+01c3b4,123,NEW,?operation_exists@Joiner@@SA_NPEBD00@Z,0.358,MP_PORT
+01c430,112,NEW,?map_moved_on@@YAXXZ,0.393,"%u,%u | MP_SETUP_DATE"
+01c4b0,148,NEW,?hook_GetRawInputData@@YAIPEAUHRAWINPUT__@@IPEAXPEAII@Z,0.191,MP_UPNP
+01c544,3472,NEW,?session_sim_step@@YAXPEAUObjMan@@@Z,0.272,MP_APPLY_DELAY | MP_TEST_TRACE | i_human | trace: battle %.3f shown %.3f real %.4f  by battle time %.3f %.3f  by arrival %.3f %.3f
+01d2e0,91,CHANGED,,0.919,MP_ROLE | MP_PEER | MP_VERSUS | MP_PREFER
+01d33c,1703,CHANGED,,0.739,tacgame | opgame | MP_SWAP | MP_SWAPPED
+01d9e4,187,SAME,?session_state_wanted@@YA_NPEAUObject@@@Z,1.0,i_techn
+01daa0,2084,CHANGED,?session_status@@YAPEBDXZ,0.592,the host | connecting to %s | %s has started the battle - entering it | the new turn is arriving
+01e2c4,142,CHANGED,,0.851,
+01e368,54,SAME,,1.0,test: the operation is declared to have moved on
+01e3b0,49,SAME,?session_test_ready@@YAXXZ,1.0,
+01e448,94,SAME,?session_toggle_swap@@YAXXZ,1.0,MP_SWAP | enemy | lobby: sides swapped - the host commands the %s force of the battle setup
+01e4a8,58,SAME,?session_unit@@YAPEAUObject@@_K@Z,1.0,
+01e530,291,NEW,,0.183,asks for a pause | no longer asks for a pause | clock: this player %s
+01e654,284,NEW,?_Unchecked_erase@?$_Hash@V?$_Umap_traits@_KUTrack@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KUTrack@@@std@@@3@$0A@@std@@@std@@AEAAPEAU?$_List_node@U?$pair@$$CB_KUTrack@@@std@@PEAX@2@PEAU32@QEAU32@@Z,0.27,
+01e770,181,NEW,?box_result_hook@@YAXPEAUObject@@H_K1@Z,0.118,clock: this player asks for speed x%.2f
+01e828,72,SAME,?set_versus@@YAX_N@Z,1.0,versus: each game owns its own player's units | same side: the host owns every unit | net: %s
+01e870,536,NEW,?operation_id@opsave@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEBV23@0@Z,0.264,"MP_SETUP_DATE | %u,%u | cloud | %s\users\profiles\%s\ccombat.cfgpack"
+01ea88,60,CHANGED,?ui_blocks_input@@YA_NXZ,0.612,
+01eac4,573,SAME,,1.0,MP_TEST_MAXTIME | i_gamespec | gamespec | test: the battle's time limit is %g s instead of %g s
+01ed04,214,SAME,?sides@image@@YA_NAEBV?$vector@EV?$allocator@E@std@@@std@@PEAI1@Z,1.0,i_gamespec:gamespec | user_side | enemy_side
+01ede4,1080,NEW,?snapshot_operation_saves@@YAXXZ,0.487,cloud | nobody | MP_PEER_NAME | %s\users\profiles\%s
+01f21c,390,SAME,?squad_columns@image@@YA?AUSquadColumns@1@AEBV?$vector@EV?$allocator@E@std@@@std@@AEBUNode@1@@Z,1.0,
+01f3a4,310,SAME,?squad_owners@image@@YA?AV?$unordered_map@IIU?$hash@I@std@@U?$equal_to@I@2@V?$allocator@U?$pair@$$CBII@std@@@2@@std@@AEBV?$vector@EV?$allocator@E@std@@@3@@Z,1.0,squads
+01f4dc,62,SAME,?start_action_hook@@YA_KPEAUObject@@_K11@Z,1.0,
+01f51c,280,SAME,?start_program@@YAXPEBD@Z,1.0,"""%s\starter_x64.exe"" %s | ""%s\starter_x64.exe"" | map: could not start '%s' (%lu)"
+01f634,848,SAME,?structs@opsave@@YA?AV?$map@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UFields@opsave@@U?$less@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@V?$allocator@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UFields@opsave@@@std@@@2@@std@@AEBV?$vector@EV?$allocator@E@std@@@3@@Z,1.0,
+01f984,101,SAME,?substr@?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@QEBA?AV12@_K0@Z,1.0,
+01f9ec,478,NEW,?squad_owners@image@@YA?AV?$unordered_map@IIU?$hash@I@std@@U?$equal_to@I@2@V?$allocator@U?$pair@$$CBII@std@@@2@@std@@AEBV?$vector@EV?$allocator@E@std@@@3@@Z,0.402,squads
+01fbcc,108,CHANGED,?sync_state_enabled@@YA_NXZ,0.681,MP_SYNC_STATE
+01fc38,970,CHANGED,?tagged@opsave@@YA?AV?$vector@UTagged@opsave@@V?$allocator@UTagged@opsave@@@std@@@std@@AEBV?$vector@EV?$allocator@E@std@@@3@@Z,0.69,vis_mode | turn_flags
+020004,395,NEW,?user_side@opsave@@YAIAEBV?$vector@EV?$allocator@E@std@@@std@@AEBV?$vector@UTagged@opsave@@V?$allocator@UTagged@opsave@@@std@@@3@@Z,0.248,map: the other player's intelligence found out %zu of the host's battle groups - %u newly identified for him
+020190,1583,CHANGED,?timer_step_hook@@YAXPEADMI@Z,0.586,"off already | clock: the engine's automatic speed control is %s; off while the other player is in the battle | clock: taking over the host's battle time (%.1f s, was %.1f s) | MP_TEST_SPEED"
+0207c0,4532,NEW,?merge_moves@opsave@@YAIAEAV?$vector@EV?$allocator@E@std@@@std@@AEBV23@1PEAI@Z,0.088,the chosen force has no units of that side | the battle has no pool for that side | plats | squads
+021974,415,SAME,?turn_phase@opsave@@YAHAEBV?$vector@EV?$allocator@E@std@@@std@@@Z,1.0,op_stream | turn_phase
+021b14,664,NEW,?local_tables@@YAXPEAUObjMan@@AEAV?$vector@U?$pair@II@std@@V?$allocator@U?$pair@II@std@@@2@@std@@1@Z,0.225,
+021dac,111,NEW,,0.0,
+021e1c,99,SAME,?turn_worker_hook@@YAXPEAXD00@Z,1.0,
+021e80,236,SAME,?turns@opsave@@YAIAEBV?$vector@EV?$allocator@E@std@@@std@@@Z,1.0,frames
+021f6c,173,SAME,?unit_key@@YA_NPEAUObject@@PEA_KPEAUUnitRec@@@Z,1.0,i_techn | i_human
+02201c,569,SAME,?unit_models@image@@YA?AV?$unordered_map@_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@U?$hash@_K@2@U?$equal_to@_K@2@V?$allocator@U?$pair@$$CB_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@std@@@2@@std@@AEBV?$vector@EV?$allocator@E@std@@@3@@Z,1.0,units | i_techn: | i_human:
+022258,644,SAME,?units_of@image@@YA?AV?$unordered_set@_KU?$hash@_K@std@@U?$equal_to@_K@2@V?$allocator@_K@2@@std@@AEBV?$vector@EV?$allocator@E@std@@@3@I@Z,1.0,units | i_techn: | i_human:
+0224dc,932,NEW,?units_of@image@@YA?AV?$unordered_set@_KU?$hash@_K@std@@U?$equal_to@_K@2@V?$allocator@_K@2@@std@@AEBV?$vector@EV?$allocator@E@std@@@3@I@Z,0.549,squads | units | i_techn: | i_human:
+022880,358,SAME,?unmirror@opsave@@YA_NAEAV?$vector@EV?$allocator@E@std@@@std@@AEBUSidecar@1@PEAI@Z,0.991,
+0229e8,666,NEW,?shots_install@@YAXPEAUObjMan@@@Z,0.221,"MP_AI_ALLIES | adv_game.codelib | net: %d computer-led formations on this player's side: the AI commander leads them, and only them | net: unknown game build, the computer-led formations on this player's side are not led"
+022c84,242,NEW,?find_local_ip@@YAXXZ,0.184,is removed | could not be removed | net: UPnP: the router's forward of UDP %ld %s
+022d78,641,CHANGED,?upnp_thread@@YAKPEAX@Z,0.969,unknown | net: UPnP mapped UDP %u (external address %s) | net: UPnP mapping refused (0x%08lx); relying on a manual port forward of UDP %u | net: UPnP not available on this network (0x%08lx); internet play needs UDP %u forwarded by hand
+022ffc,355,SAME,?user_side@opsave@@YAIAEBV?$vector@EV?$allocator@E@std@@@std@@AEBV?$vector@UTagged@opsave@@V?$allocator@UTagged@opsave@@@std@@@3@@Z,0.991,
+023174,357,NEW,?button@@YA_NPEBDMMMMM@Z,0.069,
+0232dc,237,CHANGED,?write_sidecar@opsave@@YA_NPEBDAEBUSidecar@1@@Z,0.832,
+0233cc,216,SAME,?write_sidecar@opsave@@YA_NPEBDAEBUSidecar@1@@Z,1.0,
+0234a4,72,SAME,fscanf_s,1.0,
+0234ec,155,SAME,??$?0AEBUpiecewise_construct_t@std@@V?$tuple@$$QEAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@1@V?$tuple@$$V@1@@?$_List_node_emplace_op2@V?$allocator@U?$_List_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@PEAX@std@@@std@@@std@@QEAA@AEAV?$allocator@U?$_List_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@PEAX@std@@@1@AEBUpiecewise_construct_t@1@$$QEAV?$tuple@$$QEAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@1@$$QEAV?$tuple@$$V@1@@Z,1.0,
+023588,223,SAME,??$_Construct@$0A@D@?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEAAXD_K@Z,1.0,
+0236f0,547,SAME,??$_Emplace_reallocate@AEBUSaveSlot@@@?$vector@USaveSlot@@V?$allocator@USaveSlot@@@std@@@std@@AEAAPEAUSaveSlot@@QEAU2@AEBU2@@Z,1.0,
+023914,469,SAME,??$_Try_emplace@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@$$V@?$_Hash@V?$_Umap_traits@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@V?$_Uhash_compare@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@U?$hash@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@U?$equal_to@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@@2@V?$allocator@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@@2@$0A@@std@@@std@@IEAA?AU?$pair@PEAU?$_List_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@PEAX@std@@_N@1@$$QEAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@1@@Z,1.0,unordered_map/set too long
+023aec,88,SAME,??$sprintf_s@$0BAE@@@YAHAEAY0BAE@DPEBDZZ,0.963,
+023b44,88,SAME,??$sprintf_s@$0FA@@@YAHAEAY0FA@DPEBDZZ,1.0,
+023b9c,88,SAME,??$sprintf_s@$0BAE@@@YAHAEAY0BAE@DPEBDZZ,0.963,
+023bf4,88,SAME,??$sprintf_s@$0KA@@@YAHAEAY0KA@DPEBDZZ,1.0,
+023c4c,88,SAME,??$sprintf_s@$0NM@@@YAHAEAY0NM@DPEBDZZ,1.0,
+023ca4,88,SAME,??$sprintf_s@$0BAE@@@YAHAEAY0BAE@DPEBDZZ,0.963,
+023cfc,127,SAME,??0?$_Hash@V?$_Umap_traits@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@V?$_Uhash_compare@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@U?$hash@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@U?$equal_to@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@@2@V?$allocator@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@@2@$0A@@std@@@std@@IEAA@AEBV?$_Uhash_compare@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@U?$hash@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@U?$equal_to@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@@1@AEBV?$allocator@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@@1@@Z,1.0,
+023d7c,29,SAME,??1?$_Alloc_construct_ptr@V?$allocator@U?$_List_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@PEAX@std@@@std@@@std@@QEAA@XZ,1.0,
+023d9c,37,SAME,??1?$_Hash@V?$_Umap_traits@_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@2@V?$allocator@U?$pair@$$CB_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@std@@@2@$0A@@std@@@std@@QEAA@XZ,1.0,
+023dc4,63,SAME,??1?$_List_node_emplace_op2@V?$allocator@U?$_List_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@PEAX@std@@@std@@@std@@QEAA@XZ,1.0,
+023e0c,22,SAME,??1?$_Tidy_guard@V?$vector@EV?$allocator@E@std@@@std@@@std@@QEAA@XZ,1.0,
+023e24,98,SAME,??1_Reallocation_guard@?$vector@USaveSlot@@V?$allocator@USaveSlot@@@std@@@std@@QEAA@XZ,1.0,
+023e88,202,SAME,?_Change_array@?$vector@USaveSlot@@V?$allocator@USaveSlot@@@std@@@std@@AEAAXQEAUSaveSlot@@_K1@Z,1.0,
+023f54,543,SAME,?_Forced_rehash@?$_Hash@V?$_Umap_traits@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@V?$_Uhash_compare@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@U?$hash@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@U?$equal_to@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@@2@V?$allocator@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@@2@$0A@@std@@@std@@IEAAX_K@Z,1.0,invalid hash bucket count
+024174,106,SAME,?_Tidy@?$list@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@V?$allocator@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@@2@@std@@AEAAXXZ,1.0,
+0241e0,152,SAME,?_Tidy@?$vector@USaveSlot@@V?$allocator@USaveSlot@@@std@@@std@@AEAAXXZ,1.0,
+024278,435,SAME,?_Unchecked_erase@?$_Hash@V?$_Umap_traits@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@V?$_Uhash_compare@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@U?$hash@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@U?$equal_to@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@@2@V?$allocator@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@@2@$0A@@std@@@std@@AEAAPEAU?$_List_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@PEAX@2@PEAU32@QEAU32@@Z,1.0,
+02442c,402,SAME,?button@@YA_NPEBDMMMMM@Z,1.0,
+0245c0,335,NEW,,0.192,adv_opgame.codelib | base_shell.codelib | KERNEL32.dll | CreateProcessA
+024710,99,SAME,?clear@?$_Hash@V?$_Umap_traits@_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@2@V?$allocator@U?$pair@$$CB_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@std@@@2@$0A@@std@@@std@@QEAAXXZ,1.0,
+024774,115,SAME,?clear@?$list@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@V?$allocator@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@@2@@std@@QEAAXXZ,1.0,
+0247e8,56,NEW,,0.25,MP_MENU
+024820,964,NEW,?log_launch@@YAXPEBDD0_KPEAX2@Z,0.127,the other player | CEASEFIRE AGREED | The battle ends a few seconds after the menu is closed. Press again to take your word back. | CEASEFIRE PROPOSED
+024be4,5293,NEW,,0.338,MULTIPLAYER LOBBY | Custom mission | Skirmish | Operation
+026094,485,SAME,,1.0,MULTIPLAYER
+02627c,497,SAME,?draw_map_wait@@YAXMMMM@Z,1.0,"the other player | OPERATIONAL MAP | Both players have ended the turn. | or, if the host starts a battle of this turn, your game enters that battle."
+026470,3129,NEW,,0.256,"MULTIPLAYER | Two players: one hosts, the other joins | HOST A SKIRMISH | HOST A CUSTOM MISSION"
+0270ac,764,NEW,?shots_install@@YAXPEAUObjMan@@@Z,0.138,Germans | Soviets |  - set your own side to the  |  - set YEAR AND SEASON back to the host's
+0273a8,254,NEW,?joiner_reload_map@@YAXXZ,0.216,%s\users\mp_my_force.cfgpack
+0274a8,619,NEW,?button@@YA_NPEBDMMMMM@Z,0.211,
+027714,1094,SAME,?find_device@@YAPEAUIDirect3DDevice9@@PEAUObjMan@@@Z,1.0,i_render | render | ui: no i_render object | d3d9.dll
+027b5c,213,SAME,?frame@@YAXMMMMMK@Z,1.0,
+027c34,80,NEW,?send_peer@@YAXPEBXH@Z,0.295,%s:%u
+027c84,54,SAME,?key_pressed@@YA_NH@Z,1.0,
+027cbc,1181,CHANGED,?launch@Joiner@@QEAA_NPEBD@Z,0.71,cloud | %s\users\profiles\cur_profile.engcfg | cur_id | The host's battle could not be prepared for the other side.
+02815c,492,NEW,?operation_id@opsave@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEBV23@0@Z,0.258,"Germans | Soviets | ui: this player's own force is offered to the host: %u squads, %u units of the %s"
+028348,101,SAME,?menu_controller@@YAPEAXPEAUObjMan@@@Z,1.0,i_opgame | opgame
+0283b0,286,CHANGED,?open_stock_screen@@YAXPEAUObjMan@@H@Z,0.921,adv_opgame.codelib | missions | skirmish | campaign
+0284d0,2559,NEW,?poll@Joiner@@QEAAXXZ,0.505,GTMF_TA_A1 | The host sent an invalid operation save. | The host sent an invalid battle. | The host runs a different version of the multiplayer files.
+028ed0,77,NEW,??0bad_array_new_length@std@@QEAA@AEBV01@@Z,0.367,
+028f20,440,SAME,?profile_dir@@YA_NPEAD_K@Z,1.0,cloud | %s\users\profiles\cur_profile.engcfg | cur_id | %s\users\profiles\%s
+0290d8,395,SAME,?quad@@YAXMMMMK@Z,1.0,
+029264,628,SAME,?read_slots@@YAXXZ,1.0,"%s\users\mp_saves\* | %s\users\mp_saves\%s\*.opsave | %s, saved %02u.%02u. %02u:%02u"
+0294d8,454,SAME,?restore_slot@@YAXAEBUSaveSlot@@@Z,1.0,%s\users\mp_saves\%s | %s\users\mp_saves\_replaced | %s\%s | Restored %s (%d files). Continue it from the Operations screen.
+0296a0,114,NEW,??__Fg_held@@YAXXZ,0.28,
+029714,169,NEW,?field@image@@YA_KAEBV?$vector@EV?$allocator@E@std@@@std@@AEBUNode@1@PEBD@Z,0.304,.damsav2
+0297c0,198,NEW,?ui_start@@YAXPEAUObjMan@@@Z,0.27,%s\users\mp_last_host.txt
+029888,907,SAME,?save_frame@@YAXPEAUIDirect3DDevice9@@PEBD@Z,1.0,"%s\%s.bmp | saved | could not be captured | test: frame %s %s (%ux%u, format %d)"
+029c14,118,NEW,?clear@?$list@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@V?$allocator@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@@2@@std@@QEAAXXZ,0.334,
+029c8c,362,NEW,?end_turn_here@@YAXPEAUObjMan@@@Z,0.25,adv_opgame.codelib
+029df8,588,NEW,?local_tables@@YAXPEAUObjMan@@AEAV?$vector@U?$pair@II@std@@V?$allocator@U?$pair@II@std@@@2@@std@@1@Z,0.163,"The host's battle has begun - your own force can only go into the next one. Leave this screen and press READY to enter t | The host has not chosen his force yet - its cost is your limit. Wait for it, then press start again. | Your force could not be priced. | Germans"
+02a044,86,NEW,,0.267,adv_opgame.codelib
+02a09c,147,NEW,?operation_exists@Joiner@@SA_NPEBD00@Z,0.274,
+02a130,842,NEW,?start@Joiner@@QEAA_NPEBD@Z,0.486,"steam: | Joining through Steam is done from the game's menu, with Steam running. | 127.0.0.1 | Enter the host's address first."
+02a47c,1527,NEW,?launch@Joiner@@QEAA_NPEBD@Z,0.128,tacgame.progpack | %s\%s | %s\users\mp_my_force.cfgpack | Your force could not be read from the Skirmish screen. Press CHOOSE MY FORCE to try again.
+02aa74,1490,NEW,,0.097,MP_TEST | %s\mp_cmd_%lu.txt | ready | resign
+02b048,621,SAME,?text@@YAMPEBDMMMKH_N@Z,1.0,
+02b2b8,1326,SAME,?text_tex@@YAPEAUTextTex@@PEAUIDirect3DDevice9@@PEBDH_N@Z,1.0,%d%c%.300s | Segoe Print
+02b7e8,729,NEW,?type_address@@YAXXZ,0.441,
+02bac4,72,CHANGED,?ui_blocks_input@@YA_NXZ,0.897,
+02bb0c,3488,NEW,,0.374,ui: Steam's Join Game - into the lobby of %s when the main menu is up | steam: | ui: rejoining the lobby of '%s' | ui: multiplayer menu opened
+02c8ac,1484,CHANGED,?ui_render@@YAXPEAUObjMan@@@Z,0.792,
+02ce78,911,NEW,,0.169,tacgame | opgame | %s\users\mp_last_host.txt | MP_AUTOJOIN
+02d208,889,NEW,?restore_slot@@YAXAEBUSaveSlot@@@Z,0.218,mp_guest | %s\users\profiles\%s | *.cfgpack | *.tcsprofile
+02d588,207,SAME,??$?0AEBUpiecewise_construct_t@std@@V?$tuple@$$QEAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@1@V?$tuple@$$V@1@@?$_Tree_temp_node@V?$allocator@U?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@U?$pair@H_K@2@@std@@PEAX@std@@@std@@@std@@QEAA@AEAV?$allocator@U?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@U?$pair@H_K@2@@std@@PEAX@std@@@1@PEAU?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@U?$pair@H_K@2@@std@@PEAX@1@AEBUpiecewise_construct_t@1@$$QEAV?$tuple@$$QEAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@1@$$QEAV?$tuple@$$V@1@@Z,1.0,
+02d658,525,SAME,??$_Try_emplace@AEB_K$$V@?$_Hash@V?$_Umap_traits@_KUSent@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KUSent@@@std@@@3@$0A@@std@@@std@@IEAA?AU?$pair@PEAU?$_List_node@U?$pair@$$CB_KUSent@@@std@@PEAX@std@@_N@1@AEB_K@Z,0.977,unordered_map/set too long
+02d868,256,SAME,??$_Try_emplace@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@$$V@?$map@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UFields@opsave@@U?$less@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@V?$allocator@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UFields@opsave@@@std@@@2@@std@@AEAA?AU?$pair@PEAU?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UFields@opsave@@@std@@PEAX@std@@_N@1@$$QEAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@1@@Z,1.0,
+02d968,127,SAME,??0?$_Hash@V?$_Umap_traits@IIV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@std@@V?$allocator@U?$pair@$$CBII@std@@@2@$0A@@std@@@std@@IEAA@AEBV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@1@AEBV?$allocator@U?$pair@$$CBII@std@@@1@@Z,0.964,
+02d9e8,96,SAME,??1?$_Hash@V?$_Umap_traits@IIV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@std@@V?$allocator@U?$pair@$$CBII@std@@@2@$0A@@std@@@std@@QEAA@XZ,0.923,
+02da48,79,CHANGED,??1?$list@U?$pair@$$CBII@std@@V?$allocator@U?$pair@$$CBII@std@@@2@@std@@QEAA@XZ,0.909,
+02da98,22,SAME,??1?$_Tidy_guard@V?$vector@EV?$allocator@E@std@@@std@@@std@@QEAA@XZ,1.0,
+02dab0,140,SAME,??R<lambda_455b74fbfe4f4803a84724e60104ee4d>@@QEBA_J_K@Z,1.0,
+02db3c,383,SAME,?_Forced_rehash@?$_Hash@V?$_Uset_traits@_KV?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@_K@2@$0A@@std@@@std@@IEAAX_K@Z,1.0,invalid hash bucket count
+02dcbc,355,SAME,?_Unchecked_erase@?$_Hash@V?$_Umap_traits@IIV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@std@@V?$allocator@U?$pair@$$CBII@std@@@2@$0A@@std@@@std@@AEAAPEAU?$_List_node@U?$pair@$$CBII@std@@PEAX@2@PEAU32@QEAU32@@Z,0.98,
+02de20,491,SAME,?base_load_hook@@YAXPEADPEAX@Z,1.0,
+02e00c,156,SAME,?clear@?$_Hash@V?$_Umap_traits@IIV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@std@@V?$allocator@U?$pair@$$CBII@std@@@2@$0A@@std@@@std@@QEAAXXZ,0.977,
+02e0a8,41,NEW,?node_lookup_hook@@YAIPEAD_KH@Z,0.516,
+02e0d4,26,SAME,?node_lookup_hook@@YAIPEAD_KH@Z,1.0,
+02e104,1753,SAME,?state_debug_step@@YAXPEAUObjMan@@_K@Z,1.0,MP_STATE | survey | roundtrip | %s/mp_blobs_%lu_%d
+02e7e0,719,NEW,?local_tables@@YAXPEAUObjMan@@AEAV?$vector@U?$pair@II@std@@V?$allocator@U?$pair@II@std@@@2@@std@@1@Z,0.149,
+02eab0,227,NEW,?replicated_singleton@@YA_NPEAUObject@@@Z,0.232,MP_STATE_TRANSLATE
+02eb94,198,SAME,?state_is_simulation@@YA_NPEAUObject@@@Z,1.0,adv_physic.codelib | adv_game.codelib | basic_physic.codelib
+02ec5c,70,SAME,?state_is_unit@@YA_NPEAUObject@@@Z,1.0,i_techn | i_human
+02eca4,184,SAME,?state_load@@YAHPEAUObject@@PEBE_K@Z,1.0,
+02ed5c,1906,CHANGED,?state_load_keep_motion@@YAHPEAUObject@@PEBE_K_N@Z,0.692,i_human | i_techn | adv_physic.codelib | basic_render.codelib
+02f4d0,234,NEW,?read_file@@YA_NPEBDAEAV?$vector@EV?$allocator@E@std@@@std@@@Z,0.197,
+02f5c8,275,SAME,?state_save@@YA_NPEAUObject@@AEAV?$vector@EV?$allocator@E@std@@@std@@@Z,1.0,state: %s wrote more than %zu bytes
+02f6dc,62,NEW,?send_peer@@YAXPEBXH@Z,0.297,state: 5 s: %llu states came from the other game's handle numbering: %llu handles rewritten to this game's
+02f71c,247,NEW,??$_Construct_n@AEBQEAUShotRec@@AEBQEAU1@@?$vector@UShotRec@@V?$allocator@UShotRec@@@std@@@std@@AEAAX_KAEBQEAUShotRec@@1@Z,0.257,
+02f814,149,SAME,??$?0AEBUpiecewise_construct_t@std@@V?$tuple@$$QEA_K@1@V?$tuple@$$V@1@@?$_List_node_emplace_op2@V?$allocator@U?$_List_node@U?$pair@$$CB_KUTrack@@@std@@PEAX@std@@@std@@@std@@QEAA@AEAV?$allocator@U?$_List_node@U?$pair@$$CB_KUTrack@@@std@@PEAX@std@@@1@AEBUpiecewise_construct_t@1@$$QEAV?$tuple@$$QEA_K@1@$$QEAV?$tuple@$$V@1@@Z,1.0,
+02f8ac,147,SAME,??$?0AEBUpiecewise_construct_t@std@@V?$tuple@AEB_K@1@V?$tuple@$$V@1@@?$_List_node_emplace_op2@V?$allocator@U?$_List_node@U?$pair@$$CB_KUIncoming@@@std@@PEAX@std@@@std@@@std@@QEAA@AEAV?$allocator@U?$_List_node@U?$pair@$$CB_KUIncoming@@@std@@PEAX@std@@@1@AEBUpiecewise_construct_t@1@$$QEAV?$tuple@AEB_K@1@$$QEAV?$tuple@$$V@1@@Z,1.0,
+02f940,420,SAME,??$_Emplace_reallocate@USent@@@?$vector@USent@@V?$allocator@USent@@@std@@@std@@AEAAPEAUSent@@QEAU2@$$QEAU2@@Z,1.0,
+02fae4,120,SAME,??$_Free_non_head@V?$allocator@U?$_List_node@U?$pair@$$CB_KUIncoming@@@std@@PEAX@std@@@std@@@?$_List_node@U?$pair@$$CB_KUIncoming@@@std@@PEAX@std@@SAXAEAV?$allocator@U?$_List_node@U?$pair@$$CB_KUIncoming@@@std@@PEAX@std@@@1@PEAU01@@Z,1.0,
+02fb5c,110,SAME,??$_Free_non_head@V?$allocator@U?$_List_node@U?$pair@$$CB_KUTrack@@@std@@PEAX@std@@@std@@@?$_List_node@U?$pair@$$CB_KUTrack@@@std@@PEAX@std@@SAXAEAV?$allocator@U?$_List_node@U?$pair@$$CB_KUTrack@@@std@@PEAX@std@@@1@PEAU01@@Z,1.0,
+02fbcc,160,SAME,??$_Move_unchecked@PEAUSent@@PEAU1@@std@@YAPEAUSent@@PEAU1@00@Z,1.0,
+02fc6c,615,SAME,??$_Try_emplace@AEB_K$$V@?$_Hash@V?$_Umap_traits@_KUIncoming@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KUIncoming@@@std@@@3@$0A@@std@@@std@@IEAA?AU?$pair@PEAU?$_List_node@U?$pair@$$CB_KUIncoming@@@std@@PEAX@std@@_N@1@AEB_K@Z,1.0,unordered_map/set too long
+02fed4,513,SAME,??$_Try_emplace@_K$$V@?$_Hash@V?$_Umap_traits@_KPEAUObject@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KPEAUObject@@@std@@@3@$0A@@std@@@std@@IEAA?AU?$pair@PEAU?$_List_node@U?$pair@$$CB_KPEAUObject@@@std@@PEAX@std@@_N@1@$$QEA_K@Z,1.0,unordered_map/set too long
+0300d8,605,SAME,??$_Try_emplace@_K$$V@?$_Hash@V?$_Umap_traits@_KUTrack@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KUTrack@@@std@@@3@$0A@@std@@@std@@IEAA?AU?$pair@PEAU?$_List_node@U?$pair@$$CB_KUTrack@@@std@@PEAX@std@@_N@1@$$QEA_K@Z,1.0,unordered_map/set too long
+030338,113,SAME,??$_Uninitialized_move@PEAUSent@@V?$allocator@USent@@@std@@@std@@YAPEAUSent@@QEAU1@0PEAU1@AEAV?$allocator@USent@@@0@@Z,1.0,
+0303ac,127,SAME,??0?$_Hash@V?$_Umap_traits@_KUIncoming@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KUIncoming@@@std@@@3@$0A@@std@@@std@@IEAA@AEBV?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@1@AEBV?$allocator@U?$pair@$$CB_KUIncoming@@@std@@@1@@Z,1.0,
+03042c,127,SAME,??0?$_Hash@V?$_Umap_traits@_KUTrack@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KUTrack@@@std@@@3@$0A@@std@@@std@@IEAA@AEBV?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@1@AEBV?$allocator@U?$pair@$$CB_KUTrack@@@std@@@1@@Z,1.0,
+0304ac,29,SAME,??1?$_Alloc_construct_ptr@V?$allocator@U?$_List_node@U?$pair@$$CB_KUIncoming@@@std@@PEAX@std@@@std@@@std@@QEAA@XZ,1.0,
+0304cc,29,SAME,??1?$_Alloc_construct_ptr@V?$allocator@U?$_List_node@U?$pair@$$CB_KUTrack@@@std@@PEAX@std@@@std@@@std@@QEAA@XZ,1.0,
+0304ec,55,SAME,??1?$_Hash@V?$_Umap_traits@_KUIncoming@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KUIncoming@@@std@@@3@$0A@@std@@@std@@QEAA@XZ,1.0,
+030524,55,SAME,??1?$_Hash@V?$_Umap_traits@_KUTrack@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KUTrack@@@std@@@3@$0A@@std@@@std@@QEAA@XZ,1.0,
+03055c,104,SAME,??1?$_List_node_emplace_op2@V?$allocator@U?$_List_node@U?$pair@$$CB_KUIncoming@@@std@@PEAX@std@@@std@@@std@@QEAA@XZ,1.0,
+0305c4,94,SAME,??1?$_List_node_emplace_op2@V?$allocator@U?$_List_node@U?$pair@$$CB_KUTrack@@@std@@PEAX@std@@@std@@@std@@QEAA@XZ,1.0,
+030624,53,SAME,??1?$_Uninitialized_backout_al@V?$allocator@USent@@@std@@@std@@QEAA@XZ,1.0,
+03065c,35,SAME,??1?$list@U?$pair@$$CB_KUIncoming@@@std@@V?$allocator@U?$pair@$$CB_KUIncoming@@@std@@@2@@std@@QEAA@XZ,1.0,
+030680,35,SAME,??1?$list@U?$pair@$$CB_KUTrack@@@std@@V?$allocator@U?$pair@$$CB_KUTrack@@@std@@@2@@std@@QEAA@XZ,1.0,
+0306a4,52,SAME,??1?$pair@$$CB_KUIncoming@@@std@@QEAA@XZ,1.0,
+0306d8,42,SAME,??1?$pair@$$CB_KUTrack@@@std@@QEAA@XZ,1.0,
+03070c,46,SAME,??1Incoming@@QEAA@XZ,1.0,
+03073c,22,SAME,??1?$pair@$$CB_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@std@@QEAA@XZ,1.0,
+030754,36,SAME,??1Track@@QEAA@XZ,1.0,
+030778,22,SAME,??1?$_Tidy_guard@V?$vector@EV?$allocator@E@std@@@std@@@std@@QEAA@XZ,1.0,
+030790,22,SAME,??1?$_Tidy_guard@V?$vector@EV?$allocator@E@std@@@std@@@std@@QEAA@XZ,1.0,
+0307a8,151,SAME,??1_Reallocation_guard@?$vector@USent@@V?$allocator@USent@@@std@@@std@@QEAA@XZ,1.0,
+030840,110,SAME,?_Bump_erased@_Range_eraser@?$_Hash@V?$_Umap_traits@_KUIncoming@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KUIncoming@@@std@@@3@$0A@@std@@@std@@QEAAXXZ,1.0,
+0308b0,100,SAME,?_Bump_erased@_Range_eraser@?$_Hash@V?$_Umap_traits@_KUTrack@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KUTrack@@@std@@@3@$0A@@std@@@std@@QEAAXXZ,1.0,
+030914,201,SAME,?_Change_array@?$vector@USent@@V?$allocator@USent@@@std@@@std@@AEAAXQEAUSent@@_K1@Z,1.0,
+0309e0,383,SAME,?_Forced_rehash@?$_Hash@V?$_Uset_traits@_KV?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@_K@2@$0A@@std@@@std@@IEAAX_K@Z,1.0,invalid hash bucket count
+030b60,383,SAME,?_Forced_rehash@?$_Hash@V?$_Uset_traits@_KV?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@_K@2@$0A@@std@@@std@@IEAAX_K@Z,1.0,invalid hash bucket count
+030ce0,172,SAME,?_Tidy@?$vector@USent@@V?$allocator@USent@@@std@@@std@@AEAAXXZ,1.0,
+030d8c,320,SAME,?_Unchecked_erase@?$_Hash@V?$_Umap_traits@_KUTrack@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KUTrack@@@std@@@3@$0A@@std@@@std@@AEAAPEAU?$_List_node@U?$pair@$$CB_KUTrack@@@std@@PEAX@2@PEAU32@QEAU32@@Z,1.0,
+030ecc,320,SAME,?_Unchecked_erase@?$_Hash@V?$_Umap_traits@_KUTrack@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KUTrack@@@std@@@3@$0A@@std@@@std@@AEAAPEAU?$_List_node@U?$pair@$$CB_KUTrack@@@std@@PEAX@2@PEAU32@QEAU32@@Z,1.0,
+03100c,120,SAME,?clear@?$_Hash@V?$_Umap_traits@_KUTrack@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KUTrack@@@std@@@3@$0A@@std@@@std@@QEAAXXZ,1.0,
+031084,120,SAME,?clear@?$_Hash@V?$_Umap_traits@_KUTrack@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KUTrack@@@std@@@3@$0A@@std@@@std@@QEAAXXZ,1.0,
+0310fc,330,SAME,?decode_delta@@YA_NAEBV?$vector@EV?$allocator@E@std@@@std@@PEBE_KIAEAV12@@Z,1.0,
+031248,128,SAME,?erase@?$vector@USent@@V?$allocator@USent@@@std@@@std@@QEAA?AV?$_Vector_iterator@V?$_Vector_val@U?$_Simple_types@USent@@@std@@@std@@@2@V?$_Vector_const_iterator@V?$_Vector_val@U?$_Simple_types@USent@@@std@@@std@@@2@0@Z,1.0,
+0312c8,132,SAME,?put_varint@@YAXAEAV?$vector@EV?$allocator@E@std@@@std@@I@Z,1.0,
+03134c,195,SAME,?replicated_singleton@@YA_NPEAUObject@@@Z,1.0,MP_SYNC_WORLD
+031410,1046,SAME,,1.0,
+031828,775,CHANGED,,0.903,MP_LOG_LOADS | MP_LOAD_ONLY | i_techn | i_human
+031b30,201,SAME,?statesync_key@@YA_KPEAUObject@@@Z,1.0,i_techn | i_human
+031bfc,1043,SAME,,1.0,
+032010,1259,SAME,,1.0,MP_STATE_KBPS | i_techn
+0324fc,358,SAME,,0.988,state: 5 s: %llu model node look-ups ended early (a handle from the other game named no node here)
+032670,265,SAME,??$_Emplace_back_internal@UPending@@@?$deque@UPending@@V?$allocator@UPending@@@std@@@std@@AEAAX$$QEAUPending@@@Z,1.0,
+032830,565,SAME,??$_Emplace_reallocate@AEBUShotRec@@@?$vector@UShotRec@@V?$allocator@UShotRec@@@std@@@std@@AEAAPEAUShotRec@@QEAU2@AEBU2@@Z,1.0,
+032a68,46,SAME,??$_Uninitialized_value_construct_n_unchecked1@PEAPEAUPending@@_K@std@@YAPEAPEAUPending@@PEAPEAU1@_K@Z,1.0,
+032aa0,94,SAME,??1_Reallocation_guard@?$vector@UShotRec@@V?$allocator@UShotRec@@@std@@@std@@QEAA@XZ,1.0,
+032b00,197,SAME,?_Change_array@?$vector@UShotRec@@V?$allocator@UShotRec@@@std@@@std@@AEAAXQEAUShotRec@@_K1@Z,1.0,
+032bc8,396,SAME,?_Growmap@?$deque@UPending@@V?$allocator@UPending@@@std@@@std@@AEAAX_K@Z,1.0,
+032d54,189,SAME,?_Reset_map@?$deque@UPending@@V?$allocator@UPending@@@std@@@std@@AEAAXXZ,1.0,
+032e14,151,SAME,?_Tidy@?$vector@UShotRec@@V?$allocator@UShotRec@@@std@@@std@@AEAAXXZ,1.0,
+032eac,17,SAME,?_Xlength@?$vector@UTagged@opsave@@V?$allocator@UTagged@opsave@@@std@@@std@@CAXXZ,1.0,deque<T> too long
+032ec0,106,SAME,?ammo_check@@YAXPEAXPEAMPEAI@Z,1.0,
+032f2c,357,NEW,?trench_sim_step@@YAXPEAUObjMan@@@Z,0.267,received
+033094,490,NEW,?restore_slot@@YAXAEBUSaveSlot@@@Z,0.214,i_divisions | divisions
+033280,39,NEW,?hook_GetAsyncKeyState@@YAFH@Z,0.522,
+0332a8,346,CHANGED,?launch_hook@@YAXPEAD0_KPEAMPEAXI@Z,0.55,dropped
+033404,563,NEW,?launch_hook@@YAXPEAD0_KPEAMPEAXI@Z,0.222,
+033638,75,SAME,?is_object@@YA_NPEAX@Z,1.0,
+033684,504,CHANGED,?launch_hook@@YAXPEAD0_KPEAMPEAXI@Z,0.565,own-offmap | dropped-offmap | dropped
+03387c,196,NEW,?explode_hook@@YAXPEAD0@Z,0.481,
+033940,1081,SAME,?log_launch@@YAXPEBDD0_KPEAX2@Z,1.0,%02x%s | shots: launch record of %s: %s
+033d7c,56,CHANGED,??1?$_Tree_temp_node@V?$allocator@U?$_Tree_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@H@std@@PEAX@std@@@std@@@std@@QEAA@XZ,0.577,
+033db4,461,NEW,?queue_shot@@YAXDPEBD_KPEBMPEAXI@Z,0.494,
+033f84,416,NEW,?queue_shot@@YAXDPEBD_KPEBMPEAXI@Z,0.439,
+034124,580,CHANGED,?queue_shot@@YAXDPEBD_KPEBMPEAXI@Z,0.695,
+034368,597,SAME,,1.0,
+0345c0,515,NEW,?base_load_hook@@YAXPEADPEAX@Z,0.338,
+0347c4,813,NEW,?shots_install@@YAXPEAUObjMan@@@Z,0.526,basic_physic.codelib | MP_SYNC_SHOTS | MP_LOG_SHOTS | %s\mp_shots_%lu.txt
+034af4,383,SAME,?shots_on_packet@@YAXPEBEHP6AXPEBXH@Z@Z,1.0,
+034c74,244,SAME,?shots_queue@@YAXAEAUShotRec@@@Z,1.0,
+034d68,374,NEW,,0.467,
+034ee0,161,CHANGED,,0.971,
+034f84,1012,CHANGED,?shots_sim_step@@YAXPEAUObjMan@@@Z,0.698,i_shellphys | shellphys | received
+0353b8,639,NEW,?send_transforms@@YAXPEAUObjMan@@K@Z,0.181,"i_divisions | divisions | test: artillery - squad %08x (support %u, side %08x) called %d rounds of kind %d onto %.0f,%.0f: mission %d | test: artillery - %d of this player's squads have off-map support, %d called it"
+035638,229,NEW,?safe_str@@YAPEBDPEBXPEAD_K@Z,0.267,i_techn: | test: blowup - the crew of %s will blow it up in 1 s | test: blowup - this player has no vehicle
+035720,550,NEW,,0.196,"i_divisions | divisions | test: flares - this player has no squad | test: flares - %d flares for squad %08x (side %08x) over %.0f,%.0f"
+035948,360,CHANGED,??$_Emplace_reallocate@U?$pair@HH@std@@@?$vector@U?$pair@HH@std@@V?$allocator@U?$pair@HH@std@@@2@@std@@AEAAPEAU?$pair@HH@1@QEAU21@$$QEAU21@@Z,0.862,
+035ab0,511,SAME,??$_Try_emplace@AEB_K$$V@?$_Hash@V?$_Umap_traits@_KPEAUObject@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KPEAUObject@@@std@@@3@$0A@@std@@@std@@IEAA?AU?$pair@PEAU?$_List_node@U?$pair@$$CB_KPEAUObject@@@std@@PEAX@std@@_N@1@AEB_K@Z,0.999,unordered_map/set too long
+035cb0,512,SAME,??$_Try_emplace@_K$$V@?$_Hash@V?$_Umap_traits@_KPEAUObject@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KPEAUObject@@@std@@@3@$0A@@std@@@std@@IEAA?AU?$pair@PEAU?$_List_node@U?$pair@$$CB_KPEAUObject@@@std@@PEAX@std@@_N@1@$$QEA_K@Z,0.999,unordered_map/set too long
+035eb0,94,SAME,??1_Reallocation_guard@?$vector@U?$pair@HH@std@@V?$allocator@U?$pair@HH@std@@@2@@std@@QEAA@XZ,0.963,
+035f10,161,CHANGED,?_Change_array@?$vector@U?$pair@HH@std@@V?$allocator@U?$pair@HH@std@@@2@@std@@AEAAXQEAU?$pair@HH@2@_K1@Z,0.714,
+035fb4,121,SAME,?_Tidy@?$_Hash_vec@V?$allocator@V?$_List_unchecked_iterator@V?$_List_val@U?$_List_simple_types@U?$pair@$$CBII@std@@@std@@@std@@@std@@@std@@@std@@QEAAXXZ,0.969,
+036030,145,NEW,?ammo_check@@YAXPEAXPEAMPEAI@Z,0.336,
+0360c4,272,NEW,?send_table@@YAXAEBV?$vector@U?$pair@II@std@@V?$allocator@U?$pair@II@std@@@2@@std@@E@Z,0.208,
+0361d4,775,NEW,?apply@@YAXAEBUTrenchRec@@@Z,0.255,adv_game.codelib | made his stamp | did not get to stamping | stamped nothing either
+0364dc,946,NEW,?dig_hook@@YA_KPEADHPEAM@Z,0.222,"MP_ROLE |  - sent | crater: kind %d at %.1f %.1f %.1f, flags %x, size %.2f, vector %.2f %.2f %.2f %.2f%s"
+036890,74,SAME,?trench_received@@YAXAEBUShotRec@@@Z,0.938,
+0368dc,1115,NEW,,0.149,i_trencher | trencher
+036d38,1144,NEW,?dig_hook@@YA_KPEADHPEAM@Z,0.357,trench: dig for squad %08x of the other player dropped | stamped nothing | stamped tile %u cell %u kind %u direction %u variant %d flags %x (%d calls) | at a given place
+0371b0,1573,NEW,?dig_hook@@YA_KPEADHPEAM@Z,0.108,"trench: this game's own stamp left out, made on the other game's word already: tile %u cell %u kind %u direction %u vari | adv_game.codelib | battle running | while the battle is built"
+0377d8,107,SAME,?squad_record@@YAPEADPEADI@Z,1.0,
+037844,87,NEW,,0.085,
+03789c,74,SAME,?trench_received@@YAXAEBUShotRec@@@Z,0.938,
+0378e8,1125,NEW,?queue_shot@@YAXDPEBD_KPEBMPEAXI@Z,0.148, and of the craters made here so far | trench: the other game is told of %zu trenches stamped here outside any dig%s | i_trencher | trencher
+037d50,501,NEW,?test_move@@YAXXZ,0.273,i_trencher | trencher | test: %d squads of this player dug in again %.0f m away | test: no trench manager to dig with
+037f48,77,NEW,?map_moved_on@@YAXXZ,0.317,MP_ROLE
+037f98,787,NEW,?trench_install@@YAXXZ,0.401,adv_game.codelib | MP_SYNC_TRENCH | MP_LOG_TRENCH | trench: each game digs for itself (MP_SYNC_TRENCH=0)
+0382ac,74,SAME,?trench_received@@YAXAEBUShotRec@@@Z,1.0,
+0382f8,386,NEW,,0.147,
+03847c,319,CHANGED,?trench_resend@@YAXXZ,0.937,
+0385bc,645,NEW,?trench_sim_step@@YAXPEAUObjMan@@@Z,0.421,%s+0x%llx | places: %llu added from %s <- %s <- %s | i_trencher | trencher
+038854,132,SAME,??$?0AEBUpiecewise_construct_t@std@@V?$tuple@AEBI@1@V?$tuple@$$V@1@@?$_Tree_temp_node@V?$allocator@U?$_Tree_node@U?$pair@$$CBI_K@std@@PEAX@std@@@std@@@std@@QEAA@AEAV?$allocator@U?$_Tree_node@U?$pair@$$CBI_K@std@@PEAX@std@@@1@PEAU?$_Tree_node@U?$pair@$$CBI_K@std@@PEAX@1@AEBUpiecewise_construct_t@1@$$QEAV?$tuple@AEBI@1@$$QEAV?$tuple@$$V@1@@Z,1.0,
+0388d8,204,SAME,??$_Construct_n@AEB_K@?$vector@_KV?$allocator@_K@std@@@std@@AEAAX_KAEB_K@Z,1.0,
+0389a4,84,SAME,??$_Erase_tree@V?$allocator@U?$_Tree_node@U?$pair@$$CBI_K@std@@PEAX@std@@@std@@@?$_Tree_val@U?$_Tree_simple_types@U?$pair@$$CBI_K@std@@@std@@@std@@QEAAXAEAV?$allocator@U?$_Tree_node@U?$pair@$$CBI_K@std@@PEAX@std@@@1@PEAU?$_Tree_node@U?$pair@$$CBI_K@std@@PEAX@1@@Z,1.0,
+0389f8,39,SAME,??$_Is_all_bits_zero@_K@std@@YA_NAEB_K@Z,1.0,
+038a20,507,SAME,??$_Try_emplace@AEBI$$V@?$_Hash@V?$_Umap_traits@IIV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@std@@V?$allocator@U?$pair@$$CBII@std@@@2@$0A@@std@@@std@@IEAA?AU?$pair@PEAU?$_List_node@U?$pair@$$CBII@std@@PEAX@std@@_N@1@AEBI@Z,1.0,unordered_map/set too long
+038c1c,292,SAME,??$_Try_emplace@AEBI$$V@?$map@I_KU?$less@I@std@@V?$allocator@U?$pair@$$CBI_K@std@@@2@@std@@AEAA?AU?$pair@PEAU?$_Tree_node@U?$pair@$$CBI_K@std@@PEAX@std@@_N@1@AEBI@Z,1.0,
+038d40,22,SAME,??1?$_Tidy_guard@V?$vector@EV?$allocator@E@std@@@std@@@std@@QEAA@XZ,1.0,
+038d58,82,SAME,??1?$_Tree@V?$_Tmap_traits@I_KU?$less@I@std@@V?$allocator@U?$pair@$$CBI_K@std@@@2@$0A@@std@@@std@@QEAA@XZ,1.0,
+038dac,34,SAME,??1?$_Tree_temp_node_alloc@V?$allocator@U?$_Tree_node@U?$pair@$$CBI_K@std@@PEAX@std@@@std@@@std@@QEAA@XZ,1.0,
+038dd0,34,SAME,??1?$_Tree_temp_node_alloc@V?$allocator@U?$_Tree_node@U?$pair@$$CBI_K@std@@PEAX@std@@@std@@@std@@QEAA@XZ,1.0,
+038df4,87,SAME,??1?$map@I_KU?$less@I@std@@V?$allocator@U?$pair@$$CBI_K@std@@@2@@std@@QEAA@XZ,1.0,
+038e4c,64,SAME,?desc_by_num_hook@@YAPEAXPEAUObjMan@@I@Z,1.0,
+038e8c,611,SAME,?local_tables@@YAXPEAUObjMan@@AEAV?$vector@U?$pair@II@std@@V?$allocator@U?$pair@II@std@@@2@@std@@1@Z,1.0,
+0390f0,1300,SAME,?match@@YAXAEBV?$vector@U?$pair@II@std@@V?$allocator@U?$pair@II@std@@@2@@std@@0AEAV?$unordered_map@IIU?$hash@I@std@@U?$equal_to@I@2@V?$allocator@U?$pair@$$CBII@std@@@2@@2@PEBD@Z,1.0,
+039604,98,SAME,?obj_by_place_hook@@YAPEAXPEAUObjMan@@I@Z,1.0,
+039668,276,SAME,?send_table@@YAXAEBV?$vector@U?$pair@II@std@@V?$allocator@U?$pair@II@std@@@2@@std@@E@Z,1.0,
+03977c,58,SAME,?xlate_desc@@YAII@Z,1.0,
+0397b8,638,SAME,?xlate_frame@@YAXPEAUObjMan@@@Z,0.989,"base_shell.codelib | numbers: the other game's description and object numbers are translated when its states are loaded | numbers: unknown game build, the other game's numbers are taken as they are"
+039a40,638,SAME,?xlate_received@@YAXAEBUShotRec@@PEAUObjMan@@@Z,1.0,descriptions | objects
+039d0c,351,CHANGED,??$_Emplace_reallocate@U?$pair@HH@std@@@?$vector@U?$pair@HH@std@@V?$allocator@U?$pair@HH@std@@@2@@std@@AEAAPEAU?$pair@HH@1@QEAU21@$$QEAU21@@Z,0.882,
+039e6c,114,SAME,??$_Resize@U_Value_init_tag@std@@@?$vector@EV?$allocator@E@std@@@std@@AEAAX_KAEBU_Value_init_tag@1@@Z,0.963,
+039ee0,276,CHANGED,??$_Resize_reallocate@U_Value_init_tag@std@@@?$vector@EV?$allocator@E@std@@@std@@AEAAX_KAEBU_Value_init_tag@1@@Z,0.89,
+039ff4,516,SAME,??$_Try_emplace@AEBI$$V@?$_Hash@V?$_Umap_traits@IIV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@std@@V?$allocator@U?$pair@$$CBII@std@@@2@$0A@@std@@@std@@IEAA?AU?$pair@PEAU?$_List_node@U?$pair@$$CBII@std@@PEAX@std@@_N@1@AEBI@Z,0.965,unordered_map/set too long
+03a1f8,516,SAME,??$_Try_emplace@AEBI$$V@?$_Hash@V?$_Umap_traits@IIV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@std@@V?$allocator@U?$pair@$$CBII@std@@@2@$0A@@std@@@std@@IEAA?AU?$pair@PEAU?$_List_node@U?$pair@$$CBII@std@@PEAX@std@@_N@1@AEBI@Z,0.965,unordered_map/set too long
+03a3fc,509,SAME,??$_Try_emplace@I$$V@?$_Hash@V?$_Umap_traits@IIV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@std@@V?$allocator@U?$pair@$$CBII@std@@@2@$0A@@std@@@std@@IEAA?AU?$pair@PEAU?$_List_node@U?$pair@$$CBII@std@@PEAX@std@@_N@1@$$QEAI@Z,0.988,unordered_map/set too long
+03a5fc,127,SAME,??0?$_Hash@V?$_Umap_traits@_KUIncoming@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KUIncoming@@@std@@@3@$0A@@std@@@std@@IEAA@AEBV?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@1@AEBV?$allocator@U?$pair@$$CB_KUIncoming@@@std@@@1@@Z,1.0,
+03a67c,96,SAME,??1?$_Hash@V?$_Umap_traits@IIV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@std@@V?$allocator@U?$pair@$$CBII@std@@@2@$0A@@std@@@std@@QEAA@XZ,0.923,
+03a6dc,34,CHANGED,??1?$_List_node_emplace_op2@V?$allocator@U?$_List_node@IPEAX@std@@@std@@@std@@QEAA@XZ,0.9,
+03a700,79,CHANGED,??1?$list@U?$pair@$$CBII@std@@V?$allocator@U?$pair@$$CBII@std@@@2@@std@@QEAA@XZ,0.909,
+03a750,22,SAME,??1?$_Tidy_guard@V?$vector@EV?$allocator@E@std@@@std@@@std@@QEAA@XZ,1.0,
+03a768,22,SAME,??1?$_Tidy_guard@V?$vector@EV?$allocator@E@std@@@std@@@std@@QEAA@XZ,1.0,
+03a780,94,SAME,??1_Reallocation_guard@?$vector@U?$pair@HH@std@@V?$allocator@U?$pair@HH@std@@@2@@std@@QEAA@XZ,0.963,
+03a7e0,161,CHANGED,?_Change_array@?$vector@U?$pair@HH@std@@V?$allocator@U?$pair@HH@std@@@2@@std@@AEAAXQEAU?$pair@HH@2@_K1@Z,0.714,
+03a884,380,SAME,?_Forced_rehash@?$_Hash@V?$_Umap_traits@IIV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@std@@V?$allocator@U?$pair@$$CBII@std@@@2@$0A@@std@@@std@@IEAAX_K@Z,1.0,invalid hash bucket count
+03aa00,380,SAME,?_Forced_rehash@?$_Hash@V?$_Umap_traits@IIV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@std@@V?$allocator@U?$pair@$$CBII@std@@@2@$0A@@std@@@std@@IEAAX_K@Z,1.0,invalid hash bucket count
+03ab7c,121,SAME,?_Tidy@?$_Hash_vec@V?$allocator@V?$_List_unchecked_iterator@V?$_List_val@U?$_List_simple_types@U?$pair@$$CBII@std@@@std@@@std@@@std@@@std@@@std@@QEAAXXZ,0.969,
+03abf8,355,SAME,?_Unchecked_erase@?$_Hash@V?$_Umap_traits@_KPEAUObject@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KPEAUObject@@@std@@@3@$0A@@std@@@std@@AEAAPEAU?$_List_node@U?$pair@$$CB_KPEAUObject@@@std@@PEAX@2@PEAU32@QEAU32@@Z,1.0,
+03ad5c,355,SAME,?_Unchecked_erase@?$_Hash@V?$_Umap_traits@IIV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@std@@V?$allocator@U?$pair@$$CBII@std@@@2@$0A@@std@@@std@@AEAAPEAU?$_List_node@U?$pair@$$CBII@std@@PEAX@2@PEAU32@QEAU32@@Z,0.98,
+03aec0,61,NEW,?is_object@@YA_NPEAX@Z,0.453,
+03af00,1722,NEW,??R<lambda_4850e5e4fe7cad2db8d8b8fa5a62506f>@@QEBA@AEBV?$vector@UNodeRef@opsave@@V?$allocator@UNodeRef@opsave@@@std@@@std@@@Z,0.109,
+03b5bc,252,NEW,?send_table@@YAXAEBV?$vector@U?$pair@II@std@@V?$allocator@U?$pair@II@std@@@2@@std@@E@Z,0.253,
+03b6b8,113,CHANGED,,0.792,
+03b72c,32,SAME,??__Eg_map_sidecar@@YAXXZ,1.0,
+03b74c,297,NEW,,0.3,
+03b878,156,SAME,?clear@?$_Hash@V?$_Umap_traits@_KPEAUObject@@V?$_Uhash_compare@_KU?$hash@_K@std@@U?$equal_to@_K@2@@std@@V?$allocator@U?$pair@$$CB_KPEAUObject@@@std@@@3@$0A@@std@@@std@@QEAAXXZ,1.0,
+03b914,156,SAME,?clear@?$_Hash@V?$_Umap_traits@IIV?$_Uhash_compare@IU?$hash@I@std@@U?$equal_to@I@2@@std@@V?$allocator@U?$pair@$$CBII@std@@@2@$0A@@std@@@std@@QEAAXXZ,0.977,
+03b9b0,63,NEW,??1?$_List_node_emplace_op2@V?$allocator@U?$_List_node@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@UTextTex@@@std@@PEAX@std@@@std@@@std@@QEAA@XZ,0.421,
+03b9f0,102,NEW,?input_action_hook@@YAXPEAUObject@@_KPEBD@Z,0.492,
+03ba58,102,NEW,?input_action_hook@@YAXPEAUObject@@_KPEBD@Z,0.492,
+03bac0,84,NEW,?desc_by_num_hook@@YAPEAXPEAUObjMan@@I@Z,0.533,
+03bb14,140,NEW,?input_action_hook@@YAXPEAUObject@@_KPEBD@Z,0.404,
+03bba0,100,NEW,?obj_by_place_hook@@YAPEAXPEAUObjMan@@I@Z,0.411,
+03bc04,100,NEW,?obj_by_place_hook@@YAPEAXPEAUObjMan@@I@Z,0.411,
+03bc68,102,NEW,?input_action_hook@@YAXPEAUObject@@_KPEBD@Z,0.492,
+03bcd0,100,NEW,?input_action_hook@@YAXPEAUObject@@_KPEBD@Z,0.495,
+03bd34,102,NEW,?input_action_hook@@YAXPEAUObject@@_KPEBD@Z,0.492,
+03bd9c,100,NEW,?obj_by_place_hook@@YAPEAXPEAUObjMan@@I@Z,0.411,
+03be00,720,NEW,,0.204,MP_SYNC_ANIM | MP_SYNC_FACING | anim: each game animates every soldier for itself (MP_SYNC_ANIM=0) | i_animch
+03c0d0,300,NEW,,0.234,
+03c1fc,466,NEW,?unmirror@opsave@@YA_NAEAV?$vector@EV?$allocator@E@std@@@std@@AEBUSidecar@1@PEAI@Z,0.191,i_human
+03c3d0,442,NEW,?unmirror@opsave@@YA_NAEAV?$vector@EV?$allocator@E@std@@@std@@AEBUSidecar@1@PEAI@Z,0.213,
+03c58c,195,NEW,?erase@?$vector@USent@@V?$allocator@USent@@@std@@@std@@QEAA?AV?$_Vector_iterator@V?$_Vector_val@U?$_Simple_types@USent@@@std@@@std@@@2@V?$_Vector_const_iterator@V?$_Vector_val@U?$_Simple_types@USent@@@std@@@std@@@2@0@Z,0.331,
+03c650,701,NEW,?shots_sim_step@@YAXPEAUObjMan@@@Z,0.23,"i_techn | hit: %s struck in its owner's game (kind %u, part %x), carried out here"
+03c910,71,NEW,?append@?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@QEAAAEAV12@QEBD_K@Z,0.282,
+03c958,67,NEW,??1?$_List_node_emplace_op2@V?$allocator@U?$_List_node@U?$pair@$$CB_KV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@std@@PEAX@std@@@std@@@std@@QEAA@XZ,0.476,
+03c99c,564,NEW,?dig_hook@@YA_KPEADHPEAM@Z,0.225,"hit: %s struck (kind %u, part %x, ammunition %u), sent"
+03cbd0,74,SAME,?trench_received@@YAXAEBUShotRec@@@Z,0.938,
+03cc1c,235,NEW,,0.274,
+03cd08,412,NEW,?unmirror@opsave@@YA_NAEAV?$vector@EV?$allocator@E@std@@@std@@AEBUSidecar@1@PEAI@Z,0.204,
+03cea4,55,NEW,??$_Uninitialized_value_construct_n_unchecked1@PEAPEAUPending@@_K@std@@YAPEAPEAUPending@@PEAPEAU1@_K@Z,0.204,
+03cedc,460,NEW,?trench_install@@YAXXZ,0.294,MP_SYNC_HITS | MP_LOG_HITS | hit: each game works out every hit for itself (MP_SYNC_HITS=0) | adv_physic.codelib
+03d0a8,89,NEW,?find_main_window@@YAHPEAUHWND__@@_J@Z,0.535,
+03d104,55,NEW,?send_to@@YAXAEBUsockaddr_in@@PEBXH@Z,0.147,
+03d13c,96,NEW,?operation_on_screen@@YAPEAXPEAUObjMan@@@Z,0.432,
+03d19c,53,NEW,,0.471,
+03d1d4,171,NEW,?input_action_hook@@YAXPEAUObject@@_KPEBD@Z,0.323,
+03d280,779,NEW,?launch_hook@@YAXPEAD0_KPEAMPEAXI@Z,0.12," (its player pressed Withdraw) | end: the side %s leaves the battle%s, says its game - carried out here; the battle ends in %.0f s | proposes a ceasefire | fights on"
+03d58c,146,NEW,?input_action_hook@@YAXPEAUObject@@_KPEBD@Z,0.317,
+03d620,283,NEW,?next_turn_hook@@YAXPEAX_KPEBD@Z,0.215,"end: the battle has run out here - it ends when the host's game ends it | , the other side left | , this side left | end: the battle is over here (result %u%s%s) - the other game is told to end its battle now"
+03d73c,361,NEW,??$_Construct_n@AEB_K@?$vector@_KV?$allocator@_K@std@@@std@@AEAAX_KAEB_K@Z,0.165,"end: this game's own numbers gave result %u, the host's give %u - the host's stand | adv_game.codelib |  seen from this side | end: result %u here - the host's verdict%s"
+03d8d4,572,NEW,?ui_start@@YAXPEAUObjMan@@@Z,0.23,tacgame | opgame
+03db10,75,NEW,,0.442,
+03db64,96,NEW,?obj_by_place_hook@@YAPEAXPEAUObjMan@@I@Z,0.436,
+03dbcc,71,CHANGED,?trench_received@@YAXAEBUShotRec@@@Z,0.918,
+03dc14,372,NEW,??$_Reallocate_grow_by@V<lambda_65e615be2a453ca0576c979606f46740>@@PEBD_K@?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEAAAEAV01@_KV<lambda_65e615be2a453ca0576c979606f46740>@@PEBD_K@Z,0.179,
+03dd88,45,NEW,,0.465,
+03ddb8,119,NEW,,0.303,
+03de30,54,NEW,?xlate_desc@@YAII@Z,0.386,
+03de68,350,NEW,?explode_hook@@YAXPEAD0@Z,0.157,end: this game's own view that the side %s should leave the battle is not acted on - that is for the game that commands  |  (Withdraw pressed) | end: the side %s leaves the battle%s - the battle ends in %.0f s; the other game is told
+03dfc8,742,NEW,?shots_install@@YAXPEAUObjMan@@@Z,0.221,i_trigman | trigman | adv_game.codelib | MP_SYNC_END
+03e2b0,206,NEW,?ammo_check@@YAXPEAXPEAMPEAI@Z,0.319,
+03e380,285,NEW,?send_table@@YAXAEBV?$vector@U?$pair@II@std@@V?$allocator@U?$pair@II@std@@@2@@std@@E@Z,0.279,
+03e4a0,153,NEW,?operation_exists@Joiner@@SA_NPEBD00@Z,0.277,
+03e53c,87,NEW,?session_test_ready@@YAXXZ,0.303,end: both players want the ceasefire - the battle ends in %g s
+03e594,93,NEW,??$_Erase_tree@V?$allocator@U?$_Tree_node@U?$pair@$$CBIH@std@@PEAX@std@@@std@@@?$_Tree_val@U?$_Tree_simple_types@U?$pair@$$CBIH@std@@@std@@@std@@QEAAXAEAV?$allocator@U?$_Tree_node@U?$pair@$$CBIH@std@@PEAX@std@@@1@PEAU?$_Tree_node@U?$pair@$$CBIH@std@@PEAX@1@@Z,0.431,
+03e5f4,69,NEW,?xlate_desc@@YAII@Z,0.487,
+03e63c,81,NEW,?squad_record@@YAPEADPEADI@Z,0.536,
+03e690,243,NEW,?end_turn_here@@YAXPEAUObjMan@@@Z,0.213,proposes a ceasefire | takes the ceasefire proposal back | end: this player %s
+03e7a4,37,NEW,,0.399,steam: Steam's callbacks arrive in this program
+03e7cc,53,NEW,,0.345,steam: no connection to %llu could be made (error %u)
+03e804,90,NEW,,0.23,steam: session asked for by %llu - accepted
+03e860,90,NEW,??__Fg_held@@YAXXZ,0.217,steam: session asked for by %llu - accepted
+03e8bc,385,NEW,,0.494,127.0.0.1
+03ea40,109,NEW,?hook_srand@@YAXI@Z,0.327,%sgtmf_fake_steam_%llu.txt
+03eab0,131,NEW,?operation_exists@Joiner@@SA_NPEBD00@Z,0.327,
+03eb34,595,NEW,?upnp_thread@@YAKPEAX@Z,0.114,SteamAPI_SteamFriends_v017 | SteamAPI_SteamUser_v021 | SteamAPI_SteamNetworking_v006 | SteamAPI_SteamUtils_v010
+03ed88,55,NEW,?hook_GetAsyncKeyState@@YAFH@Z,0.513,
+03edc0,33,NEW,,0.195,"+gtmf_join= | root\programs\opgame.progpack, %ssteam:%llu"
+03ede4,449,NEW,,0.198,
+03efa8,568,NEW,?snapshot_operation_saves@@YAXXZ,0.211,"%u %s | steam: Steam did not take the note for friends (asked for '%s', it holds '%s') | +gtmf_join= | root\programs\opgame.progpack, %ssteam:%llu"
+03f1e0,1002,NEW,??R<lambda_4850e5e4fe7cad2db8d8b8fa5a62506f>@@QEBA@AEBV?$vector@UNodeRef@opsave@@V?$allocator@UNodeRef@opsave@@@std@@@std@@@Z,0.148,
+03f5cc,230,NEW,?end_turn_here@@YAXPEAUObjMan@@@Z,0.26,+gtmf_join= | steam: | steam: a join request that is not a multiplayer game's ('%.80s') - ignored | steam:%llu
+03f6b4,44,NEW,,0.535,
+03f6e0,124,NEW,,0.244,fake%llu
+03f75c,802,NEW,?shots_install@@YAXPEAUObjMan@@@Z,0.194,MP_STEAM | steam: switched off (MP_STEAM=0) | MP_STEAM_FAKE | steam: test stand-in: UDP port %llu is taken
+03fa80,286,NEW,?mp_log@@YAXPEBDZZ,0.247,
+03fba0,113,NEW,,0.419," (test stand-in) | steam: 5 s: %llu datagrams sent through Steam, %llu received%s"
+03fc14,258,NEW,?mp_log@@YAXPEBDZZ,0.258,127.0.0.1
+03fd20,321,NEW,,0.0,
+03ff70,69,SAME,,1.0,
+03ffb5,318,SAME,,1.0,
+0400f3,22,SAME,,1.0,
+040109,80,SAME,,1.0,
+040194,29,SAME,,1.0,
+0401b4,96,SAME,,1.0,
+040214,127,SAME,,1.0,
+0402b0,30,SAME,,1.0,
+0402d0,60,SAME,,1.0,
+040314,57,SAME,,1.0,
+040350,52,SAME,,1.0,
+040384,21,SAME,,1.0,
+04039c,40,SAME,,1.0,
+0403c4,21,SAME,,1.0,
+0403dc,96,SAME,,1.0,
+04043c,48,SAME,,1.0,
+04046c,20,SAME,,1.0,
+040480,58,SAME,,1.0,
+0404bc,139,SAME,,1.0,
+040548,152,SAME,,1.0,
+0405e0,36,SAME,,1.0,
+040604,41,SAME,,1.0,
+040630,58,SAME,,1.0,
+04066c,23,SAME,,1.0,
+040684,52,SAME,,1.0,
+0406b8,211,SAME,,1.0,
+04078c,20,SAME,,1.0,
+0407a0,157,SAME,,1.0,
+040840,112,SAME,,1.0,
+0408b0,116,SAME,,1.0,
+040924,60,SAME,,1.0,
+040960,105,SAME,,1.0,
+0409cc,123,SAME,,1.0,
+040a48,43,SAME,,1.0,
+040a74,112,SAME,,1.0,
+040ae4,107,SAME,,1.0,
+040b50,90,SAME,,1.0,
+040bac,80,SAME,,1.0,
+040bfc,278,SAME,,1.0,
+040d14,131,SAME,,1.0,
+040d98,296,SAME,,1.0,
+040ec0,61,SAME,,1.0,
+040f00,661,SAME,,1.0,
+0411bc,32,SAME,?_Throw_bad_array_new_length@std@@YAXXZ,1.0,
+0411fc,331,SAME,,1.0,
+04134c,175,SAME,,1.0,
+041418,27,SAME,,1.0,
+04143c,60,SAME,,1.0,
+041478,60,SAME,,1.0,
+0415a0,2,SAME,,1.0,
+0415c0,6,SAME,,1.0,
+0415c6,38,SAME,?catch$0@?0??survey@@YAXPEAUObjMan@@@Z@4HA,1.0,
+0416e0,38,SAME,?dtor$0@?0???$?HDU?$char_traits@D@std@@V?$allocator@D@1@@std@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@0@$$QEAV10@AEBV10@@Z@4HA,1.0,
+041706,38,SAME,?dtor$0@?0???$?HDU?$char_traits@D@std@@V?$allocator@D@1@@std@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@0@$$QEAV10@AEBV10@@Z@4HA,1.0,
+04172c,38,SAME,?dtor$0@?0???$?HDU?$char_traits@D@std@@V?$allocator@D@1@@std@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@0@$$QEAV10@AEBV10@@Z@4HA,1.0,
+04188a,118,SAME,?catch$3@?0???$_Insert_counted_range@PEAE@?$vector@EV?$allocator@E@std@@@std@@AEAAXV?$_Vector_const_iterator@V?$_Vector_val@U?$_Simple_types@E@std@@@std@@@1@PEAE_K@Z@4HA,1.0,
+041900,89,SAME,?catch$4@?0???$_Insert_counted_range@PEAE@?$vector@EV?$allocator@E@std@@@std@@AEAAXV?$_Vector_const_iterator@V?$_Vector_val@U?$_Simple_types@E@std@@@std@@@1@PEAE_K@Z@4HA,1.0,
+041c43,41,SAME,?dtor$0@?0???R<lambda_4850e5e4fe7cad2db8d8b8fa5a62506f>@@QEBA@AEBV?$vector@UNodeRef@opsave@@V?$allocator@UNodeRef@opsave@@@std@@@std@@@Z@4HA,1.0,
+041fa4,41,SAME,?dtor$0@?0???R<lambda_4850e5e4fe7cad2db8d8b8fa5a62506f>@@QEBA@AEBV?$vector@UNodeRef@opsave@@V?$allocator@UNodeRef@opsave@@@std@@@std@@@Z@4HA,0.923,
+041fcd,41,SAME,?dtor$3@?0??counterpart@opsave@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEBV23@@Z@4HA,0.963,
+04212e,41,SAME,?dtor$0@?0???R<lambda_4850e5e4fe7cad2db8d8b8fa5a62506f>@@QEBA@AEBV?$vector@UNodeRef@opsave@@V?$allocator@UNodeRef@opsave@@@std@@@std@@@Z@4HA,0.923,
+042157,41,SAME,?dtor$3@?0??counterpart@opsave@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEBV23@@Z@4HA,0.963,
+042204,41,SAME,?dtor$4@?0??counterpart@opsave@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEBV23@@Z@4HA,0.963,
+042261,38,SAME,?dtor$0@?0???$?HDU?$char_traits@D@std@@V?$allocator@D@1@@std@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@0@$$QEAV10@AEBV10@@Z@4HA,1.0,
+042287,38,SAME,?dtor$3@?0??counterpart@opsave@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEBV23@@Z@4HA,1.0,
+0422ad,38,SAME,?dtor$4@?0??counterpart@opsave@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEBV23@@Z@4HA,1.0,
+04252f,38,SAME,?dtor$0@?0???$?HDU?$char_traits@D@std@@V?$allocator@D@1@@std@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@0@$$QEAV10@AEBV10@@Z@4HA,1.0,
+042555,38,SAME,?dtor$0@?0???$?HDU?$char_traits@D@std@@V?$allocator@D@1@@std@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@0@$$QEAV10@AEBV10@@Z@4HA,1.0,
+04259f,38,SAME,?dtor$0@?0???$?HDU?$char_traits@D@std@@V?$allocator@D@1@@std@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@0@$$QEAV10@AEBV10@@Z@4HA,1.0,
+0425dd,38,SAME,?dtor$0@?0???$?HDU?$char_traits@D@std@@V?$allocator@D@1@@std@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@0@$$QEAV10@AEBV10@@Z@4HA,1.0,
+042667,38,SAME,?dtor$0@?0???$?HDU?$char_traits@D@std@@V?$allocator@D@1@@std@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@0@$$QEAV10@AEBV10@@Z@4HA,1.0,
+0426b1,41,SAME,?dtor$0@?0???R<lambda_4850e5e4fe7cad2db8d8b8fa5a62506f>@@QEBA@AEBV?$vector@UNodeRef@opsave@@V?$allocator@UNodeRef@opsave@@@std@@@std@@@Z@4HA,1.0,
+04270e,41,SAME,?dtor$0@?0???R<lambda_4850e5e4fe7cad2db8d8b8fa5a62506f>@@QEBA@AEBV?$vector@UNodeRef@opsave@@V?$allocator@UNodeRef@opsave@@@std@@@std@@@Z@4HA,1.0,
+042743,41,SAME,?dtor$0@?0???R<lambda_4850e5e4fe7cad2db8d8b8fa5a62506f>@@QEBA@AEBV?$vector@UNodeRef@opsave@@V?$allocator@UNodeRef@opsave@@@std@@@std@@@Z@4HA,1.0,
+0427a8,38,SAME,?dtor$0@?0???$?HDU?$char_traits@D@std@@V?$allocator@D@1@@std@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@0@$$QEAV10@AEBV10@@Z@4HA,1.0,
+0427ce,38,SAME,?dtor$0@?0???$?HDU?$char_traits@D@std@@V?$allocator@D@1@@std@@YA?AV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@0@$$QEAV10@AEBV10@@Z@4HA,1.0,
+042944,41,SAME,?dtor$0@?0???R<lambda_4850e5e4fe7cad2db8d8b8fa5a62506f>@@QEBA@AEBV?$vector@UNodeRef@opsave@@V?$allocator@UNodeRef@opsave@@@std@@@std@@@Z@4HA,1.0,
+042979,41,SAME,?dtor$0@?0???R<lambda_4850e5e4fe7cad2db8d8b8fa5a62506f>@@QEBA@AEBV?$vector@UNodeRef@opsave@@V?$allocator@UNodeRef@opsave@@@std@@@std@@@Z@4HA,1.0,
+0429ae,41,SAME,?dtor$0@?0???R<lambda_4850e5e4fe7cad2db8d8b8fa5a62506f>@@QEBA@AEBV?$vector@UNodeRef@opsave@@V?$allocator@UNodeRef@opsave@@@std@@@std@@@Z@4HA,1.0,
+042bdd,32,SAME,?filt$0@?0??node_lookup_hook@@YAIPEAD_KH@Z@4HA,1.0,
+042c21,58,SAME,?catch$6@?0??state_debug_step@@YAXPEAUObjMan@@_K@Z@4HA,1.0,state survey: %s failed while saving
+042c67,45,CHANGED,?dtor$1@?0??state_load_keep_motion@@YAHPEAUObject@@PEBE_K_N@Z@4HA,0.909,
+043328,32,CHANGED,?filt$0@?0??node_lookup_hook@@YAIPEAD_KH@Z@4HA,0.833,
+043360,24,SAME,,1.0,
+043378,44,SAME,,1.0,
+0433a4,44,SAME,,1.0,
+0433d0,91,SAME,,1.0,
+04342b,23,SAME,,1.0,
+043442,25,SAME,,1.0,
+04345b,20,SAME,,1.0,
+04346f,54,SAME,,1.0,
+0434a8,88,SAME,??__Fg_my_units@@YAXXZ,1.0,
+043530,88,CHANGED,??__Fg_held@@YAXXZ,0.909,
+0435d0,88,SAME,??__Fg_my_units@@YAXXZ,1.0,
+043634,88,SAME,??__Fg_my_units@@YAXXZ,1.0,
+04368c,88,SAME,??__Fg_sent@@YAXXZ,1.0,
+0436f0,88,SAME,??__Fg_units@@YAXXZ,1.0,
+043748,88,SAME,??__Fg_my_units@@YAXXZ,1.0,
+0437a0,88,SAME,??__Fg_my_units@@YAXXZ,1.0,
+0437f8,85,NEW,??__Fg_joiner@@YAXXZ,0.531,
+04385c,33,SAME,??__Fg_text@@YAXXZ,1.0,
+043880,88,CHANGED,??__Fg_held@@YAXXZ,0.909,
+0438f0,57,SAME,??__Fg_incoming@@YAXXZ,1.0,
+04392c,57,SAME,??__Fg_tracks@@YAXXZ,1.0,
+043968,88,SAME,??__Fg_units@@YAXXZ,1.0,
+0439d8,105,SAME,,1.0,
+043a80,88,SAME,??__Fg_my_units@@YAXXZ,1.0,
+043ad8,88,SAME,??__Fg_units@@YAXXZ,1.0,
+043b54,88,SAME,??__Fg_units@@YAXXZ,1.0,
+043bac,88,SAME,??__Fg_units@@YAXXZ,1.0,
+043c04,88,SAME,??__Fg_my_units@@YAXXZ,1.0,
+043c5c,88,SAME,??__Fg_my_units@@YAXXZ,1.0,
+043cd8,88,SAME,??__Fg_my_units@@YAXXZ,1.0,
+043d3c,88,SAME,??__Fg_units@@YAXXZ,1.0,
+043d94,88,CHANGED,??__Fg_held@@YAXXZ,0.909,
+043dec,88,CHANGED,??__Fg_held@@YAXXZ,0.909,
