@@ -162,6 +162,9 @@ static SOCKET g_fake_socket = INVALID_SOCKET;
 static uint16_t g_fake_port;
 static char g_fake_file[MAX_PATH] = {0};
 static char g_fake_persona[STEAM_NAME_MAX] = {0};
+static unsigned long long g_sent_packets, g_received_packets;   // since the last five-second line
+static unsigned long long g_sent_total, g_received_total;
+static DWORD g_stats_at;
 
 static session_request_cb g_cb_request;
 static session_fail_cb g_cb_fail;
@@ -426,9 +429,37 @@ void steam_shutdown()
     g_ready = false;
 }
 
+void steam_traffic_totals(unsigned long long *sent, unsigned long long *received)
+{
+    if (sent)
+        *sent = g_sent_total;
+    if (received)
+        *received = g_received_total;
+}
+
+// v20 counts what actually crosses the transport and says so every five seconds: in a battle that
+// is the only line that tells "Steam is being used" from "Steam was initialised and nothing goes
+// through it".  The stand-in carries the same counter, so the number is meaningful without Steam.
+static void report_traffic()
+{
+    DWORD now = GetTickCount();
+    if (now - g_stats_at < 5000)
+        return;
+    g_stats_at = now;
+    if (!g_sent_packets && !g_received_packets)
+        return;
+    steam_log("steam: 5 s: %llu datagrams sent through Steam, %llu received%s",
+              g_sent_packets, g_received_packets, g_fake ? " (test stand-in)" : "");
+    steam_traffic_note(g_sent_packets, g_received_packets);
+    g_sent_packets = g_received_packets = 0;
+}
+
 void steam_frame()
 {
-    if (!g_ready || g_fake)
+    if (!g_ready)
+        return;
+    report_traffic();
+    if (g_fake)
         return;
     // RunCallbacks is what makes the registered callbacks fire.  It lives in the game's
     // steam_api64.dll as a flat export; we resolve it lazily rather than add a 22nd slot for it.
@@ -454,9 +485,18 @@ bool steam_send(uint64_t peer, const void *data, int len)
         address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
         int sent = sendto(g_fake_socket, (const char *)data, len, 0, (sockaddr *)&address,
                           sizeof(address));
+        if (sent == len) {
+            ++g_sent_packets;
+            ++g_sent_total;
+        }
         return sent == len;
     }
-    return g_api.net_send(g_net, peer, data, (uint32_t)len, kSendType, STEAM_CHANNEL);
+    bool ok = g_api.net_send(g_net, peer, data, (uint32_t)len, kSendType, STEAM_CHANNEL);
+    if (ok) {
+        ++g_sent_packets;
+        ++g_sent_total;
+    }
+    return ok;
 }
 
 int steam_recv(uint64_t *peer, void *data, int capacity)
@@ -471,6 +511,8 @@ int steam_recv(uint64_t *peer, void *data, int capacity)
             return 0;
         if (peer)
             *peer = ntohs(address.sin_port);
+        ++g_received_packets;
+        ++g_received_total;
         return got;
     }
     uint32_t size = 0;
@@ -480,6 +522,8 @@ int steam_recv(uint64_t *peer, void *data, int capacity)
         if (g_api.net_read(g_net, data, (uint32_t)capacity, &read, &from, STEAM_CHANNEL)) {
             if (peer)
                 *peer = from;
+            ++g_received_packets;
+            ++g_received_total;
             return (int)read;
         }
     }
@@ -615,6 +659,8 @@ void steam_test_reset()
     g_connect[0] = 0;
     g_broadcasting = false;
     g_operation = 0;
+    g_sent_packets = g_received_packets = g_sent_total = g_received_total = 0;
+    g_stats_at = 0;
     if (g_fake_socket != INVALID_SOCKET) {
         closesocket(g_fake_socket);
         g_fake_socket = INVALID_SOCKET;

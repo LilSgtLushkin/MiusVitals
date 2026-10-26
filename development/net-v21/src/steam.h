@@ -38,6 +38,11 @@ struct steam_peer {
 // in the same log as everything else, the self-test prints to stdout.
 void steam_log(const char *fmt, ...);
 
+// Where the five-second traffic totals go.  The module feeds them to the run log; a console program
+// (self-test, join launcher) links the empty implementation in steam_logger.cpp.  One of the two is
+// always linked, so steam.cpp never needs to know which world it is in.
+void steam_traffic_note(unsigned long long sent, unsigned long long received);
+
 // Lifecycle.  steam_init() is idempotent and safe to call every frame; it returns true when the
 // transport is usable.  It never throws and never aborts the game: every failure is a log line.
 bool steam_init();
@@ -76,6 +81,10 @@ inline uint64_t steam_peer_id(const sockaddr_in *address)
     memcpy(&id, address->sin_zero, sizeof id);
     return id;
 }
+
+// Totals since the layer came up: what the transport has actually moved.  The self-test uses them;
+// the five-second line is built from the same counters.
+void steam_traffic_totals(unsigned long long *sent, unsigned long long *received);
 
 // Datagrams.  Returns false when the peer is unreachable or the transport is off.
 bool steam_send(uint64_t peer, const void *data, int len);

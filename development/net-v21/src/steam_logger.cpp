@@ -8,6 +8,9 @@
 #include <stdarg.h>
 #include <stdio.h>
 
+// No run log in a console program: the totals are only interesting when something collects them.
+void steam_traffic_note(unsigned long long, unsigned long long) {}
+
 void steam_log(const char *fmt, ...)
 {
     va_list args;

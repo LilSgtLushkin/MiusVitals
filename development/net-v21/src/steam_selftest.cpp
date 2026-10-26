@@ -100,6 +100,11 @@ int main()
     check(steam_presence("17 cloud"), "presence is recorded in stand-in mode");
     check(strcmp(steam_presence_value(), "17 cloud") == 0, "and reads back");
 
+    // ---- 4b. the totals behind the five-second line v20 prints
+    unsigned long long sent_total = 0, received_total = 0;
+    steam_traffic_totals(&sent_total, &received_total);
+    check(sent_total >= 1 && received_total >= 1, "the transport counted the datagrams it moved");
+
     // ---- 5. what friends are shown: both presence keys v20 uses, word for word
     check(steam_broadcast(true, 17), "hosting is advertised to friends");
     check(strcmp(steam_presence_value(), "17 game") == 0,
