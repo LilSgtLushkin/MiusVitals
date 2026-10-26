@@ -172,7 +172,7 @@ void netlog_open(HMODULE self, const char *program, const char *out_dir)
         fclose(image);
     }
 
-    write_line("boot", "=== net_v21: our own network module, v1.0.2-test ===");
+    write_line("boot", "=== net_v21: our own network module, v1.0.0 ===");
 #ifdef _MSC_VER
     write_line("boot", "build: compiled %s %s, MSVC %d", __DATE__, __TIME__, (int)_MSC_VER);
 #else

@@ -37,7 +37,7 @@ struct Joiner {
     std::vector<unsigned char> image, have;
     std::vector<DWORD> asked;
     unsigned image_hash = 0, got = 0;
-    DWORD last_hello = 0, started = 0;
+    DWORD last_hello = 0, started = 0, last_ask = 0;
 
     bool fail(const char *why)
     {
@@ -130,7 +130,11 @@ struct Joiner {
             send_host(&hello, sizeof hello);
             last_hello = now;
         }
-        if (state == RECEIVING) {
+        // The pieces are asked for in small bursts, not one burst per frame: a menu that wants a whole
+        // description used to put a thousand requests on the wire in half a second and get nothing back,
+        // because the host was already in the battle.
+        if (state == RECEIVING && now - last_ask >= 60) {
+            last_ask = now;
             unsigned sent = 0;
             for (unsigned i = 0; i < have.size() && sent < 24; i++) {
                 if (have[i] || now - asked[i] < 300) continue;

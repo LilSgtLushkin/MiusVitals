@@ -36,7 +36,7 @@ where cl
 cd /d "%~dp0"
 
 rem Our tree: the published sources copied into src\ and changed where we need them.
-set BASE=src\basic_network.cpp src\netlog.cpp src\session.cpp src\ui.cpp src\state.cpp src\statesync.cpp src\shots.cpp src\trench.cpp src\xlate.cpp
+set BASE=src\basic_network.cpp src\netlog.cpp src\hooks.cpp src\session.cpp src\ui.cpp src\state.cpp src\statesync.cpp src\shots.cpp src\trench.cpp src\xlate.cpp
 set STEAM=src\steam.cpp src\steam_module.cpp
 rem The published sources untouched: the baseline is built from these, not from src\, so M1 keeps
 rem measuring the toolchain instead of our edits. development\upstream\ is the frozen copy.

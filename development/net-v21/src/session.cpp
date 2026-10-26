@@ -17,6 +17,7 @@
 #include "protocol.h"
 #include "image.h"
 #include "detour.h"
+#include "hooks.h"
 #include "opsave.h"
 #include "joiner.h"
 #include <winsock2.h>
@@ -100,7 +101,7 @@ static bool g_have_host_clock;
 static u32 g_peer_sim_ms, g_peer_phase;    // host: the joining game's battle clock and phase, and when they were heard
 static DWORD g_peer_clock_at, g_waiting_since;
 static bool g_clock_adopted;
-static u32 g_snapshot, g_stat_sent, g_stat_applied, g_stat_packets, g_stat_bytes, g_stat_snaps;
+static u32 g_snapshot, g_stat_sent, g_stat_applied, g_stat_packets, g_stat_rx_bytes, g_stat_tx_bytes, g_stat_snaps;
 static double g_stat_err_sum;
 static float g_stat_err_max;
 static u64 g_sim_ms;
@@ -258,21 +259,22 @@ const char *session_status(void)
 // this line - HELLO, the image transfer, the state and shot packets - is transport-agnostic.
 static void send_to(const sockaddr_in &to, const void *data, int size)
 {
-    if (to.sin_family == STEAM_FAMILY) {
-        if (steam_send(steam_peer_id(&to), data, size)) g_stat_bytes += size;
-        return;
-    }
-    sendto(g_sock, (const char *)data, size, 0, (const sockaddr *)&to, sizeof to);
-    g_stat_bytes += size;
+    bool sent;
+    if (to.sin_family == STEAM_FAMILY)
+        sent = steam_send(steam_peer_id(&to), data, size) != 0;
+    else
+        sent = sendto(g_sock, (const char *)data, size, 0, (const sockaddr *)&to, sizeof to) == size;
+    if (!sent) return;
+    g_stat_tx_bytes += size;
+    // Every datagram out through the counter, whichever transport carries it: HELLO, the image pieces and
+    // the state stream used to go round it, and then the two ends' totals could never be compared.
+    netlog_packet("tx", (const unsigned char *)data, size, ntohl(to.sin_addr.s_addr), ntohs(to.sin_port),
+                  to.sin_family);
 }
 
 static void send_peer(const void *data, int size)
 {
-    if (g_sock != INVALID_SOCKET && g_have_peer) {
-        send_to(g_peer, data, size);
-        netlog_packet("tx", (const unsigned char *)data, size, ntohl(g_peer.sin_addr.s_addr),
-                      ntohs(g_peer.sin_port), g_peer.sin_family);
-    }
+    if (g_sock != INVALID_SOCKET && g_have_peer) send_to(g_peer, data, size);
 }
 
 // Full-state replication. MP_SYNC_STATE=0 switches it off (positions only), =1 forces it on.
@@ -706,13 +708,16 @@ static void profile_path(char *out, size_t size, const char *file)
 static bool save_operation(ObjMan *om, std::vector<unsigned char> &out, char *file, size_t file_size)
 {
     static const unsigned char sig[] = { 0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x7c, 0x24, 0x10, 0x55, 0x48, 0x8d, 0xac, 0x24, 0x10, 0xff, 0xff, 0xff };
+    static const HookSig where[] = { { 0xd6080, sig, sizeof sig } };
+    static void *save = (void *)1;              // 1: not looked for yet, 0: not in this build
     void *op = operation_on_screen(om);
     HMODULE m = GetModuleHandleA("adv_opgame.codelib");
     if (!op || !m) return false;
-    if (memcmp((char *)m + 0xd6660, sig, sizeof sig)) { mp_log("map: unknown game build, the operation cannot be saved from here"); return false; }
+    if (save == (void *)1) save = hook_resolve("adv_opgame.codelib", where, 1, "saving the operation");
+    if (!save) { mp_log("map: unknown game build, the operation cannot be saved from here"); return false; }
     FILETIME before;
     GetSystemTimeAsFileTime(&before);
-    ((void (*)(void *))((char *)m + 0xd6660))(op);
+    ((void (*)(void *))save)(op);
     // the save it has just written: the newest operation save of the profile
     char find[MAX_PATH], path[MAX_PATH];
     WIN32_FIND_DATAA fd, best = {};
@@ -935,10 +940,28 @@ static void map_moved_on(void)
     g_turn_done = false;
 }
 
-// adv_opgame+0x76810(controller, 0, 0, 0): what "next turn" does once confirmed.
+static void press_next_turn(void);
+
+// adv_opgame+0x76510(controller, 0, 0, 0): what "next turn" does once confirmed.
+//
+// On a build whose "next turn" control is not the function v20 detoured, the turn is coordinated one step
+// later: at the moment the game would carry it out.  The player still confirms his turn in the game's own
+// box, and what waits for the other player is the step that actually ends the turn - the same end state,
+// with one verified hook instead of one guess.
+static bool g_turn_executing;       // this module is carrying the turn out itself
+
 static void turn_worker_hook(void *ctrl, char a, void *b, void *c)
 {
-    if (g_role == ROLE_HOST && !a && !b && !c) map_moved_on();
+    bool plain = g_role != ROLE_NONE && !a && !b && !c;
+    if (plain && !g_turn_executing) {
+        bool wait = g_map_mode ? (!g_map_given && !g_map_sent)
+                               : (other_player_on_map() && !g_map_collect && !g_map_restart_at);
+        if (wait) {
+            press_next_turn();      // this player is done; ending the turn waits for the other one
+            return;
+        }
+    }
+    if (g_role == ROLE_HOST && plain) map_moved_on();
     g_turn_worker(ctrl, a, b, c);
 }
 
@@ -977,17 +1000,28 @@ static void next_turn_hook(void *ctrl, u64 b, const char *event)
 static void install_map_detours(void)
 {
     static const unsigned char sig[] = { 0x48, 0x89, 0x5c, 0x24, 0x08, 0x57, 0x48, 0x83, 0xec, 0x30, 0x0f, 0x57, 0xc0, 0x49, 0x8b, 0xd8 };
+    static const unsigned char worker_sig[] = { 0x48, 0x8b, 0xc4, 0x44, 0x88, 0x40, 0x18, 0x88, 0x50, 0x10, 0x55, 0x56, 0x57, 0x41, 0x56 };
+    static const HookSig next_where[] = { { 0x36b40, sig, sizeof sig } };
+    static const HookSig worker_where[] = { { 0x76510, worker_sig, sizeof worker_sig } };
     static bool done;
     bool host = g_role == ROLE_HOST && !g_tactical && g_host_mode == HOST_MODE_OPERATION;
     if (done || (!g_map_mode && !host)) return;
-    HMODULE m = GetModuleHandleA("adv_opgame.codelib");
-    if (!m) return;
+    if (!GetModuleHandleA("adv_opgame.codelib")) return;
     done = true;
-    static const unsigned char worker_sig[] = { 0x48, 0x8b, 0xc4, 0x44, 0x88, 0x40, 0x18, 0x88, 0x50, 0x10, 0x55, 0x56, 0x57, 0x41, 0x56 };
-    if (memcmp((char *)m + 0x36b40, sig, sizeof sig)) { mp_log("map: unknown game build, ending the turn is not coordinated between the players"); return; }
-    g_next_turn = (NextTurn)install_detour((char *)m + 0x36b40, sizeof sig, next_turn_hook);
-    if (host && !memcmp((char *)m + 0x76810, worker_sig, sizeof worker_sig))
-        g_turn_worker = (TurnWorker)install_detour((char *)m + 0x76810, sizeof worker_sig, turn_worker_hook);
+    char *next = hook_resolve("adv_opgame.codelib", next_where, 1, "the next turn control");
+    char *worker = hook_resolve("adv_opgame.codelib", worker_where, 1, "ending the turn");
+    if (next) g_next_turn = (NextTurn)install_detour(next, sizeof sig, next_turn_hook);
+    if (worker) g_turn_worker = (TurnWorker)install_detour(worker, sizeof worker_sig, turn_worker_hook);
+    if (!g_next_turn && !g_turn_worker) {
+        mp_log("map: unknown game build, ending the turn is not coordinated between the players");
+        return;
+    }
+    if (g_next_turn && g_turn_worker)
+        mp_log("map: the next turn control and the step that ends the turn are hooked");
+    else if (g_turn_worker)
+        mp_log("map: the turn waits at the step that ends it (the control itself is the game's)");
+    else
+        mp_log("map: the next turn control is hooked, the turn is carried out by the game");
     if (g_map_mode) mp_log("map: this player's side of the operational map; the turn ends when both players have pressed next turn");
     else mp_log("map: the turn ends when both players have pressed next turn; the other player's moves are collected then");
 }
@@ -996,16 +1030,20 @@ static void install_map_detours(void)
 static void end_turn_here(ObjMan *om)
 {
     static const unsigned char sig[] = { 0x48, 0x8b, 0xc4, 0x44, 0x88, 0x40, 0x18, 0x88, 0x50, 0x10, 0x55, 0x56, 0x57, 0x41, 0x56 };
-    HMODULE m = GetModuleHandleA("adv_opgame.codelib");
+    static const HookSig where[] = { { 0x76510, sig, sizeof sig } };
+    static void *worker = (void *)1;            // 1: not looked for yet, 0: not in this build
     void *c = menu_controller_of(om);
+    if (worker == (void *)1) worker = hook_resolve("adv_opgame.codelib", where, 1, "ending the turn");
     // (with the worker detoured its first bytes are our jump; they were checked when the detour went in)
-    if (!m || !c || !operation_on_screen(om) || (!g_turn_worker && memcmp((char *)m + 0x76810, sig, sizeof sig))) {
+    if (!c || !operation_on_screen(om) || (!g_turn_worker && !worker)) {
         mp_log("map: the turn could not be ended from here");
         return;
     }
     mp_log("map: ending the turn");
+    g_turn_executing = true;
     if (g_turn_worker) turn_worker_hook(c, 0, 0, 0);
-    else { map_moved_on(); ((void (*)(void *, char, void *, void *))((char *)m + 0x76810))(c, 0, 0, 0); }
+    else { map_moved_on(); ((void (*)(void *, char, void *, void *))worker)(c, 0, 0, 0); }
+    g_turn_executing = false;
     g_share_after = GetTickCount() + 12000;
 }
 
@@ -1102,6 +1140,11 @@ static void host_map_frame(ObjMan *om, DWORD now)
 static void request_map_pieces(DWORD now)
 {
     if (g_map_in.empty() || g_map_got == g_map_have.size()) return;
+    // 24 pieces per 60 ms at most: the frame runs a hundred times a second and a request per frame is
+    // 2400 datagrams a second with nothing to show for it.
+    static DWORD last;
+    if (now - last < 60) return;
+    last = now;
     unsigned sent = 0;
     for (unsigned i = 0; i < g_map_have.size() && sent < 24; i++) {
         if (g_map_have[i] || now - g_map_asked[i] < 300) continue;
@@ -1583,24 +1626,37 @@ static void timer_step_hook(char *ct, float dt, u32 arg)
 static void install_detours(void)
 {
     static const unsigned char start_sig[] = { 0x40, 0x53, 0x48, 0x83, 0xec, 0x40, 0x48, 0x8b, 0xd9, 0x80, 0xb9, 0xda, 0x0e, 0x00, 0x00, 0x00 };
-    static const unsigned char input_sig[] = { 0x48, 0x89, 0x5c, 0x24, 0x08, 0x57, 0x48, 0x83, 0xec, 0x50, 0x49, 0x8b, 0xd8, 0x48, 0x8b, 0xf9 };
+    // the key handler: the game build of 2026-10 keeps the shape and changes the frame and which register
+    // holds the event, so both forms are listed and the one that is there is used
+    static const unsigned char input_sig[] = { 0x48, 0x89, 0x5c, 0x24, 0x08, 0x57, 0x48, 0x83, 0xec, 0x40, 0x49, 0x8b, 0xf8, 0x48, 0x8b, 0xd9 };
+    static const unsigned char input_sig_old[] = { 0x48, 0x89, 0x5c, 0x24, 0x08, 0x57, 0x48, 0x83, 0xec, 0x50, 0x49, 0x8b, 0xd8, 0x48, 0x8b, 0xf9 };
     static const unsigned char box_sig[] = { 0x40, 0x55, 0x48, 0x83, 0xec, 0x30, 0x8b, 0x81, 0xe8, 0x0d, 0x00, 0x00, 0x48, 0x8b, 0xe9 };
     static const unsigned char timer_sig[] = { 0x48, 0x8b, 0xc4, 0x48, 0x89, 0x58, 0x08, 0x48, 0x89, 0x70, 0x10, 0x48, 0x89, 0x78, 0x20 };
+    static const HookSig start_where[] = { { 0x3b320, start_sig, sizeof start_sig } };
+    static const HookSig input_where[] = { { 0x3b460, input_sig, sizeof input_sig }, { 0x3b4f0, input_sig_old, sizeof input_sig_old } };
+    static const HookSig box_where[] = { { 0x41630, box_sig, sizeof box_sig } };
+    static const HookSig timer_where[] = { { 0x4200, timer_sig, sizeof timer_sig } };
     static bool done;
     if (done || !g_tactical || g_role == ROLE_NONE) return;
     HMODULE interf = GetModuleHandleA("adv_interf.codelib"), base = GetModuleHandleA("base_main.codelib");
     if (!interf || !base) return;
     done = true;
-    char *start = (char *)interf + 0x3b3b0, *input = (char *)interf + 0x3b4f0, *box = (char *)interf + 0x41700, *timer = (char *)base + 0x4200;
+    char *start = hook_resolve("adv_interf.codelib", start_where, 1, "the Start button");
+    char *input = hook_resolve("adv_interf.codelib", input_where, 2, "the Start key");
+    char *box = hook_resolve("adv_interf.codelib", box_where, 1, "the end-deployment box");
+    char *timer = hook_resolve("base_main.codelib", timer_where, 1, "the battle clock");
     // all three or none: a half-gated Start button would let one player skip the other
-    if (!memcmp(start, start_sig, sizeof start_sig) && !memcmp(input, input_sig, sizeof input_sig) && !memcmp(box, box_sig, sizeof box_sig)) {
+    if (start && input && box) {
         g_input_action = (InputAction)install_detour(input, sizeof input_sig, input_action_hook);
         g_box_result = (BoxResult)install_detour(box, sizeof box_sig, box_result_hook);
         g_start_action = (StartAction)install_detour(start, sizeof start_sig, start_action_hook);
+    } else if (start || input || box) {
+        mp_log("net: only %d of the three Start button pieces is in this game build, the button is left alone",
+               (start ? 1 : 0) + (input ? 1 : 0) + (box ? 1 : 0));
     }
     char v[16];
     if (GetEnvironmentVariableA("MP_SIM_HZ", v, sizeof v)) g_sim_step = atoi(v) > 0 ? 1.0 / atoi(v) : 0;
-    if (!memcmp(timer, timer_sig, sizeof timer_sig)) g_timer_step = (TimerStep)install_detour(timer, sizeof timer_sig, timer_step_hook);
+    if (timer) g_timer_step = (TimerStep)install_detour(timer, sizeof timer_sig, timer_step_hook);
     mp_log("net: Start button %s, battle clock %s, simulation at %d steps per second",
            g_start_action ? "shared between the players" : "not hooked (unknown game build)",
            !g_timer_step ? "not hooked (unknown game build)" : g_role == ROLE_JOIN ? "follows the host" : "is this game's",
@@ -1824,6 +1880,13 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
                 g_connected = true;
                 mp_log("net: connected to host (host commands %s)", image::side_name(w->user_side));
             }
+            // The two games must be playing the same battle.  The description is each game's own file, so
+            // it is worth saying out loud when they differ - that is the one thing that makes every later
+            // difference unexplainable.
+            if (g_tactical && !g_image.empty() && w->image_size &&
+                (w->image_size != g_image.size() || w->image_hash != g_image_hash))
+                mp_log("net: the battle description differs from the host's: %u bytes (hash %08x) here, %u bytes (hash %08x) on the host",
+                       (unsigned)g_image.size(), g_image_hash, w->image_size, w->image_hash);
             memcpy(g_peer_name, w->name, sizeof g_peer_name);
             g_peer_name[sizeof g_peer_name - 1] = 0;
             if (g_map_mode) {
@@ -1944,7 +2007,7 @@ void session_frame(ObjMan *om)
         int flen = sizeof from;
         int n = recvfrom(g_sock, (char *)buf, sizeof buf, 0, (sockaddr *)&from, &flen);
         if (n <= 0) break;
-        g_stat_bytes += n;
+        g_stat_rx_bytes += n;
         on_packet(from, buf, n, now);
         if (g_sock == INVALID_SOCKET) return;
     }
@@ -2002,8 +2065,12 @@ void session_frame(ObjMan *om)
         shots_frame(send_peer);
     }
 
-    if (g_connected && now - g_last_rx > 8000) {
-        mp_log("net: connection lost (nothing received for 8 s)");
+    // The other game is quiet while it loads a battle (its menu closes and the tactical game takes over),
+    // and eight seconds of that is not a lost connection.  Before the battle the wait is 20 s, in the
+    // battle itself 8 s.
+    DWORD patience = (g_tactical && g_phase >= 2) ? 8000u : 20000u;
+    if (g_connected && now - g_last_rx > patience) {
+        mp_log("net: connection lost (nothing received for %u s)", (unsigned)(patience / 1000));
         g_connected = false;
         g_peer_ready = 0;
         if (g_role == ROLE_JOIN && g_tactical && !g_host_lost) g_host_lost = now ? now : 1;
@@ -2012,8 +2079,9 @@ void session_frame(ObjMan *om)
     if (g_host_lost && now - g_host_lost > 4000) leave_battle_for_menu();
     if (now - g_last_report >= 5000) {
         if (g_connected && g_tactical && (g_stat_sent || g_stat_applied)) {
-            mp_log("net: 5 s: sent %u and applied %u unit transforms, mean correction %.2f m, largest %.2f m, %u jumps, %.1f KB/s in total",
-                   g_stat_sent, g_stat_applied, g_stat_applied ? g_stat_err_sum / g_stat_applied : 0.0, g_stat_err_max, g_stat_snaps, g_stat_bytes / 5120.0);
+            mp_log("net: 5 s: sent %u and applied %u unit transforms, mean correction %.2f m, largest %.2f m, %u jumps, rx %.1f / tx %.1f KB/s",
+                   g_stat_sent, g_stat_applied, g_stat_applied ? g_stat_err_sum / g_stat_applied : 0.0, g_stat_err_max, g_stat_snaps,
+                   g_stat_rx_bytes / 5120.0, g_stat_tx_bytes / 5120.0);
             statesync_report();
             shots_report();
             trench_report();
@@ -2030,7 +2098,7 @@ void session_frame(ObjMan *om)
         g_prof_frames = g_prof_steps = g_prof_step_ms = 0;
         g_prof_save = g_prof_load = 0;
         g_last_report = now;
-        g_stat_sent = g_stat_applied = g_stat_packets = g_stat_bytes = g_stat_snaps = 0;
+        g_stat_sent = g_stat_applied = g_stat_packets = g_stat_rx_bytes = g_stat_tx_bytes = g_stat_snaps = 0;
         g_stat_err_sum = 0;
         g_stat_err_max = 0;
     }
