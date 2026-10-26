@@ -32,6 +32,7 @@ RECOVERY = ROOT / "development" / "v20-recovery"
 sys.path.insert(0, str(RECOVERY / "tools"))
 
 import v20tool  # noqa: E402  (the PE reader, tokenizer and matcher already used for the v20 work)
+import rules  # noqa: E402  (milestone rules: the same ones the v20 backlog is filed under)
 
 
 # The verified v20 names (docs/NETWORK_LIMITATIONS.md, docs/V20_*.md).  Kept here rather than
@@ -87,6 +88,50 @@ def reference_names(reference: str, image: v20tool.Image) -> dict[int, str]:
     return names
 
 
+def backlog_rows(path: Path) -> list[dict]:
+    """The v20 work items: every function the classification did not call SAME.
+
+    Same file the backlog report is generated from, so the coverage table and
+    `v20-backlog.md` cannot drift apart.
+    """
+    import csv
+    if not path.is_file():
+        return []
+    rows = []
+    for row in csv.DictReader(path.open(newline="", encoding="utf-8")):
+        if row["status"] == "SAME":
+            continue
+        rows.append({"rva": int(row["rva"], 16), "size": int(row["size"]),
+                     "status": row["status"], "v12_name": row["v12_name"],
+                     "strings": row["strings"]})
+    return rows
+
+
+def coverage(rows: list[dict], backlog: list[dict], threshold: float = 0.55) -> dict:
+    """Which v20 work items does this build already account for?
+
+    Two rules, because there are two ways code arrives here:
+
+    * the build matches the v20 function at or above the threshold the matcher uses for CHANGED -
+      this covers the ported code;
+    * the build has a function carrying the same name - this covers our own rewrites, which
+      implement the same behaviour and are never going to score high against v20's instructions.
+    """
+    covered: set[int] = set()
+    for row in rows:
+        target = row.get("ref_rva")
+        if target is None:
+            continue
+        if row["similarity"] >= threshold or row["status"] in ("SAME", "CHANGED"):
+            covered.add(target)
+    ours = {(row.get("own") or "").lower() for row in rows if row.get("own")}
+    for item in backlog:
+        name = item["v12_name"].split("@")[0].lstrip("?").lower()
+        if name and name in ours:
+            covered.add(item["rva"])
+    return {"covered": covered}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--candidate", type=Path, required=True)
@@ -96,6 +141,9 @@ def main() -> int:
     parser.add_argument("--label", default="compare")
     parser.add_argument("--out", type=Path)
     parser.add_argument("--json", type=Path)
+    parser.add_argument("--backlog", type=Path,
+                        default=RECOVERY / "reports" / "v20-functions.csv",
+                        help="the v20 classification; coverage is filed by its milestones")
     parser.add_argument("--focus", default="",
                         help="comma separated substrings: functions whose name matches are listed first")
     args = parser.parse_args()
@@ -131,6 +179,72 @@ def main() -> int:
     if args.json:
         args.json.write_text(json.dumps(rows, indent=1))
 
+    # ---- what the build does not do yet, filed the way the work is filed
+    #
+    # Matching is a map, not a verdict: a rewrite of the same behaviour will not score high against
+    # the original instructions, so a low similarity does not mean "not implemented".  The question
+    # that decides progress is different - of the v20 work items, which ones does this build have
+    # something for at all?  That is a coverage question, and it is asked per milestone, because a
+    # milestone is a feature, and features are what the two-PC run accepts.
+    coverage_lines: list[str] = []
+    if args.reference_kind == "v20":
+        backlog = backlog_rows(args.backlog)
+        cov = coverage(rows, backlog)["covered"]
+        if backlog:
+            filed = [(rules.milestone(row), row) for row in backlog]
+            order = ["M2", "M3", "M4", "M5", "M6", "M8", "M7"]
+            groups: dict[str, dict] = {}
+            for (tag, label), row in filed:
+                group = groups.setdefault(tag, {"label": label, "total": 0, "bytes": 0, "covered": 0,
+                                                "covered_bytes": 0, "missing": []})
+                group["total"] += 1
+                group["bytes"] += row["size"]
+                if row["rva"] in cov:
+                    group["covered"] += 1
+                    group["covered_bytes"] += row["size"]
+                else:
+                    group["missing"].append(row)
+            missing_all = [r for tag in order for r in (groups.get(tag, {}).get("missing") or [])]
+            covered_total = len(backlog) - len(missing_all)
+            print(f"  coverage: {covered_total}/{len(backlog)} work items accounted for, "
+                  f"{len(missing_all)} missing ({sum(r['size'] for r in missing_all)} B)")
+            coverage_lines = [
+                "## Feature coverage",
+                "",
+                "The work is filed by milestone in `development/v20-recovery/reports/v20-backlog.md`;",
+                "this table says which of those items this build already has something for.  A v20",
+                "function counts as **covered** when the build matches it at or above the CHANGED",
+                "threshold, or when the build has a function with the same name - the second rule is what",
+                "recognises our own rewrites, which are not supposed to look like v20's instructions.",
+                "",
+                "| milestone | work items | bytes | covered | missing | missing bytes |",
+                "|---|---|---|---|---|---|",
+            ]
+            for tag in order:
+                group = groups.get(tag)
+                if not group:
+                    continue
+                label = group["label"].split(":")[0].split("(")[0].strip()
+                coverage_lines.append(
+                    f"| {tag} {label} | {group['total']} | {group['bytes']} | {group['covered']} | "
+                    f"{group['total'] - group['covered']} | {group['bytes'] - group['covered_bytes']} |")
+            coverage_lines += ["", f"**{covered_total} of {len(backlog)} work items are accounted for; "
+                                   f"{len(missing_all)} ({sum(r['size'] for r in missing_all)} bytes) "
+                                   f"are not.**", ""]
+            if missing_all:
+                where = {r["rva"]: tag for tag in order
+                         for r in (groups.get(tag, {}).get("missing") or [])}
+                coverage_lines += ["### What is missing, largest first", "",
+                                   "| RVA | v20 function | bytes | milestone | strings |",
+                                   "|---|---|---|---|---|"]
+                for row in sorted(missing_all, key=lambda r: -r["size"])[:20]:
+                    strings = " \\| ".join(row["strings"].split(" | ")[:2])[:80]
+                    name = row["v12_name"].split("@@")[0].lstrip("?") or "—"
+                    coverage_lines.append(
+                        f"| `{row['rva']:06x}` | `{name}` | {row['size']} | {where[row['rva']]} | "
+                        f"{strings} |")
+                coverage_lines.append("")
+
     if args.out:
         lines = [
             f"# {args.label}: candidate vs reference",
@@ -145,6 +259,7 @@ def main() -> int:
             f"| NEW | {len(by_status['NEW'])} | {sum(r['size'] for r in by_status['NEW'])} | no counterpart in the reference |",
             "",
         ]
+        lines += coverage_lines
         if focus:
             lines += ["## Our functions the focus names (" + ", ".join(f"`{f}`" for f in focus) + ")", "",
                       "These are functions **we wrote**; the reference is the v20 function the matcher",
