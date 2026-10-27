@@ -444,7 +444,8 @@ inline int turn_phase(const std::vector<byte> &b)
     if (it == all.end()) return -1;
     for (unsigned r = 0; r < it->second.rows; r++) {
         size_t c = it->second.data + (size_t)r * 0x40;
-        if (!strncmp((const char *)b.data() + c + 0x20, "turn_phase", 0x20)) return (int)u32_at(b, c);
+        if (!strncmp((const char *)b.data() + c + 0x20, "turn_phase", 0x20))
+            return u32_at(b, c + 16) == 4 ? (int)u32_at(b, c) : -1;
     }
     return -1;
 }

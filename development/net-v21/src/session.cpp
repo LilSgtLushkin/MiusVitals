@@ -1567,7 +1567,7 @@ static void host_map_frame(ObjMan *om, DWORD now)
             return;
         }
         int phase = opsave::turn_phase(save);
-        if (phase < 0 || (phase == 0 && opsave::turns(save) <= g_turn_baseline_rows)) {
+        if (!operation_turn::resolution_saved(phase, opsave::turns(save), g_turn_baseline_rows)) {
             mp_log("map: engine has not yet confirmed a completed turn (phase %d, frames %u, before %u)",
                    phase, opsave::turns(save), g_turn_baseline_rows);
             return;

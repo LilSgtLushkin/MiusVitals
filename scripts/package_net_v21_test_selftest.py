@@ -44,10 +44,12 @@ class Packaging(unittest.TestCase):
             pkg.validate_module(bad_export)
 
     def test_protected_rollback(self):
-        before = hashlib.sha256(self.known_good.read_bytes()).digest()
-        with self.assertRaisesRegex(SystemExit, "refusing to overwrite"):
-            pkg.build(ROOT, Path("nonexistent.codelib"), self.known_good, Path("nonexistent.exe"))
-        self.assertEqual(before, hashlib.sha256(self.known_good.read_bytes()).digest())
+        for archive in (self.known_good, ROOT / "MiusMultiplayer_v1.0.3_TEST_INSTALL.zip",
+                        ROOT / "MiusMultiplayer_v1.0.4_TEST_INSTALL.zip"):
+            before = hashlib.sha256(archive.read_bytes()).digest()
+            with self.subTest(archive=archive.name), self.assertRaisesRegex(SystemExit, "refusing to overwrite"):
+                pkg.build(ROOT, Path("nonexistent.codelib"), archive, Path("nonexistent.exe"))
+            self.assertEqual(before, hashlib.sha256(archive.read_bytes()).digest())
 
     def test_passports_of_preserved_test_archives(self):
         for name in ("MiusMultiplayer_v1.0.0_TEST_INSTALL.zip",

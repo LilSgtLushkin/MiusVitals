@@ -238,22 +238,26 @@ inline bool accept(const std::vector<byte> &base, const std::vector<byte> &guest
         auto ti = tags.find(a.name);
         bool host_group = a.type == 1 && ti != tags.end() && ti->second.side &&
                           opsave::u32_at(base, ti->second.side) == host_side;
+        bool guest_group = a.type == 1 && ti != tags.end() && ti->second.side &&
+                           opsave::u32_at(base, ti->second.side) != host_side;
         size_t cells = a.type == 1 ? a.rows : (size_t)a.rows * a.cols;
         size_t stride = a.type == 1 ? 0x40 : 0x20;
         for (size_t i = 0; i < cells; ++i) {
             size_t ca = a.data + i * stride, cb = b.data + i * stride;
             if (opsave::u32_at(base, ca + 16) != opsave::u32_at(guest, cb + 16))
                 return reject(why, "cell type changed: " + a.name);
-            bool preserve = orders;
+            // Unknown global/table values cannot safely be attributed to the guest. Only guest
+            // group fields and host visibility (which is restored from the sidecar) may differ.
+            bool preserve = !guest_group;
             if (a.type == 1) {
                 const char *fa = (const char *)base.data() + ca + 0x20;
                 const char *fb = (const char *)guest.data() + cb + 0x20;
                 if (memcmp(fa, fb, 0x20)) return reject(why, "struct fields changed: " + a.name);
+                if (host_group && !strncmp(fa, "vis_mode", 0x20)) preserve = false;
                 if (ti != tags.end() && (!strncmp(fa, "ai", 0x20) || !strncmp(fa, "side", 0x20))) preserve = true;
-                if (host_group && strncmp(fa, "vis_mode", 0x20)) preserve = true;
             }
             if (preserve && !same_cell(base, ca, guest, cb))
-                return reject(why, orders ? "host order was changed" : "host group or ownership was changed: " + a.name);
+                return reject(why, orders ? "host order was changed" : "protected host/global value was changed: " + a.name);
         }
     }
     for (const auto &item : guest_nodes)

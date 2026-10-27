@@ -45,9 +45,10 @@ class SwitchPair(unittest.TestCase):
         self.tmp.cleanup()
 
     def run_switch(self, name):
-        cmd = f'call "{self.kit / name}" /quiet'
-        return subprocess.run(["cmd.exe", "/D", "/C", cmd], cwd=str(self.kit),
-                              capture_output=True, text=True, timeout=25)
+        # A single command line avoids list2cmdline inserting literal backslashes before cmd.exe
+        # quotes; cmd.exe does not use the C runtime's backslash-escaping rules.
+        cmd = f'cmd.exe /D /C call "{self.kit / name}" /quiet'
+        return subprocess.run(cmd, cwd=str(self.kit), capture_output=True, text=True, timeout=25)
 
     def assert_pair(self, module, launcher):
         self.assertEqual(self.target_mod.read_bytes(), module)

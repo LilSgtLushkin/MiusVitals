@@ -13,6 +13,11 @@ static const uint32_t phase_mask = 7u << phase_shift;
 
 inline bool valid_epoch(uint32_t epoch) { return epoch && !(epoch & ~epoch_mask); }
 inline bool valid_phase(Phase phase) { return (unsigned)phase <= (unsigned)Phase::resolve; }
+// A saved phase 2 denotes battles pending; phase 0 must have advanced the frames table.
+// Unknown intermediate phases cannot prove that the engine finished the joint calculation.
+inline bool resolution_saved(int phase, uint32_t frames, uint32_t before) {
+    return phase == 2 || (phase == 0 && frames > before);
+}
 inline uint32_t next_revision(uint32_t revision) { ++revision; return revision ? revision : 1; }
 inline bool newer_revision(uint32_t value, uint32_t previous) {
     uint32_t delta = value - previous;

@@ -19,6 +19,10 @@ int main() {
     test(newer_revision(1, 0xffffffff) && !newer_revision(0xffffffff, 1), "revision wraps safely");
     test(next_revision(0xffffffff) == 1 && next_revision(1) == 2, "revision never uses zero");
     test(!newer_revision(0, 4) && !newer_revision(4, 4), "zero and duplicate revisions are not newer");
+    test(!resolution_saved(-1, 5, 4) && !resolution_saved(1, 5, 4) && !resolution_saved(3, 5, 4),
+         "unknown or intermediate phases never confirm resolution");
+    test(!resolution_saved(0, 4, 4) && !resolution_saved(0, 3, 4), "unchanged or older frame count does not confirm resolution");
+    test(resolution_saved(0, 5, 4) && resolution_saved(2, 4, 4), "new frame or battles-pending phase confirms a save");
 
     Host host;
     test(!host.begin(0, 1) && !host.begin(1, 0), "invalid host identity rejected");

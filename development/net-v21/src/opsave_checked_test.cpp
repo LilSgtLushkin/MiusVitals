@@ -89,6 +89,8 @@ int main(int argc, char **argv) {
     std::string why; unsigned changed = 0, added = 0;
     auto host = build(fixture());
     test(validate(host,&why),"valid synthetic save");
+    auto wrong_phase_type=host; put(wrong_phase_type,field(wrong_phase_type,"op_stream","turn_phase")+16,2);
+    test(opsave::turn_phase(wrong_phase_type)==-1,"non-numeric turn phase never confirms resolution");
     Sidecar side; auto base = host;
     test(mirror(base,&side,&changed,&why) && changed==2,"checked mirror of two sides");
     test(side.ai.size()==2 && side.vis.size()==2,"sidecar preserves both ownership and visibility");
@@ -134,6 +136,10 @@ int main(int argc, char **argv) {
     expect_rejected(base,bad,side,"changed field layout refused");
     bad=guest; auto n=node(bad,"frames"); put(bad,n.header+0x28,2);
     expect_rejected(base,bad,side,"unsupported table growth refused");
+    bad=guest; n=node(bad,"frames"); put(bad,n.data,999);
+    expect_rejected(base,bad,side,"guest cannot rewrite existing frame values");
+    bad=guest; put(bad,field(bad,"op_stream","turn_phase"),2);
+    expect_rejected(base,bad,side,"guest cannot advance the global turn phase");
     bad=guest; n=node(bad,"p_guest"); put(bad,n.header+0x20,99);
     expect_rejected(base,bad,side,"unknown node type refused");
     bad=guest; n=node(bad,"p_guest"); put(bad,n.header+0x30,0xffffffff);
