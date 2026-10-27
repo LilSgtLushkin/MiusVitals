@@ -9,13 +9,13 @@ the reviewed ones, and that the paths named in `.gitattributes`/`.gitignore` exi
 
 This script checks exactly those invariants:
 
-1. every shipped binary in the repository has a pinned SHA-256 and every copy of one
-   artifact is byte-identical (a half-updated kit is the failure mode that once shipped a
-   mixed install);
-2. no binary file appears in a kit source without being listed here (a new artifact cannot
+1. every shipped binary has a pinned SHA-256 and every copy of one artifact is byte-identical;
+2. the user-supplied game reference is verified against its own tracked SHA-256/PE manifest,
+   without treating those reference files as shipped installer artifacts;
+3. no binary appears elsewhere under development without being listed (a new artifact cannot
    slip into an archive unverified);
-3. both release archives still match their pinned hashes;
-4. every literal path referenced by `.gitattributes` exists, and the two `.gitignore`
+4. release archives still match their pinned hashes;
+5. every literal path referenced by `.gitattributes` exists, and the two `.gitignore`
    exceptions still point at tracked launchers.
 
 It reads files only, needs no network and no game installation.
@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -107,8 +108,35 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def check_game_reference(root: Path, errors: list[str]) -> set[Path]:
+    """Verify the separately tracked game reference before recognising its top-level binaries.
+
+    The manifest covers all 19 files, including the two .reslib files, sizes and PE metadata.
+    Do not exempt an entire directory: an unexpected nested binary must still be reported by the
+    development-tree scan, and an added or changed top-level file must fail the manifest check.
+    """
+    reference = root / "development/game-build-3598-1"
+    verifier = reference / "manifest.py"
+    if not verifier.is_file() or not (reference / "MANIFEST.txt").is_file() or not (reference / "x64").is_dir():
+        errors.append("game reference verifier, manifest or x64 directory is missing")
+        return set()
+    try:
+        result = subprocess.run([sys.executable, str(verifier), "--verify"], capture_output=True,
+                                text=True, check=False, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        errors.append(f"game reference verification failed to run: {error}")
+        return set()
+    if result.returncode:
+        detail = (result.stdout + result.stderr).strip()
+        errors.append(f"game reference manifest verification failed: {detail[:2000]}")
+        return set()
+    print(result.stdout.strip())
+    return {path for path in (reference / "x64").iterdir()
+            if path.is_file() and path.suffix.lower() in BINARY_SUFFIXES}
+
+
 def check_artifacts(errors: list[str]) -> None:
-    listed: set[Path] = set()
+    listed: set[Path] = check_game_reference(ROOT, errors)
     for role, (expected, relatives) in ARTIFACTS.items():
         for relative in relatives:
             path = ROOT / relative
