@@ -3,6 +3,7 @@
 // and a survey of every engine object (commands + handler addresses) written to out\mp_objects_<program>.txt.
 #include "common.h"
 #include "netlog.h"
+#include "input_imports.h"
 #include <intrin.h>
 #include <malloc.h>
 #include <share.h>
@@ -191,21 +192,7 @@ static void hook_srand(unsigned seed)
 
 static int patch_imports(HMODULE mod, void *from, void *to)
 {
-    BYTE *base = (BYTE *)mod;
-    IMAGE_NT_HEADERS *nt = (IMAGE_NT_HEADERS *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
-    IMAGE_DATA_DIRECTORY dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
-    if (!dir.VirtualAddress) return 0;
-    int n = 0;
-    for (IMAGE_IMPORT_DESCRIPTOR *d = (IMAGE_IMPORT_DESCRIPTOR *)(base + dir.VirtualAddress); d->Name; d++)
-        for (void **t = (void **)(base + d->FirstThunk); *t; t++)
-            if (*t == from) {
-                DWORD old;
-                VirtualProtect(t, sizeof *t, PAGE_READWRITE, &old);
-                *t = to;
-                VirtualProtect(t, sizeof *t, old, &old);
-                n++;
-            }
-    return n;
+    return input_imports::replace(mod, from, to);
 }
 
 static void hook_random(void)
@@ -223,7 +210,8 @@ static void hook_random(void)
         if (HMODULE h = GetModuleHandleA(m)) {
             int a = patch_imports(h, (void *)g_real_rand, (void *)hook_rand);
             int b = patch_imports(h, (void *)g_real_srand, (void *)hook_srand);
-            if (a || b) mp_log("random probe: %s rand x%d srand x%d", m, a, b);
+            if (a < 0 || b < 0) mp_log("random probe: could not safely patch %s", m);
+            else if (a || b) mp_log("random probe: %s rand x%d srand x%d", m, a, b);
         }
 }
 
@@ -231,6 +219,7 @@ static void hook_random(void)
 // The interface pauses the battle when the window is deactivated. In a network game the other side
 // keeps playing, so deactivation is hidden from the engine.
 static WNDPROC g_prev_wndproc;
+static HWND g_hooked_window;
 
 static LRESULT CALLBACK focus_wndproc(HWND w, UINT m, WPARAM wp, LPARAM lp)
 {
@@ -260,7 +249,8 @@ HWND main_window(void)
 static void keep_running_unfocused(ObjMan *om)
 {
     HWND w = 0;
-    if (g_prev_wndproc) return;
+    if (g_prev_wndproc && g_hooked_window && IsWindow(g_hooked_window)) return;
+    g_prev_wndproc = nullptr; g_hooked_window = nullptr;
     // The engine's own "work without focus" switch: i_loader +0x2ac is the setting, i_window vtbl[8] applies it.
     // Without it an inactive window only gets the reduced "napump" frame.
     Object *loader = engine_find(om, "i_loader", "loader"), *window = engine_find(om, "i_window", "window");
@@ -269,6 +259,8 @@ static void keep_running_unfocused(ObjMan *om)
     EnumWindows(find_main_window, (LPARAM)&w);
     if (!w) return;
     g_prev_wndproc = (WNDPROC)SetWindowLongPtrA(w, GWLP_WNDPROC, (LONG_PTR)focus_wndproc);
+    if (!g_prev_wndproc) { mp_log("window %p: input/window hook failed (%lu)", w, GetLastError()); return; }
+    g_hooked_window = w;
     mp_log("window %p: deactivation hidden from the engine", w);
     if (GetForegroundWindow() != w) {
         // already in the background (e.g. a second instance started on top): tell the engine it is active
@@ -341,10 +333,10 @@ static UINT WINAPI hook_GetRawInputData(HRAWINPUT h, UINT cmd, LPVOID data, PUIN
     UINT r = g_real_GetRawInputData(h, cmd, data, size, header);
     if (cmd == RID_INPUT && data && r != (UINT)-1 && r >= sizeof(RAWINPUTHEADER) && ui_blocks_input()) {
         RAWINPUT *in = (RAWINPUT *)data;
-        if (in->header.dwType == RIM_TYPEMOUSE) {
+        if (in->header.dwType == RIM_TYPEMOUSE && r >= offsetof(RAWINPUT, data) + sizeof(RAWMOUSE)) {
             in->data.mouse.usButtonFlags = 0;
             in->data.mouse.usButtonData = 0;
-        } else if (in->header.dwType == RIM_TYPEKEYBOARD) {
+        } else if (in->header.dwType == RIM_TYPEKEYBOARD && r >= offsetof(RAWINPUT, data) + sizeof(RAWKEYBOARD)) {
             in->data.keyboard.VKey = 0xff;
             in->data.keyboard.MakeCode = 0;
             in->data.keyboard.Flags = RI_KEY_BREAK;
@@ -370,21 +362,33 @@ static void isolate_input(void)
         "adv_game.codelib", "adv_interf.codelib", "adv_opgame.codelib", "adv_qbattle.codelib", "base_main.codelib",
         "base_shell.codelib", "basic_game.codelib", "basic_input.codelib", "base_encycl.codelib",
     };
-    HMODULE user = GetModuleHandleA("user32.dll");
-    if (!user || g_real_GetRawInputData) return;
-    g_real_GetRawInputData = (UINT (WINAPI *)(HRAWINPUT, UINT, LPVOID, PUINT, UINT))GetProcAddress(user, "GetRawInputData");
-    g_real_GetAsyncKeyState = (SHORT (WINAPI *)(int))GetProcAddress(user, "GetAsyncKeyState");
-    g_real_GetKeyState = (SHORT (WINAPI *)(int))GetProcAddress(user, "GetKeyState");
-    g_real_GetKeyboardState = (BOOL (WINAPI *)(PBYTE))GetProcAddress(user, "GetKeyboardState");
-    int n = 0;
-    for (const char *m : mods)
-        if (HMODULE h = GetModuleHandleA(m)) {
-            n += patch_imports(h, (void *)g_real_GetRawInputData, (void *)hook_GetRawInputData);
-            n += patch_imports(h, (void *)g_real_GetAsyncKeyState, (void *)hook_GetAsyncKeyState);
-            n += patch_imports(h, (void *)g_real_GetKeyState, (void *)hook_GetKeyState);
-            n += patch_imports(h, (void *)g_real_GetKeyboardState, (void *)hook_GetKeyboardState);
+    static input_imports::Tracker<sizeof(mods) / sizeof(mods[0])> tracker;
+    if (!g_real_GetRawInputData || !g_real_GetAsyncKeyState || !g_real_GetKeyState || !g_real_GetKeyboardState) {
+        HMODULE user = GetModuleHandleA("user32.dll");
+        if (!user) return;
+        g_real_GetRawInputData = (UINT (WINAPI *)(HRAWINPUT, UINT, LPVOID, PUINT, UINT))GetProcAddress(user, "GetRawInputData");
+        g_real_GetAsyncKeyState = (SHORT (WINAPI *)(int))GetProcAddress(user, "GetAsyncKeyState");
+        g_real_GetKeyState = (SHORT (WINAPI *)(int))GetProcAddress(user, "GetKeyState");
+        g_real_GetKeyboardState = (BOOL (WINAPI *)(PBYTE))GetProcAddress(user, "GetKeyboardState");
+        if (!g_real_GetRawInputData || !g_real_GetAsyncKeyState || !g_real_GetKeyState || !g_real_GetKeyboardState) return;
+    }
+    for (size_t i = 0; i < sizeof(mods) / sizeof(mods[0]); ++i) {
+        HMODULE h = nullptr;
+        if (!GetModuleHandleExA(0, mods[i], &h)) { tracker.needs(i, nullptr); continue; }
+        if (tracker.needs(i, h)) {
+            int a = patch_imports(h, (void *)g_real_GetRawInputData, (void *)hook_GetRawInputData);
+            int b = patch_imports(h, (void *)g_real_GetAsyncKeyState, (void *)hook_GetAsyncKeyState);
+            int c = patch_imports(h, (void *)g_real_GetKeyState, (void *)hook_GetKeyState);
+            int d = patch_imports(h, (void *)g_real_GetKeyboardState, (void *)hook_GetKeyboardState);
+            if (a < 0 || b < 0 || c < 0 || d < 0)
+                mp_log("input isolation: could not safely patch %s; will retry", mods[i]);
+            else {
+                tracker.complete(i, h);
+                if (a + b + c + d) mp_log("input isolation: %s patched %d entry points", mods[i], a + b + c + d);
+            }
         }
-    mp_log("input isolation ready (%d entry points)", n);
+        FreeLibrary(h); // release only our GetModuleHandleEx reference
+    }
 }
 
 // ---------------------------------------------------------------- frame pacing between game instances
@@ -594,9 +598,17 @@ static void on_tick(Object *o, void *msg)
         keep_running_unfocused(o->objman);
         place_window_from_env();
         start_profiler_from_env();
-        isolate_input();
         session_start(o->objman);
         ui_start(o->objman);
+    }
+    // Libraries and the main window may appear after the first tick. Retry lightly rather than
+    // assuming a one-time scan caught every input source; this still needs a real-game check.
+    static DWORD input_poll;
+    DWORD input_now = GetTickCount();
+    if (!input_poll || input_now - input_poll >= 250) {
+        isolate_input();
+        if (!g_prev_wndproc || !g_hooked_window || !IsWindow(g_hooked_window)) keep_running_unfocused(o->objman);
+        input_poll = input_now ? input_now : 1;
     }
     // Sample the module's own menu/session work separately from engine rendering and Sleep.
     static DWORD perf_since;

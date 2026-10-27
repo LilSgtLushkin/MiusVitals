@@ -219,6 +219,14 @@ jobs:
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log
           if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\late_input_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          python tests\test_switch_pair_windows.py >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
           python development\net-v21\tools\loopback_pair.py --peer development\net-v21\build\selftest\loopback_peer.exe >> development\net-v21\build\selftest.log 2>&1
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log
@@ -288,6 +296,7 @@ jobs:
         run: |
           python scripts/package_net_v21_test.py \
             --codelib development/net-v21/build/module/basic_network.codelib \
+            --launcher development/net-v21/build/join/mp_join.exe \
             --output MiusMultiplayer_v1.0.5_TEST_INSTALL.zip \
             2>&1 | tee development/net-v21/build/package.log
           exit ${PIPESTATUS[0]}

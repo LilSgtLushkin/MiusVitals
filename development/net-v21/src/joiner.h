@@ -319,8 +319,10 @@ struct Joiner {
         char epoch[16], revision[16];
         sprintf_s(epoch, "%u", map_epoch); sprintf_s(revision, "%u", map_revision);
         map_file_windows::Environment env;
-        env.set("MP_ROLE", "join"); env.set("MP_PEER", address); env.set("MP_MAP", "1");
-        env.set("MP_HOST_MODE", "operation"); env.set("MP_MAP_EPOCH", epoch); env.set("MP_MAP_REV", revision);
+        if (!env.set("MP_ROLE", "join") || !env.set("MP_PEER", address) || !env.set("MP_MAP", "1") ||
+            !env.set("MP_HOST_MODE", "operation") || !env.set("MP_MAP_EPOCH", epoch) || !env.set("MP_MAP_REV", revision) ||
+            !env.set("MP_AUTOJOIN", nullptr) || !env.set("MP_ENDTURN", nullptr) || !env.set("MP_TURNDONE", nullptr))
+            return fail("Could not prepare the child game's environment; no save was replaced.");
         DWORD launch_error = 0;
         map_file::Result result = map_file_windows::replace_and_launch(root, cmd, path, prepared, &map_backup, &launch_error);
         if (!map_file::started(result)) {
@@ -328,7 +330,7 @@ struct Joiner {
             sprintf_s(message, "Could not open the operation: %.100s (Windows %lu).", map_file::reason(result), launch_error);
             return fail(message);
         }
-        env.commit();
+        if (!env.restore()) printf("Warning: could not fully restore the parent process environment.\n");
         if (result == map_file::Result::ok_marker_retained)
             printf("Operation started, but its recovery marker remains beside the save.\n");
         return true;
@@ -363,11 +365,11 @@ struct Joiner {
                       root, k_image_path, id) < 0) return fail("The battle path or command is too long.");
         char code[8] = { 0 }; memcpy(code, &prefer_side, 4);
         map_file_windows::Environment env;
-        env.set("MP_ROLE", "join"); env.set("MP_PEER", address);
-        env.set("MP_PREFER", prefer_side ? code : nullptr); env.set("MP_VERSUS", versus ? "1" : "0");
-        env.set("MP_HOST_MODE", host_mode == HOST_MODE_OPERATION ? "operation" : host_mode == HOST_MODE_MISSION ? "mission" : "skirmish");
-        env.set("MP_MAP", nullptr);
-        if (host_mode == HOST_MODE_OPERATION) env.set("MP_AUTOJOIN", address);
+        if (!env.set("MP_ROLE", "join") || !env.set("MP_PEER", address) ||
+            !env.set("MP_PREFER", prefer_side ? code : nullptr) || !env.set("MP_VERSUS", versus ? "1" : "0") ||
+            !env.set("MP_HOST_MODE", host_mode == HOST_MODE_OPERATION ? "operation" : host_mode == HOST_MODE_MISSION ? "mission" : "skirmish") ||
+            !env.set("MP_MAP", nullptr) || !env.set("MP_AUTOJOIN", host_mode == HOST_MODE_OPERATION ? address : nullptr))
+            return fail("Could not prepare the child game's environment; no battle file was replaced.");
         DWORD launch_error = 0;
         map_file::Result result = map_file_windows::replace_and_launch(root, cmd, path, prepared, &map_backup, &launch_error);
         if (!map_file::started(result)) {
@@ -375,7 +377,7 @@ struct Joiner {
             sprintf_s(message, "Could not start the battle: %.100s (Windows %lu).", map_file::reason(result), launch_error);
             return fail(message);
         }
-        env.commit();
+        if (!env.restore()) printf("Warning: could not fully restore the parent process environment.\n");
         return true;
     }
 };

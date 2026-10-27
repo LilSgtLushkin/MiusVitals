@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""No-game tests for the 1.0.3 test archive builder and rollback protection."""
+"""No-game tests for paired net_v21 module/launcher packaging and rollback protection."""
 from __future__ import annotations
 import copy
 import hashlib
@@ -23,6 +23,10 @@ class Packaging(unittest.TestCase):
         cls.known_good = ROOT / "MiusMultiplayer_v1.0.0_TEST_INSTALL_known_good.zip"
         with zipfile.ZipFile(cls.known_good) as z:
             cls.module = z.read("MiusMultiplayer/net_v21/basic_network.netv21.codelib")
+            cls.proven_launcher = z.read("MiusMultiplayer/files/mp_join.exe")
+        # Packaging-only fixtures: a PE overlay is not a real matching build and must not be shipped.
+        cls.tagged_module = cls.module + pkg.WIRE_TAG
+        cls.tagged_launcher = cls.proven_launcher + pkg.WIRE_TAG
 
     def test_pe_validation(self):
         pkg.validate_module(self.module)
@@ -42,14 +46,15 @@ class Packaging(unittest.TestCase):
     def test_protected_rollback(self):
         before = hashlib.sha256(self.known_good.read_bytes()).digest()
         with self.assertRaisesRegex(SystemExit, "refusing to overwrite"):
-            pkg.build(ROOT, Path("nonexistent.codelib"), self.known_good)
+            pkg.build(ROOT, Path("nonexistent.codelib"), self.known_good, Path("nonexistent.exe"))
         self.assertEqual(before, hashlib.sha256(self.known_good.read_bytes()).digest())
 
     def test_passports_of_preserved_test_archives(self):
         for name in ("MiusMultiplayer_v1.0.0_TEST_INSTALL.zip",
                      "MiusMultiplayer_v1.0.0_TEST_INSTALL_known_good.zip",
                      "MiusMultiplayer_v1.0.2_TEST_INSTALL.zip",
-                     "MiusMultiplayer_v1.0.3_TEST_INSTALL.zip"):
+                     "MiusMultiplayer_v1.0.3_TEST_INSTALL.zip",
+                     "MiusMultiplayer_v1.0.4_TEST_INSTALL.zip"):
             with self.subTest(archive=name):
                 pkg.verify(ROOT / name)
 
@@ -57,24 +62,62 @@ class Packaging(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             temp = Path(tmp)
             binary, first, second, broken = (temp / x for x in ("module.codelib", "a.zip", "b.zip", "broken.zip"))
-            binary.write_bytes(self.module)
-            pkg.build(ROOT, binary, first)
-            pkg.build(ROOT, binary, second)
+            launcher = temp / "launcher.exe"
+            binary.write_bytes(self.tagged_module)
+            launcher.write_bytes(self.tagged_launcher)
+            pkg.build(ROOT, binary, first, launcher)
+            pkg.build(ROOT, binary, second, launcher)
             self.assertEqual(first.read_bytes(), second.read_bytes())
             with zipfile.ZipFile(first) as src, zipfile.ZipFile(broken, "w") as dst:
                 for item in src.infolist():
                     if item.filename != "MiusMultiplayer/net_v21/Collect_Logs.ps1":
                         dst.writestr(item, src.read(item.filename))
-            with self.assertRaisesRegex(SystemExit, "missing Collect_Logs.ps1"):
+            with self.assertRaisesRegex(SystemExit, "missing.*Collect_Logs.ps1"):
                 pkg.verify(broken)
             pkg.verify(self.known_good)  # a historical standalone .bat remains verifiable
+
+    def test_pair_validation_and_missing_tampered_payloads(self):
+        pkg.validate_launcher(self.proven_launcher)
+        for invalid in (b"", self.proven_launcher[:100], b"NO" + self.proven_launcher[2:], self.module):
+            with self.assertRaises(SystemExit):
+                pkg.validate_launcher(invalid)
+        with tempfile.TemporaryDirectory() as tmp:
+            temp = Path(tmp)
+            binary, launcher, archive = temp / "module.codelib", temp / "launcher.exe", temp / "good.zip"
+            binary.write_bytes(self.tagged_module)
+            launcher.write_bytes(self.proven_launcher)
+            with self.assertRaisesRegex(SystemExit, "wire-protocol tag"):
+                pkg.build(ROOT, binary, archive, launcher)
+            launcher.write_bytes(self.tagged_launcher)
+            binary.write_bytes(self.module)
+            with self.assertRaisesRegex(SystemExit, "wire-protocol tag"):
+                pkg.build(ROOT, binary, archive, launcher)
+            binary.write_bytes(self.tagged_module)
+            pkg.build(ROOT, binary, archive, launcher)
+            for path, how in (("net_v21/mp_join.netv21.exe", "missing"),
+                              ("net_v21/mp_join.netv21.exe", "altered"),
+                              ("net_v21/Switch_Pair.bat", "missing"),
+                              ("net_v21/Switch_To_NetV21.bat", "altered")):
+                broken = temp / (how + "-" + Path(path).name + ".zip")
+                with zipfile.ZipFile(archive) as src, zipfile.ZipFile(broken, "w") as dst:
+                    for item in src.infolist():
+                        if item.filename == "MiusMultiplayer/" + path and how == "missing":
+                            continue
+                        data = src.read(item.filename)
+                        if item.filename == "MiusMultiplayer/" + path and how == "altered":
+                            data += b"changed"
+                        dst.writestr(copy.copy(item), data)
+                with self.subTest(path=path, how=how), self.assertRaises(SystemExit):
+                    pkg.verify(broken)
 
     def test_passport_hashes_actual_crlf_and_detects_tampering(self):
         with tempfile.TemporaryDirectory() as tmp:
             temp = Path(tmp)
             binary, good, broken_passport, broken_text = (
                 temp / name for name in ("module.codelib", "good.zip", "passport.zip", "text.zip"))
-            binary.write_bytes(self.module)
+            launcher = temp / "launcher.exe"
+            binary.write_bytes(self.tagged_module)
+            launcher.write_bytes(self.tagged_launcher)
             # Give the builder an LF-only checkout even on Windows, where Git may use CRLF.
             repo = temp / "repo"
             for base, paths in ((pkg.PROVEN, (*pkg.PROVEN_BINARIES, *pkg.PROVEN_TEXT)),
@@ -88,7 +131,7 @@ class Packaging(unittest.TestCase):
                         self.assertIn(b"\n", data)
                         self.assertNotIn(b"\r\n", data)
                     target.write_bytes(data)
-            pkg.build(repo, binary, good)
+            pkg.build(repo, binary, good, launcher)
             with zipfile.ZipFile(good) as src:
                 self.assertIn(b"\r\n", src.read("MiusMultiplayer/README.txt"))
                 actual_hash = pkg.sha256(src.read("MiusMultiplayer/README.txt")).encode()

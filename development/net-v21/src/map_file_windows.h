@@ -63,22 +63,37 @@ inline map_file::Result replace_and_launch(const char *directory, const std::str
     return result;
 }
 
-// Restore the parent process environment on failed launch; the new process inherits it on success.
+// Temporarily set the parent environment only while CreateProcess takes its copy. Every failed
+// setter stops launch, and both successful and failed launches restore the parent's prior values.
+// As with Win32 process environment generally, another thread must not change these keys concurrently.
 struct Environment {
     struct Entry { std::string name, value; bool present; };
     std::vector<Entry> entries;
-    bool committed = false;
-    void set(const char *name, const char *value) {
-        DWORD n = GetEnvironmentVariableA(name, nullptr, 0);
-        Entry e; e.name = name; e.present = n != 0;
-        if (n) { std::vector<char> b(n); DWORD got = GetEnvironmentVariableA(name, b.data(), n); if (got && got < n) e.value.assign(b.data(), got); else e.present = false; }
+    bool set(const char *name, const char *value) {
+        if (!name || !*name) { SetLastError(ERROR_INVALID_PARAMETER); return false; }
+        SetLastError(ERROR_SUCCESS);
+        DWORD n = GetEnvironmentVariableA(name, nullptr, 0), error = GetLastError();
+        Entry e; e.name = name; e.present = n != 0 || error == ERROR_SUCCESS;
+        if (!n && error != ERROR_SUCCESS && error != ERROR_ENVVAR_NOT_FOUND) return false;
+        if (n) {
+            std::vector<char> b(n);
+            SetLastError(ERROR_SUCCESS);
+            DWORD got = GetEnvironmentVariableA(name, b.data(), n);
+            if (got >= n || (!got && GetLastError() != ERROR_SUCCESS)) return false; // changed or system failure
+            e.value.assign(b.data(), got);
+        }
+        if (!value && !e.present) return true; // deleting an absent variable is already satisfied
+        if (!SetEnvironmentVariableA(name, value)) return false;
         entries.push_back(e);
-        SetEnvironmentVariableA(name, value);
+        return true;
     }
-    void commit() { committed = true; }
-    ~Environment() {
-        if (!committed) for (auto i = entries.rbegin(); i != entries.rend(); ++i)
-            SetEnvironmentVariableA(i->name.c_str(), i->present ? i->value.c_str() : nullptr);
+    bool restore() {
+        bool ok = true;
+        for (auto i = entries.rbegin(); i != entries.rend(); ++i)
+            if (!SetEnvironmentVariableA(i->name.c_str(), i->present ? i->value.c_str() : nullptr)) ok = false;
+        entries.clear();
+        return ok;
     }
+    ~Environment() { restore(); }
 };
 }

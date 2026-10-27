@@ -40,6 +40,7 @@ int main(int argc, char **argv)
     if (!GetModuleFileNameA(0, root, MAX_PATH)) return 1;
     if (char *s = strrchr(root, '\\')) *s = 0;
     if (!SetCurrentDirectoryA(root)) { printf("Cannot open the game folder.\n"); return 1; }
+    printf("net_v21 launcher %s\n", k_wire_tag);
     StandaloneSteam steam;
     if (!_strnicmp(argv[1], "steam:", 6) && !steam.start(root)) {
         printf("Steam could not be initialized in the standalone launcher. Start Steam and use the in-game lobby, or use IP.\n");

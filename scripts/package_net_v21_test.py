@@ -8,15 +8,15 @@ its `mp_vitals.dll` integration are not complete. Shipping it as the default wou
 functionality from the proven v1.0.1 module. This is a test archive, not a full 1.0.5 release.
 
 So this archive installs exactly what v1.0.1 installs - the same bytes, checked against the same
-hashes - and carries our module in `net_v21/` beside it, with a switch script and a one-click way
-back.  Installing this archive changes nothing about how the game runs until somebody runs
+hashes - and carries our matching module and launcher in `net_v21/`, with a switch script and a
+one-click way back for both files.  Installing this archive changes nothing about how the game runs until somebody runs
 `Switch_To_NetV21.bat`, and even then the proven module travels in the same archive.
 
 The candidate logs identity, traffic and battle counters into `out/net_v21_<program>.log`.
 The archive includes a log collector and preserves the known-good rollback separately.
 
     python scripts/package_net_v21_test.py --codelib build/module/basic_network.codelib \
-        --output MiusMultiplayer_v1.0.5_TEST_INSTALL.zip
+        --launcher build/join/mp_join.exe --output MiusMultiplayer_v1.0.5_TEST_INSTALL.zip
     python scripts/package_net_v21_test.py --verify MiusMultiplayer_v1.0.5_TEST_INSTALL.zip
 """
 from __future__ import annotations
@@ -30,6 +30,7 @@ import struct
 import zipfile
 
 VERSION = "1.0.5"
+WIRE_TAG = b"NETV21_WIRE_PROTOCOL_14"
 ROOT = "MiusMultiplayer"
 PROVEN = Path("development/unified-fps-kit-source")
 KIT = Path("development/net-v21-kit")
@@ -47,7 +48,7 @@ PROVEN_BINARIES = {
 }
 PROVEN_TEXT = ("Enable_Multiplayer.bat", "Disable_Multiplayer.bat", "Check_Install.bat",
                "Check_Install.ps1", "README.txt", "LICENSE_CC0.txt", "game_build_3598_1.sha256")
-KIT_TEXT = ("net_v21/Switch_To_NetV21.bat", "net_v21/Switch_Back_To_Proven.bat",
+KIT_TEXT = ("net_v21/Switch_To_NetV21.bat", "net_v21/Switch_Back_To_Proven.bat", "net_v21/Switch_Pair.bat",
             "net_v21/Collect_Logs.bat", "net_v21/Collect_Logs.ps1", "net_v21/README_TEST.txt")
 PASSPORT = "TEST_BUILD.txt"
 
@@ -128,6 +129,38 @@ def validate_module(data: bytes) -> None:
         fail("GetFactory3 or gtmf_steam_layer export is missing")
 
 
+def validate_launcher(data: bytes) -> None:
+    """Reject truncated or non-x64 executable payloads, without running them."""
+    def fail(reason: str) -> None:
+        raise SystemExit(f"invalid net_v21 launcher: {reason}")
+
+    def read(fmt: str, at: int):
+        size = struct.calcsize(fmt)
+        if at < 0 or at + size > len(data):
+            fail("truncated PE data")
+        return struct.unpack_from(fmt, data, at)
+
+    if len(data) < 0x40 or data[:2] != b"MZ":
+        fail("missing DOS header")
+    (pe,) = read("<I", 0x3c)
+    if pe < 0x40 or pe + 24 > len(data) or data[pe:pe + 4] != b"PE\0\0":
+        fail("missing PE header")
+    machine, nsections, _, _, _, opt_size, flags = read("<HHIIIHH", pe + 4)
+    opt = pe + 24
+    if machine != 0x8664 or not flags & 0x0002 or flags & 0x2000 or not 1 <= nsections <= 96:
+        fail("expected an x86-64 executable with sections")
+    if opt_size < 120 or opt + opt_size > len(data) or read("<H", opt)[0] != 0x20b:
+        fail("expected a PE32+ optional header")
+    section_table = opt + opt_size
+    if section_table + nsections * 40 > len(data):
+        fail("truncated section table")
+    for i in range(nsections):
+        section = section_table + i * 40
+        raw_size, raw_at = read("<II", section + 16)
+        if raw_size and (raw_at > len(data) or raw_size > len(data) - raw_at):
+            fail("section outside file")
+
+
 def with_crlf(name: str, data: bytes) -> bytes:
     """Text files go into the archive with CRLF (a .bat with LF does not run on Windows)."""
     if Path(name).suffix.lower() in BINARY_SUFFIXES:
@@ -135,7 +168,7 @@ def with_crlf(name: str, data: bytes) -> bytes:
     return data.replace(b"\r\n", b"\n").replace(b"\r", b"\n").replace(b"\n", b"\r\n")
 
 
-def collect(repo: Path, codelib: Path) -> dict[str, bytes]:
+def collect(repo: Path, codelib: Path, launcher: Path) -> dict[str, bytes]:
     """The archive's whole tree, before CRLF handling: name -> raw bytes."""
     tree: dict[str, bytes] = {}
     for relative, expected in PROVEN_BINARIES.items():
@@ -161,8 +194,15 @@ def collect(repo: Path, codelib: Path) -> dict[str, bytes]:
     validate_module(candidate)
     if candidate == tree["files/bin/rel/x64/basic_network.codelib"]:
         raise SystemExit("candidate is the proven module, not the net_v21 build")
+    candidate_launcher = launcher.read_bytes()
+    validate_launcher(candidate_launcher)
+    if WIRE_TAG not in candidate or WIRE_TAG not in candidate_launcher:
+        raise SystemExit("module and launcher must contain the matching net_v21 wire-protocol tag")
+    if candidate_launcher == tree["files/mp_join.exe"]:
+        raise SystemExit("candidate launcher is identical to the proven launcher")
     tree["net_v21/basic_network.netv21.codelib"] = candidate
     tree["net_v21/basic_network.proven.codelib"] = tree["files/bin/rel/x64/basic_network.codelib"]
+    tree["net_v21/mp_join.netv21.exe"] = candidate_launcher
 
     module_hash = sha256(tree["net_v21/basic_network.netv21.codelib"])
     passport = [
@@ -171,6 +211,9 @@ def collect(repo: Path, codelib: Path) -> dict[str, bytes]:
         f"net_v21 module:         net_v21/basic_network.netv21.codelib",
         f"net_v21 sha256:         {module_hash}",
         f"net_v21 size:           {len(tree['net_v21/basic_network.netv21.codelib'])} bytes",
+        f"net_v21 launcher sha256: {sha256(candidate_launcher)}",
+        f"wire protocol:          {WIRE_TAG.decode('ascii')}",
+        f"proven launcher sha256: {PROVEN_BINARIES['files/mp_join.exe']}",
         "",
         "the archive installs these proven v1.0.1 files:",
     ]
@@ -180,11 +223,14 @@ def collect(repo: Path, codelib: Path) -> dict[str, bytes]:
         # The archive stores CRLF even when the source checkout has LF. The passport must
         # describe the bytes in the ZIP, not the platform-dependent checkout bytes.
         passport.append(f"  {sha256(with_crlf(relative, tree[relative]))}  {relative}")
+    passport.append("")
+    for relative in sorted(KIT_TEXT):
+        passport.append(f"kit sha256: {sha256(with_crlf(relative, tree[relative]))}  {relative}")
     passport += [
         "",
         "Enable_Multiplayer.bat writes the files above, exactly as v1.0.1 does.",
-        "The net_v21 module is used only after net_v21\\Switch_To_NetV21.bat;",
-        "net_v21\\Switch_Back_To_Proven.bat restores the proven module from this same archive.",
+        "The net_v21 module and launcher are used only after net_v21\\Switch_To_NetV21.bat;",
+        "net_v21\\Switch_Back_To_Proven.bat restores both proven files from this same archive.",
     ]
     tree[PASSPORT] = ("\n".join(passport) + "\n").encode("utf-8")
     return tree
@@ -205,6 +251,8 @@ def verify(archive_path: Path) -> None:
         if archive.testzip():
             raise SystemExit(f"ZIP CRC failed: {archive.testzip()}")
         names = tuple(archive.namelist())
+        if len(names) != len(set(names)):
+            raise SystemExit("ZIP contains duplicate entry names")
         if names[:len(DIRS)] != DIRS:
             raise SystemExit("ZIP does not start with the expected directories")
         for entry in archive.infolist():
@@ -217,6 +265,31 @@ def verify(archive_path: Path) -> None:
                              if line.startswith("net_v21 sha256:")]
         if module_hash_lines != [sha256(module)]:
             raise SystemExit("the passport does not describe the module in the archive")
+        # Historical archives predate paired launchers. Version 1.0.5 cannot fall back to that layout.
+        version_match = re.search(r"^MiusMultiplayer (\d+)\.(\d+)\.(\d+) - test archive", stamp, re.M)
+        version = tuple(map(int, version_match.groups())) if version_match else (0, 0, 0)
+        paired = version >= (1, 0, 5) or "net_v21 launcher sha256:" in stamp
+        if paired:
+            launcher_name = f"{ROOT}/net_v21/mp_join.netv21.exe"
+            if launcher_name not in names:
+                raise SystemExit("missing candidate launcher")
+            launcher = archive.read(launcher_name)
+            validate_launcher(launcher)
+            if WIRE_TAG not in module or WIRE_TAG not in launcher or f"wire protocol:          {WIRE_TAG.decode('ascii')}" not in stamp:
+                raise SystemExit("module/launcher wire protocol tag mismatch")
+            if f"net_v21 launcher sha256: {sha256(launcher)}" not in stamp:
+                raise SystemExit("the passport does not describe the candidate launcher")
+            if f"proven launcher sha256: {PROVEN_BINARIES['files/mp_join.exe']}" not in stamp:
+                raise SystemExit("the passport does not describe the proven launcher")
+            kit_lines = [line for line in stamp.splitlines() if line.startswith("kit sha256: ")]
+            if len(kit_lines) != len(KIT_TEXT):
+                raise SystemExit("the passport kit list is incomplete")
+            for relative in KIT_TEXT:
+                name = f"{ROOT}/{relative}"
+                if name not in names:
+                    raise SystemExit(f"missing kit file: {relative}")
+                if f"kit sha256: {sha256(archive.read(name))}  {relative}" not in kit_lines:
+                    raise SystemExit(f"kit passport hash mismatch: {relative}")
         passport_files = {}
         for line in stamp.splitlines():
             match = re.fullmatch(r"\s*([0-9a-f]{64})\s{2}(.+?)\s*", line)
@@ -246,6 +319,11 @@ def verify(archive_path: Path) -> None:
             name = f"{ROOT}/{relative}"
             # Older rollback archives used a self-contained .bat.  A newer .bat that calls the
             # PowerShell collector must never be accepted without that companion file.
+            if relative == "net_v21/Switch_Pair.bat" and name not in names:
+                if any(b"Switch_Pair.bat" in archive.read(f"{ROOT}/net_v21/{wrapper}")
+                       for wrapper in ("Switch_To_NetV21.bat", "Switch_Back_To_Proven.bat")):
+                    raise SystemExit("switch calls a missing Switch_Pair.bat")
+                continue
             if relative == "net_v21/Collect_Logs.ps1" and name not in names:
                 bat = archive.read(f"{ROOT}/net_v21/Collect_Logs.bat")
                 if b"Collect_Logs.ps1" in bat:
@@ -257,7 +335,7 @@ def verify(archive_path: Path) -> None:
           f"archive sha256 {sha256(archive_path.read_bytes())}")
 
 
-def build(repo: Path, codelib: Path, archive_path: Path) -> None:
+def build(repo: Path, codelib: Path, archive_path: Path, launcher: Path) -> None:
     # New builds must never overwrite any preserved release/test or the known-good rollback.
     protected = ("MiusMultiplayer_v1.0.0_TEST_INSTALL_known_good.zip",
                  "MiusMultiplayer_v1.0.0_TEST_INSTALL.zip", "MiusMultiplayer_v1.0.0_M3M4_INSTALL.zip",
@@ -267,7 +345,9 @@ def build(repo: Path, codelib: Path, archive_path: Path) -> None:
         raise SystemExit("refusing to overwrite a preserved archive")
     if not codelib.is_file():
         raise SystemExit(f"no module to package: {codelib}")
-    tree = collect(repo, codelib)
+    if not launcher.is_file():
+        raise SystemExit(f"no launcher to package: {launcher}")
+    tree = collect(repo, codelib, launcher)
     archive_path.parent.mkdir(parents=True, exist_ok=True)
     temporary = archive_path.with_name(archive_path.name + ".tmp")
     try:
@@ -277,6 +357,7 @@ def build(repo: Path, codelib: Path, archive_path: Path) -> None:
                 archive.writestr(info(name, directory=True), b"")
             for name in sorted(tree):
                 archive.writestr(info(f"{ROOT}/{name}"), with_crlf(name, tree[name]))
+        verify(temporary)  # do not replace an earlier archive with an unverified one
         os.replace(temporary, archive_path)
     finally:
         temporary.unlink(missing_ok=True)
@@ -289,13 +370,16 @@ def main() -> None:
     parser.add_argument("--verify", type=Path)
     parser.add_argument("--codelib", type=Path,
                         default=Path("development/net-v21/build/module/basic_network.codelib"))
+    parser.add_argument("--launcher", type=Path,
+                        default=Path("development/net-v21/build/join/mp_join.exe"))
     args = parser.parse_args()
     if bool(args.output) == bool(args.verify):
         parser.error("use exactly one of --output or --verify")
     repo = Path(__file__).resolve().parents[1]
     if args.output:
         codelib = args.codelib if args.codelib.is_absolute() else repo / args.codelib
-        build(repo, codelib, args.output)
+        launcher = args.launcher if args.launcher.is_absolute() else repo / args.launcher
+        build(repo, codelib, args.output, launcher)
     else:
         verify(args.verify)
 

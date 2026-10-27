@@ -1017,20 +1017,11 @@ static void snapshot_operation_saves(void)
     mp_log("lobby: operation saved before the battle: %d files in users\\mp_saves\\%s_vs_%s", n, g_my_name, peer);
 }
 
-// ---------------------------------------------------------------- operational map: each player moves his own side
-// On the operational map the game only accepts moves for the formations tagged 'USER' in the operation's
-// save, and it has no notion of a second player. So each player gets his own copy of the operation:
-//   1. When the host is on the map and the other player is ready in the lobby, the game's own save routine
-//      writes the operation (adv_opgame+0xd6660), the command tags are turned round (opsave.h) and the
-//      joining game downloads the result.
-//   2. The joining game starts the operation program on that save - as the same operation played from the
-//      other side when the game has one, which gives its player his own territory and fog of war - and
-//      both players move their own forces at the same time, each on his own map.
-//   3. The host ends the turn. That is intercepted: the joining game saves and sends its map, the host
-//      saves its own, the other player's battle groups are copied from his save into the host's
-//      (opsave::merge_moves), and the host's operation program is restarted on the result and ends the
-//      turn there. The battles that follow are fought by both as usual; the joining game is back in the
-//      lobby by then and is taken into them.
+// ---------------------------------------------------------------- ordered operational-map ownership
+// The guest first loads a mirrored snapshot. The host acts alone, then publishes a newer checked
+// snapshot. Only after the guest confirms loading that exact epoch/revision may it act and finish.
+// The host validates and collects the guest orders, restarts on the merged save, and resolves once.
+// File-format assumptions, visibility preservation and the engine hooks still require real-game tests.
 static void *menu_controller_of(ObjMan *om)
 {
     Object *og = engine_find(om, "i_opgame", "opgame");
@@ -1068,8 +1059,8 @@ bool session_map_arriving(void) { return g_map_collect || g_map_restart_at != 0 
 bool session_map_blocking(void)
 {
     if (g_map_mode) return !g_connected || !g_map_hooks_ready || g_map_battle_at || g_map_reload_at || !g_map_client.input();
-    return (g_map_host.shared && !g_map_host.host_input()) || g_map_collect ||
-           g_map_restart_at != 0 || g_end_turn_pending || g_turn_fix_at != 0;
+    return (g_map_host.shared && (!g_connected || !g_map_hooks_ready || !g_map_host.host_input())) ||
+           g_map_collect || g_map_restart_at != 0 || g_end_turn_pending || g_turn_fix_at != 0;
 }
 
 static void profile_path(char *out, size_t size, const char *file)
@@ -1304,8 +1295,12 @@ static void host_merge_and_restart(ObjMan *om)
     sprintf_s(ack, "%u", g_map_in_hash); sprintf_s(epoch, "%u", g_map_in_epoch);
     sprintf_s(revision, "%u", g_map_in_revision); sprintf_s(baseline, "%u", opsave::turns(result));
     map_file_windows::Environment env;
-    env.set("MP_ENDTURN", "1"); env.set("MP_MAP_ACK", ack); env.set("MP_MAP_ACK_EPOCH", epoch);
-    env.set("MP_MAP_ACK_REV", revision); env.set("MP_TURN_BASE", baseline);
+    if (!env.set("MP_ENDTURN", "1") || !env.set("MP_MAP_ACK", ack) || !env.set("MP_MAP_ACK_EPOCH", epoch) ||
+        !env.set("MP_MAP_ACK_REV", revision) || !env.set("MP_TURN_BASE", baseline)) {
+        mp_log("map: could not prepare child environment (%lu); joint turn NOT committed", GetLastError());
+        strcpy_s(g_map_note, "cannot prepare joint turn; originals retained");
+        return;
+    }
     std::string backup;
     DWORD launch_error = 0;
     map_file::Result installed = map_file_windows::replace_and_launch(g_root, cmd, path, result, &backup, &launch_error);
@@ -1317,7 +1312,7 @@ static void host_merge_and_restart(ObjMan *om)
     }
     if (!g_map_host.committed(g_map_in_epoch, g_map_in_revision))
         mp_log("map: unexpected phase after successful child start; recovery backup retained");
-    env.commit();
+    if (!env.restore()) mp_log("map: could not fully restore the parent process environment");
     mp_log("map: committed %u guest orders, %u opponent groups; backup %s; %s", orders, led,
            backup.c_str(), map_file::reason(installed));
     ExitProcess(0);
@@ -1331,14 +1326,19 @@ static void joiner_back_to_lobby(void)
     GetEnvironmentVariableA("MP_PEER", peer, sizeof peer);
     if (!peer[0]) { strcpy_s(g_map_note, "host address missing; cannot enter battle"); return; }
     map_file_windows::Environment env;
-    env.set("MP_AUTOJOIN", peer); env.set("MP_ROLE", nullptr); env.set("MP_MAP", nullptr);
-    env.set("MP_MAP_EPOCH", nullptr); env.set("MP_MAP_REV", nullptr);
+    if (!env.set("MP_AUTOJOIN", peer) || !env.set("MP_ROLE", nullptr) || !env.set("MP_MAP", nullptr) ||
+        !env.set("MP_MAP_EPOCH", nullptr) || !env.set("MP_MAP_REV", nullptr)) {
+        mp_log("map: could not prepare lobby environment (%lu); keeping the current map", GetLastError());
+        strcpy_s(g_map_note, "cannot prepare the multiplayer lobby; retrying");
+        g_map_battle_at = GetTickCount() + 10000;
+        return;
+    }
     if (!start_program(nullptr)) {
         strcpy_s(g_map_note, "cannot open the multiplayer lobby; retrying");
         g_map_battle_at = GetTickCount() + 10000;
         return;
     }
-    env.commit();
+    if (!env.restore()) mp_log("map: could not fully restore the parent process environment");
     mp_log("map: returning through the in-game lobby of %s", peer);
     session_stop();
     ExitProcess(0);
@@ -1373,11 +1373,9 @@ static void joiner_into_battle(void)
     joiner_back_to_lobby();
 }
 
-// The action behind the map's "next turn" control (adv_opgame+0x36b40) is detoured in both games. While
-// both players are on the map it only marks the player who pressed it as done (pressing again takes that
-// back); the turn ends when both are - there is no time limit, each player takes as long as he needs.
-// Then the host's game collects the other player's moves and carries the turn out. With nobody else on the
-// map the control does what it always does.
+// The next-turn control is detoured in both games. It advances the ordered phase, never runs the
+// stock worker during a shared turn, and does not undo a committed player phase. With no shared
+// map the control retains the game's original behavior.
 typedef void (*NextTurn)(void *, u64, const char *);
 typedef void (*TurnWorker)(void *, char, void *, void *);
 static NextTurn g_next_turn;
@@ -1443,7 +1441,7 @@ static void press_next_turn(void)
         mp_log("map: guest finished; waiting for host to collect this snapshot");
         return;
     }
-    if (g_role == ROLE_HOST && g_map_host.finish_host()) {
+    if (g_role == ROLE_HOST && g_connected && g_map_hooks_ready && g_peer_on_map && g_map_host.finish_host()) {
         g_turn_done = true;
         g_handoff_retry_at = 0;
         mp_log("map: host finished; waiting to publish the updated map to the guest");
@@ -1588,7 +1586,11 @@ static void host_map_frame(ObjMan *om, DWORD now)
             return;
         }
         map_file_windows::Environment env;
-        env.set("MP_TURNDONE", "1");
+        if (!env.set("MP_TURNDONE", "1")) {
+            mp_log("map: could not prepare post-turn environment (%lu); recovery files retained", GetLastError());
+            strcpy_s(g_map_note, "cannot prepare post-turn reload; recovery files retained");
+            return;
+        }
         std::string backup; DWORD launch_error = 0;
         map_file::Result installed = map_file_windows::replace_and_launch(g_root, cmd, path, save, &backup, &launch_error);
         if (!map_file::started(installed)) {
@@ -1597,7 +1599,7 @@ static void host_map_frame(ObjMan *om, DWORD now)
             strcpy_s(g_map_note, "post-turn reload failed; recovery files retained");
             return;
         }
-        env.commit();
+        if (!env.restore()) mp_log("map: could not fully restore the parent process environment");
         if (!DeleteFileA(side_path)) mp_log("map: post-turn sidecar retained (%lu): %s", GetLastError(), side_path);
         mp_log("map: confirmed turn, restored %u ownership tags; backup %s; %s", n, backup.c_str(), map_file::reason(installed));
         ExitProcess(0);
@@ -1660,6 +1662,7 @@ void session_start(ObjMan *)
     // Command line first: a friend's Join Game puts +gtmf_join=steam:<id> there, and the menu reads
     // that request, so the layer has to be up before the first frame.
     steam_install();
+    mp_log("net: wire protocol %u (%s)", k_version, k_wire_tag);
     g_tactical = !strcmp(g_program, "tacgame");
     strcpy_s(g_root, g_out_dir);
     if (char *s = strrchr(g_root, '\\')) *s = 0;
@@ -3171,7 +3174,10 @@ bool session_test_map_commit(bool simulated_io_ok, std::vector<unsigned char> *o
     return true;
 }
 bool session_test_map_acked() { return g_map_sent; }
-void session_test_map_disconnect() { g_connected = g_have_peer = g_peer_on_map = false; }
+void session_test_map_disconnect() {
+    g_connected = false;
+    if (g_role == ROLE_HOST) g_have_peer = g_peer_on_map = false; // same as production timeout
+}
 void session_test_map_old_hello() {
     if (g_role != ROLE_HOST || !g_have_peer || g_map_revision < 2) return;
     Hello old = { make_head(PKT_HELLO) };

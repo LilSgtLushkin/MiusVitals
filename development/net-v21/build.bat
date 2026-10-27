@@ -123,6 +123,10 @@ cl /nologo /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build
 if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\render_guard.cpp src\hooks.cpp src\render_guard_test.cpp /link /OUT:build\selftest\render_guard_test.exe
 if errorlevel 1 exit /b %errorlevel%
+cl /nologo /LD /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\late_input_fixture.cpp /link user32.lib /OUT:build\selftest\late_input_fixture.dll /IMPLIB:build\selftest\late_input_fixture.lib
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\late_input_test.cpp /link user32.lib /OUT:build\selftest\late_input_test.exe
+if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\loopback_peer.cpp /link ws2_32.lib /OUT:build\selftest\loopback_peer.exe
 if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\session.cpp src\hooks.cpp src\steam.cpp src\steam_module.cpp src\session_loopback_peer.cpp /link ws2_32.lib ole32.lib oleaut32.lib user32.lib /OUT:build\selftest\session_loopback_peer.exe

@@ -8,6 +8,7 @@ enum { PKT_HELLO = 1, PKT_WELCOME, PKT_KEEPALIVE, PKT_IMAGE_REQUEST, PKT_IMAGE_D
 enum { HOST_MODE_SKIRMISH = 1, HOST_MODE_OPERATION = 2, HOST_MODE_MISSION = 3 };       // mission: made in the battle editor
 static const unsigned k_magic = 0x504d5447;          // "GTMP"
 static const unsigned k_version = 14;      // 14: ordered M5 map phases and snapshot-identified fragments
+static const char k_wire_tag[] = "NETV21_WIRE_PROTOCOL_14"; // embedded in both binaries and checked by the packager
 static const char k_protocol[12] = "GTMF_TA_A1";     // the engine's own protocol id for this game
 static const unsigned k_chunk = 1000;
 static const unsigned short k_default_port = 1943;   // the port the engine's own network settings name

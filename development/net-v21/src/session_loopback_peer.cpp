@@ -324,6 +324,7 @@ static int ordered_map_test(bool host, bool steam, const char *own_port, const c
         session_start((ObjMan *)manager); session_test_map_enable(true);
     }
     bool host_finished = false, adopted = false, guest_finished = false, offered = false;
+    bool disconnected_checked = false;
     bool failed_commit_seen = false, committed = false, old_hello_safe = false, reconnected = false;
     DWORD failure_at = 0, started = GetTickCount();
     std::vector<unsigned char> live, combined;
@@ -331,6 +332,12 @@ static int ordered_map_test(bool host, bool steam, const char *own_port, const c
         DWORD now = GetTickCount();
         session_frame((ObjMan *)manager);
         if (host && !host_finished && session_test_map_peer_loaded()) {
+            if (!disconnected_checked) {
+                session_test_map_disconnect();
+                if (session_test_map_input() || session_test_map_finish()) return 16;
+                disconnected_checked = true;
+                continue; // reconnect before the host can finish its orders
+            }
             if (!session_test_map_input() || !session_test_map_finish() || session_test_map_input()) return 8;
             if (!session_test_map_seed(opsave_fixture::host(true), true)) return 9;
             session_test_map_old_hello();
@@ -345,6 +352,12 @@ static int ordered_map_test(bool host, bool steam, const char *own_port, const c
             adopted = true;
         }
         if (!host && adopted && !guest_finished && session_test_map_input()) {
+            if (!disconnected_checked) {
+                session_test_map_disconnect();
+                if (session_test_map_input() || session_test_map_finish()) return 17;
+                disconnected_checked = true;
+                continue; // the guest must reconnect before finishing its orders
+            }
             if (!opsave_fixture::guest_order(&live) || !session_test_map_finish() || session_test_map_input()) return 12;
             guest_finished = true;
         }
@@ -363,7 +376,7 @@ static int ordered_map_test(bool host, bool steam, const char *own_port, const c
             committed = true;
         }
         if (!host && session_test_map_acked()) {
-            bool ok = adopted && guest_finished && offered && !session_test_map_input() &&
+            bool ok = disconnected_checked && adopted && guest_finished && offered && !session_test_map_input() &&
                       session_test_map_dropped() && session_test_map_duplicates() && session_test_map_stale();
             printf("%s join ok=%d adopted=%d finished=%d offer=%d drop=%u duplicate=%u stale=%u\n",result,(int)ok,
                    (int)adopted,(int)guest_finished,(int)offered,session_test_map_dropped(),
@@ -372,7 +385,7 @@ static int ordered_map_test(bool host, bool steam, const char *own_port, const c
             return ok ? 0 : 1;
         }
         if (host && committed && WaitForSingleObject(guest_done,0) == WAIT_OBJECT_0) {
-            bool ok = host_finished && old_hello_safe && reconnected && failed_commit_seen &&
+            bool ok = disconnected_checked && host_finished && old_hello_safe && reconnected && failed_commit_seen &&
                       session_test_map_dropped() && session_test_map_duplicates() && session_test_map_stale();
             printf("%s host ok=%d stale_hello=%d reconnect=%d io_failure=%d drop=%u duplicate=%u stale=%u\n",result,(int)ok,
                    (int)old_hello_safe,(int)reconnected,(int)failed_commit_seen,session_test_map_dropped(),
