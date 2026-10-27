@@ -48,7 +48,7 @@ mp_log("steam: ready - user %llu (%s), application %u, %d friends, logged on: %s
 фактическим структурам SDK. См. [steam_api_internal.h](https://github.com/rlabrecque/SteamworksSDK/blob/df2baabf574a738ef1ea90a7e89339107fc0a279/public/steam/steam_api_internal.h),
 [isteamfriends.h](https://github.com/rlabrecque/SteamworksSDK/blob/df2baabf574a738ef1ea90a7e89339107fc0a279/public/steam/isteamfriends.h) и
 [steam_api_common.h](https://github.com/rlabrecque/SteamworksSDK/blob/df2baabf574a738ef1ea90a7e89339107fc0a279/public/steam/steam_api_common.h)
-(у `CCallbackBase` также нет виртуального деструктора). Это проверка ABI по заголовкам, не живой прогон Steam.
+(у `CCallbackBase` также нет виртуального деструктора). Windows MSVC размещает две перегрузки `Run` в обратном относительно объявления порядке; обе проверяются через реальные слоты. GNU/MinGW использует другой порядок, поэтому его кросс-сборка годится только для синтаксиса и stand-in: реальный Steam там отклоняется с логом, используется MSVC build. Это проверка ABI по заголовкам, не живой прогон Steam.
 
 Режим «стенд» нужен автору для отладки на одной машине и **нам полезен напрямую**: он позволяет
 гонять два процесса на одном ПК без второго аккаунта Steam.

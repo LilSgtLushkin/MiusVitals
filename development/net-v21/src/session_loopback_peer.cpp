@@ -4,6 +4,7 @@
 #include "steam.h"
 #include "netlog.h"
 #include "render_guard.h"
+#include "protocol.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -16,6 +17,7 @@ bool session_test_peer_over();
 bool session_test_end_pending();
 bool session_test_end_left();
 bool session_test_udp_open();
+unsigned session_test_hello_rejected();
 
 char g_program[32] = "tacgame";
 char g_out_dir[MAX_PATH] = "C:\\mius-no-game\\out";
@@ -73,11 +75,25 @@ int main(int argc, char **argv)
     if (session_test_udp_open() || !steam_ready()) return 3;
 
     DWORD start = GetTickCount(), mutual_at = 0, withdrew_at = 0, ended_at = 0;
-    bool offered = false, saw_offer = false, saw_withdrawal = false, saw_peer_over = false;
+    bool offered = false, saw_offer = false, saw_withdrawal = false, saw_peer_over = false, intruder_sent = false;
     while (GetTickCount() - start < 14000) {
         DWORD now = GetTickCount();
         session_frame((ObjMan *)manager);
         if (session_connected() && !offered) { session_toggle_ceasefire(); offered = true; }
+        if (host && offered && !intruder_sent) {
+            // A third Steam-stand-in identity sends a syntactically valid HELLO while the real
+            // peer is active; the production session must keep its peer and its pending state.
+            SOCKET intruder = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+            sockaddr_in target = {}; target.sin_family = AF_INET;
+            target.sin_addr.s_addr = htonl(INADDR_LOOPBACK); target.sin_port = htons((unsigned short)atoi(argv[2]));
+            Hello hello = {}; hello.h = make_head(PKT_HELLO);
+            memcpy(hello.proto, k_protocol, sizeof k_protocol); hello.version = k_version;
+            strcpy_s(hello.name, "intruder");
+            int sent = sendto(intruder, (const char *)&hello, sizeof hello, 0, (sockaddr *)&target, sizeof target);
+            closesocket(intruder);
+            if (sent != sizeof hello) return 4;
+            intruder_sent = true;
+        }
         if (session_test_peer_proposed()) { saw_offer = true; if (!mutual_at) mutual_at = now; }
         if (!host && saw_offer && !session_test_peer_proposed()) saw_withdrawal = true;
         if (host && mutual_at && !withdrew_at && now - mutual_at >= 750) {
@@ -96,9 +112,11 @@ int main(int argc, char **argv)
             return ok ? 0 : 1;
         }
         if (host && ended_at && now - ended_at >= 6000) {
-            bool ok = offered && saw_offer && session_test_end_left() && !session_test_udp_open();
-            printf("SESSION_RESULT host ok=%d offer=%d withdrew=%d left=%d udp=%d\n",
-                   (int)ok, (int)saw_offer, (int)(withdrew_at != 0), (int)session_test_end_left(), (int)session_test_udp_open());
+            bool ok = offered && saw_offer && session_test_end_left() && !session_test_udp_open() &&
+                      intruder_sent && session_test_hello_rejected() > 0;
+            printf("SESSION_RESULT host ok=%d offer=%d withdrew=%d left=%d udp=%d rejected=%u\n",
+                   (int)ok, (int)saw_offer, (int)(withdrew_at != 0), (int)session_test_end_left(),
+                   (int)session_test_udp_open(), session_test_hello_rejected());
             session_stop(); steam_shutdown();
             return ok ? 0 : 1;
         }

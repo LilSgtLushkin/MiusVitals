@@ -114,7 +114,7 @@ public:
 struct session_request_cb : callback_base {
     uint64_t remote;
     void run(void *param) override;
-    void run(void *, bool, uint64_t) override {}
+    void run(void *param, bool, uint64_t) override { run(param); }
     int size_of() override { return (int)sizeof(uint64_t); }
 };
 
@@ -122,7 +122,7 @@ struct session_fail_cb : callback_base {
     uint64_t remote;
     unsigned char error;
     void run(void *param) override;
-    void run(void *, bool, uint64_t) override {}
+    void run(void *param, bool, uint64_t) override { run(param); }
     int size_of() override { return 16; }
 };
 
@@ -130,13 +130,13 @@ struct join_requested_cb : callback_base {
     uint64_t friend_id;
     char connect[256];
     void run(void *param) override;
-    void run(void *, bool, uint64_t) override {}
+    void run(void *param, bool, uint64_t) override { run(param); }
     int size_of() override { return (int)(sizeof(uint64_t) + 256); }
 };
 
 struct presence_updated_cb : callback_base {
     void run(void *param) override;
-    void run(void *, bool, uint64_t) override {}
+    void run(void *param, bool, uint64_t) override { run(param); }
     int size_of() override { return 16; }     // FriendRichPresenceUpdate_t, Windows x64 packing
 };
 
@@ -394,6 +394,13 @@ bool steam_init()
         return true;
     }
 
+#if defined(__MINGW32__) && !defined(_MSC_VER)
+    // The GNU C++ ABI orders overloaded virtuals differently from the MSVC Steam DLL. This
+    // toolchain is used for cross-compilation checks only; never register incompatible callbacks.
+    g_off = true;
+    steam_log("steam: incompatible GNU callback ABI; build with the Windows MSVC toolchain%s", "");
+    return false;
+#endif
     HMODULE library = GetModuleHandleA("steam_api64.dll");
     if (!bind_interfaces(library))
         return false;
@@ -692,20 +699,41 @@ void steam_test_join_callback(const char *text, size_t size)
 bool steam_test_callback_abi()
 {
     // Invoke the actual compiler-generated slots as SteamAPI does, not a direct C++ call.
-    // x64 CCallbackBase is vptr + flag byte + padded callback id, with Run/Run/size in slots 0..2.
+    // x64 CCallbackBase is vptr + flag byte + padded callback id. MSVC reverses the two
+    // overloaded Run slots; the Itanium ABI used by the cross-compiler keeps declaration order.
     callback_base *callbacks[] = { &g_cb_request, &g_cb_fail, &g_cb_presence, &g_cb_join };
     const int sizes[] = { 8, 16, 16, 264 };
     for (int i = 0; i < 4; i++) {
         callback_base *cb = callbacks[i];
-        if ((char *)&cb->flags - (char *)cb != 8 || (char *)&cb->id - (char *)cb != 12) return false;
+        ptrdiff_t flags_at = (char *)&cb->flags - (char *)cb, id_at = (char *)&cb->id - (char *)cb;
+        if (flags_at != 8 || id_at != 12) {
+            steam_log("steam ABI selftest: callback %d fields at %td/%td instead of 8/12", i, flags_at, id_at);
+            return false;
+        }
         void **vt = *(void ***)cb;
-        if (((int (*)(callback_base *))vt[2])(cb) != sizes[i]) return false;
+        int actual = ((int (*)(callback_base *))vt[2])(cb);
+        if (actual != sizes[i]) {
+            steam_log("steam ABI selftest: callback %d slot 2 returned %d instead of %d", i, actual, sizes[i]);
+            return false;
+        }
     }
     if (CALLBACK_PRESENCE_UPDATED != 336 || CALLBACK_JOIN_REQUESTED != 337) return false;
     unsigned char payload[264] = {};
     memcpy(payload + 8, "steam:42", 9);
     void **vt = *(void ***)&g_cb_join;
-    ((void (*)(callback_base *, void *))vt[0])(&g_cb_join, payload);
+#if defined(_MSC_VER)
+    const int single = 1, multi = 0;
+#else
+    const int single = 0, multi = 1; // e.g. the GNU/Itanium ABI used by the syntax-only build
+#endif
+    ((void (*)(callback_base *, void *))vt[single])(&g_cb_join, payload);
+    if (!g_join_pending || g_join_id != 42) {
+        steam_log("steam ABI selftest: single-argument Run dispatch failed%s", "");
+        return false;
+    }
+    g_join_pending = false;
+    g_join_id = 0;
+    ((void (*)(callback_base *, void *, bool, uint64_t))vt[multi])(&g_cb_join, payload, false, 0);
     return g_join_pending && g_join_id == 42;
 }
 

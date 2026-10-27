@@ -17,6 +17,7 @@
 #include "transform_write.h"
 #include "transform_inbox.h"
 #include "transform_send.h"
+#include "peer_guard.h"
 #include "transport_policy.h"
 #include "render_guard.h"
 #include "netlog.h"
@@ -113,6 +114,10 @@ static DWORD g_peer_clock_at, g_waiting_since;
 static bool g_clock_adopted;
 static u32 g_snapshot, g_stat_sent, g_stat_applied, g_stat_elided, g_stat_coalesced, g_stat_bad_transforms;
 static u32 g_stat_packets, g_stat_rx_bytes, g_stat_tx_bytes, g_stat_snaps;
+#ifdef NETV21_TEST_HOOKS
+static unsigned g_test_hello_rejected;
+unsigned session_test_hello_rejected() { return g_test_hello_rejected; }
+#endif
 static double g_stat_err_sum;
 static float g_stat_err_max;
 static u64 g_sim_ms;
@@ -2263,6 +2268,19 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
                from.sin_addr.s_addr == g_peer.sin_addr.s_addr && from.sin_port == g_peer.sin_port);
 
     if (g_role == ROLE_HOST && h->type == PKT_HELLO) {
+        // A third sender must not replace a recently active tactical peer or reset its queues.
+        // After three seconds without that peer, a legitimate changed-port reconnect is allowed.
+        if (peer_guard::reject_hello(g_tactical, g_connected, from_peer, now, g_last_rx)) {
+#ifdef NETV21_TEST_HOOKS
+            ++g_test_hello_rejected;
+#endif
+            static DWORD last_refused;
+            if (!last_refused || now - last_refused >= 5000) {
+                last_refused = now ? now : 1;
+                mp_log("net: ignored a different sender while the tactical peer is active");
+            }
+            return;
+        }
         if (size < 24) return;
         const Hello *in = (const Hello *)data;
         if (memcmp(in->proto, k_protocol, sizeof k_protocol)) return;
