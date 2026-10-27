@@ -20,6 +20,7 @@ on:
       - "scripts/package_net_v21_test_selftest.py"
       - "tests/test_unified_installer_windows.py"
       - "tests/test_switch_pair_windows.py"
+      - "docs/NET_V21_M5_VALIDATION_2026-10-27.md"
       - ".github/workflows/build-network-module.yml"
   pull_request:
     paths:
@@ -30,6 +31,7 @@ on:
       - "scripts/package_net_v21_test_selftest.py"
       - "tests/test_unified_installer_windows.py"
       - "tests/test_switch_pair_windows.py"
+      - "docs/NET_V21_M5_VALIDATION_2026-10-27.md"
       - ".github/workflows/build-network-module.yml"
   workflow_dispatch:
 
