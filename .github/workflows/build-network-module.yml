@@ -141,6 +141,10 @@ jobs:
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log
           if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\transform_send_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
           development\net-v21\build\selftest\transform_inbox_test.exe >> development\net-v21\build\selftest.log 2>&1
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log
@@ -173,6 +177,18 @@ jobs:
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log
           exit /b %rc%
+
+      # Keep the failing test/compiler tail visible through the checks API, even where Actions'
+      # external log/artifact storage is inaccessible. Tests here use only synthetic data.
+      - name: Expose the self-test failure
+        if: failure()
+        shell: pwsh
+        run: |
+          $log = 'development/net-v21/build/selftest.log'
+          if (Test-Path -LiteralPath $log) {
+            $tail = ((Get-Content -LiteralPath $log -Tail 60) -join ' | ').Replace('%', '%25')
+            Write-Output "::error title=Self-test log::$tail"
+          }
 
       - name: M2 - build the command-line join launcher with the Steam layer
         shell: cmd

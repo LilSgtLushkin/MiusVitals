@@ -85,6 +85,8 @@ cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\tac
 if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\transform_write_test.cpp /link /OUT:build\selftest\transform_write_test.exe
 if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\transform_send_test.cpp /link /OUT:build\selftest\transform_send_test.exe
+if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\transform_inbox_test.cpp /link /OUT:build\selftest\transform_inbox_test.exe
 if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\transport_policy_test.cpp /link /OUT:build\selftest\transport_policy_test.exe

@@ -16,6 +16,7 @@
 #include "tactical_mode.h"
 #include "transform_write.h"
 #include "transform_inbox.h"
+#include "transform_send.h"
 #include "transport_policy.h"
 #include "render_guard.h"
 #include "netlog.h"
@@ -93,8 +94,7 @@ static std::unordered_set<u64> g_my_units;          // versus: the units this ga
 static std::unordered_set<u64> g_position_only;     // units whose saved state is not exchanged
 
 // unit transforms
-struct Sent { float pos[3], rot0[3]; DWORD when; };
-static std::unordered_map<u64, Sent> g_sent;            // what was last sent per owned unit
+static std::unordered_map<u64, transforms::Sent> g_sent;            // what was last sent per owned unit
 static std::unordered_map<u64, Object *> g_units;       // local unit per id
 static u32 g_units_count_seen;
 static transforms::Inbox g_pending;                     // latest arrival per unit before the next simulation step
@@ -1418,14 +1418,11 @@ static void send_transforms(ObjMan *om, DWORD now)
         if (!unit_key(all[i], &key, &r) || !owns_object(all[i])) continue;
         const char *u = (const char *)all[i];
         const float *pos = (const float *)(u + UNIT_POS), *rot = (const float *)(u + UNIT_ROT);
-        Sent &s = g_sent[key];
-        bool moved = fabsf(pos[0] - s.pos[0]) + fabsf(pos[1] - s.pos[1]) + fabsf(pos[2] - s.pos[2]) > 0.002f ||
-                     fabsf(rot[0] - s.rot0[0]) + fabsf(rot[1] - s.rot0[1]) + fabsf(rot[2] - s.rot0[2]) > 0.0005f;
-        // unchanged units are repeated every two seconds, spread out so they do not all go at once
-        if (!moved && now - s.when < 2000 + (r.id % 16) * 30) continue;
-        memcpy(s.pos, pos, 12);
-        memcpy(s.rot0, rot, 12);
-        s.when = now;
+        transforms::Sent &s = g_sent[key];
+        // Compare every rotation row (roll/pitch can change while row 0 stays unchanged). Unchanged
+        // units still repeat at the native staggered two-second cadence.
+        if (!s.due(pos, rot, now, r.id)) continue;
+        s.remember(pos, rot, now);
         memcpy(r.pos, pos, 12);
         for (int row = 0; row < 3; row++) memcpy(r.rot + row * 3, rot + row * 4, 12);
         memcpy(r.lin, u + UNIT_LIN, 12);
@@ -1553,7 +1550,6 @@ void session_sim_step(ObjMan *om)
         g_stat_applied++;
         if (!write_remote_transform(upos, urot, uinv, (float *)(u + UNIT_LIN), (float *)(u + UNIT_ANG),
                                     pos, rot, B.lin, B.ang, moving)) g_stat_elided++;
-        else { memset(u + UNIT_LIN, 0, 12); memset(u + UNIT_ANG, 0, 12); }
     }
 }
 

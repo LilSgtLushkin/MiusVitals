@@ -7,8 +7,10 @@
 inline bool write_remote_transform(float *pos, float *rot, float *inv, float *lin, float *ang,
                                    const float *p, const float *r, const float *v, const float *w, bool moving)
 {
+    const float zero[3] = {};
+    const float *want_lin = moving ? v : zero, *want_ang = moving ? w : zero;
     bool same = !memcmp(pos, p, 3 * sizeof(float)) &&
-                (!moving || (!memcmp(lin, v, 3 * sizeof(float)) && !memcmp(ang, w, 3 * sizeof(float))));
+                !memcmp(lin, want_lin, 3 * sizeof(float)) && !memcmp(ang, want_ang, 3 * sizeof(float));
     for (int i = 0; i < 3 && same; i++) {
         if (memcmp(rot + i * 4, r + i * 3, 3 * sizeof(float))) same = false;
         for (int j = 0; j < 3 && same; j++)
@@ -20,6 +22,7 @@ inline bool write_remote_transform(float *pos, float *rot, float *inv, float *li
         rot[i * 4 + j] = r[i * 3 + j];
         inv[j * 4 + i] = r[i * 3 + j];
     }
-    if (moving) { memcpy(lin, v, 3 * sizeof(float)); memcpy(ang, w, 3 * sizeof(float)); }
+    memcpy(lin, want_lin, 3 * sizeof(float));
+    memcpy(ang, want_ang, 3 * sizeof(float));
     return true;
 }
