@@ -528,14 +528,36 @@ static void update_ai_commander(void)
     mp_log("net: AI commander switched %s", off ? "off" : "on");
 }
 
+// Tactical and non-tactical receivers are deliberately separate: M5 keeps the pre-hardening
+// state implementation, even when a peer sends it a state packet outside a battle.
+static void reset_state_for_mode()
+{
+    if (g_tactical) { statesync_reset(); statesync_forget_peer(); }
+    else statesync_legacy_reset();
+}
+static void state_packet_for_mode(const unsigned char *data, int size, void (*send)(const void *, int), bool versus)
+{
+    if (g_tactical) statesync_on_packet(data, size, send, versus);
+    else statesync_legacy_on_packet(data, size, send, versus);
+}
+#ifdef NETV21_TEST_HOOKS
+void session_test_state_dispatch(bool tactical)
+{
+    bool previous = g_tactical;
+    g_tactical = tactical;
+    reset_state_for_mode();
+    state_packet_for_mode(nullptr, 0, nullptr, false); // the test substitutes both receivers
+    g_tactical = previous;
+}
+#endif
+
 static void set_versus(bool versus)
 {
     if (versus == g_versus) return;
     g_versus = versus;
     mp_log("net: %s", versus ? "versus: each game owns its own player's units" : "same side: the host owns every unit");
     g_sent.clear();
-    statesync_reset();
-    if (g_tactical) statesync_forget_peer();
+    reset_state_for_mode();
 }
 
 // ---------------------------------------------------------------- addresses, UPnP (host)
@@ -2327,9 +2349,9 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
             g_sent.clear();            // a new game needs every unit once
             g_pending.clear();         // never apply the previous peer's queued transforms
             g_held.clear();
-            statesync_reset();
+            reset_state_for_mode();
             shots_reset();
-            if (g_tactical) { statesync_forget_peer(); g_end.new_peer(); g_end_last_tx = 0; }
+            if (g_tactical) { g_end.new_peer(); g_end_last_tx = 0; }
             g_peer_ready = 0;
             g_peer_swap_known = false;
         }
@@ -2553,7 +2575,7 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
         break;
     case PKT_OBJECT:
     case PKT_OBJECT_ACK:
-        statesync_on_packet(data, size, send_peer, g_versus);
+        state_packet_for_mode(data, size, send_peer, g_versus);
         break;
     case PKT_SHOT:
     case PKT_SHOT_ACK:

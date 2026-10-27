@@ -18,6 +18,7 @@ bool session_test_end_pending();
 bool session_test_end_left();
 bool session_test_udp_open();
 unsigned session_test_hello_rejected();
+void session_test_state_dispatch(bool tactical);
 
 char g_program[32] = "tacgame";
 char g_out_dir[MAX_PATH] = "C:\\mius-no-game\\out";
@@ -36,11 +37,14 @@ void netlog_mark(const char *, ...) {}
 void netlog_state(int, unsigned, int, unsigned) {}
 void render_guard_install() {}
 void render_guard_report(DWORD) {}
-void statesync_reset() {}
-void statesync_forget_peer() {}
+static int tactical_resets, legacy_resets, tactical_forgets, tactical_packets, legacy_packets;
+void statesync_reset() { ++tactical_resets; }
+void statesync_legacy_reset() { ++legacy_resets; }
+void statesync_forget_peer() { ++tactical_forgets; }
 void statesync_apply(ObjMan *) {}
 void statesync_owner_frame(ObjMan *, DWORD, bool (*)(Object *), void (*)(const void *, int)) {}
-void statesync_on_packet(const unsigned char *, int, void (*)(const void *, int), bool) {}
+void statesync_on_packet(const unsigned char *, int, void (*)(const void *, int), bool) { ++tactical_packets; }
+void statesync_legacy_on_packet(const unsigned char *, int, void (*)(const void *, int), bool) { ++legacy_packets; }
 void statesync_report() {}
 bool xlate_ready() { return false; }
 void xlate_frame(ObjMan *) {}
@@ -58,6 +62,16 @@ static Object *find_nothing(ObjMan *, Dep *) { return nullptr; }
 int main(int argc, char **argv)
 {
     if (argc != 4 || (strcmp(argv[1], "host") && strcmp(argv[1], "join"))) return 2;
+    // Exercise the actual session dispatch in both modes before starting the tactical pair.
+    session_test_state_dispatch(false);
+    if (legacy_resets != 1 || legacy_packets != 1 || tactical_resets || tactical_forgets || tactical_packets) {
+        puts("FAIL: non-tactical state dispatch"); return 1;
+    }
+    session_test_state_dispatch(true);
+    if (legacy_resets != 1 || legacy_packets != 1 || tactical_resets != 1 || tactical_forgets != 1 || tactical_packets != 1) {
+        puts("FAIL: tactical state dispatch"); return 1;
+    }
+    puts("state dispatch: tactical and unchanged non-tactical paths passed");
     bool host = !strcmp(argv[1], "host");
     SetEnvironmentVariableA("MP_ROLE", argv[1]);
     SetEnvironmentVariableA("MP_HOST_MODE", "skirmish");

@@ -85,6 +85,9 @@ void statesync_apply(ObjMan *om);
 void statesync_reset(void);
 void statesync_forget_peer(void);      // tactical: discard snapshots and partials from the previous peer
 void statesync_report(void);
+// The unchanged pre-hardening receiver is used only by the non-tactical session; M5 is out of scope.
+void statesync_legacy_on_packet(const unsigned char *data, int size, void (*send)(const void *, int), bool versus);
+void statesync_legacy_reset(void);
 
 // ---- shell launches (shots.cpp)
 void shots_install(ObjMan *om);

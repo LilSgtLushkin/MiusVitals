@@ -29,12 +29,14 @@ static void send_packet(const void *p, int n) {
     if (n == sizeof(ObjectAck)) { memcpy(&last_ack, p, sizeof last_ack); ++ack_count; }
 }
 static void check(bool b, const char *name) { ++checks; if (!b) { ++failed; printf("FAIL: %s\n", name); } }
-static void receive(ObjectFrag f, const std::vector<unsigned char> &payload) {
+static void receive_mode(ObjectFrag f, const std::vector<unsigned char> &payload, bool tactical) {
     std::vector<unsigned char> packet(sizeof f + payload.size());
     memcpy(packet.data(), &f, sizeof f);
     if (!payload.empty()) memcpy(packet.data() + sizeof f, payload.data(), payload.size());
-    statesync_on_packet(packet.data(), (int)packet.size(), send_packet, false);
+    if (tactical) statesync_on_packet(packet.data(), (int)packet.size(), send_packet, false);
+    else statesync_legacy_on_packet(packet.data(), (int)packet.size(), send_packet, false);
 }
+static void receive(ObjectFrag f, const std::vector<unsigned char> &payload) { receive_mode(f, payload, true); }
 static ObjectFrag fragment(u64 key, unsigned version, unsigned raw, unsigned delta, unsigned index, unsigned count, unsigned length) {
     ObjectFrag f = {}; f.h = make_head(PKT_OBJECT, length); f.key = key; f.version = version;
     f.raw_size = raw; f.delta_size = delta; f.frag = (unsigned short)index; f.nfrags = (unsigned short)count; return f;
@@ -105,6 +107,25 @@ int main() {
     f = fragment(key, 1, 4, (unsigned)a.size(), 0, 1, (unsigned)a.size()); receive(f, a); statesync_apply(manager);
     check(last_ack.version == 1 && loads == 6 && loaded[0] == 1 && last_loaded == &replacement,
           "new peer version one uses the current object even if the count is unchanged");
+
+    // M5's non-tactical path is the byte-for-byte old implementation. Exercise behaviours
+    // intentionally different from the hardened tactical receiver, without applying a state to
+    // an operation-map object (the production session never does that).
+    const u64 legacy_key = key + 200;
+    ObjectFrag legacy = fragment(legacy_key, 2, 4, (unsigned)a.size(), 0, 1, (unsigned)a.size());
+    before = ack_count; receive_mode(legacy, a, false);
+    check(ack_count == before + 1 && last_ack.version == 2, "non-tactical legacy accepts a normal full state");
+    legacy.version = 1; receive_mode(legacy, b, false);
+    check(ack_count == before + 2 && last_ack.version == 1, "non-tactical legacy retains its old version ordering");
+    statesync_legacy_reset();
+    receive_mode(legacy, b, false);
+    check(ack_count == before + 3 && last_ack.version == 1, "non-tactical legacy reset preserves received baseline as before");
+    legacy.key = legacy_key + 1; legacy.version = 0; receive_mode(legacy, a, false);
+    check(ack_count == before + 4 && last_ack.version == 0, "non-tactical legacy retains the previous zero-version behavior");
+    before = ack_count; receive_mode(legacy, a, true);
+    check(ack_count == before, "tactical receiver rejects the zero version that legacy accepted");
+    check(statesync_test_incoming_count() == 1, "non-tactical receives do not contaminate tactical state");
+
     printf("state sync integration selftest: %d checks, %d failed\n", checks, failed);
     return failed ? 1 : 0;
 }

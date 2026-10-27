@@ -63,6 +63,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python development/net-v21/tools/tactical_hook_selftest.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python development/net-v21/tools/statesync_legacy_selftest.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Test archive validation and rollback protection
         run: |
