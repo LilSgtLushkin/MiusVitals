@@ -46,11 +46,16 @@ class PE:
         self.image_base, = struct.unpack_from("<Q" if magic == 0x20B else "<I", d, opt + 24)
         self.timestamp, = struct.unpack_from("<I", d, coff + 4)
         self.sections = []
+        self.exec_sections = []
         s = opt + opt_size
         for _ in range(sections):
             name = d[s:s + 8].rstrip(b"\0").decode("latin-1")
             vsize, vaddr, rawsize, rawptr = struct.unpack_from("<IIII", d, s + 8)
-            self.sections.append((name, vaddr, vsize, rawptr, rawsize))
+            flags, = struct.unpack_from("<I", d, s + 36)
+            section = (name, vaddr, vsize, rawptr, rawsize)
+            self.sections.append(section)
+            if flags & 0x20000000:  # IMAGE_SCN_MEM_EXECUTE, as used by hook_resolve
+                self.exec_sections.append(section)
             s += 40
 
     def offset(self, rva: int) -> int | None:
@@ -67,9 +72,9 @@ class PE:
         return "outside every section"
 
     def executable_rva(self, rva: int) -> bool:
-        for name, va, vsize, _rp, rs in self.sections:
+        for _name, va, vsize, _rp, rs in self.exec_sections:
             if va <= rva < va + max(vsize, rs):
-                return name.startswith(".text") or name.startswith("CODE")
+                return True
         return False
 
     def function_of(self, rva: int):
@@ -90,7 +95,7 @@ class PE:
         return None
 
     def executable(self):
-        for name, va, _vs, rp, rs in self.sections:
+        for name, va, _vs, rp, rs in self.exec_sections:
             yield name, va, rp, rs
 
 
@@ -105,6 +110,21 @@ def signature(text: str) -> bytes:
 
 def number(text: str) -> int:
     return int(text.replace("_", ""), 16) if text.lower().startswith(("0x", "0X")) else int(text, 0)
+
+
+def pointer_rva(pe: PE, value: int) -> int | None:
+    """Resolve a possible on-disk pointer, which can be an RVA or an image-base-relative VA.
+
+    In PE32+ vtables the pointer normally contains the preferred image base plus the function RVA.
+    These bytes are from the file, not a relocated process, so --base does not change the conversion.
+    """
+    if value and pe.executable_rva(value):
+        return value
+    if value >= pe.image_base:
+        target = value - pe.image_base
+        if pe.executable_rva(target):
+            return target
+    return None
 
 
 def describe(pe: PE, rva: int, base: int) -> None:
@@ -133,15 +153,16 @@ def describe(pe: PE, rva: int, base: int) -> None:
         if len(blob) < width:
             continue
         value, = struct.unpack_from("<Q" if width == 8 else "<I", blob, 0)
-        if value and pe.executable_rva(value):
-            print(f"  points to +0x{value:x}  ({pe.section(value)})  - the function this slot holds:")
-            inner = pe.function_of(value)
+        target_rva = pointer_rva(pe, value)
+        if target_rva is not None:
+            print(f"  possible pointer to +0x{target_rva:x}  ({pe.section(target_rva)}; {width * 8}-bit value 0x{value:x}):")
+            inner = pe.function_of(target_rva)
             if inner:
                 print(f"            function +0x{inner[0]:x}..+0x{inner[1]:x} ({inner[1] - inner[0]} bytes)")
                 start = pe.offset(inner[0])
                 if start is not None:
                     print(f"            prologue {' '.join(f'{b:02X}' for b in pe.data[start:start + 32])}")
-            target = pe.offset(value)
+            target = pe.offset(target_rva)
             if target is not None:
                 print(f"            bytes    {' '.join(f'{b:02X}' for b in pe.data[target:target + 32])}")
             break
@@ -167,21 +188,21 @@ def main() -> int:
         print(f"file     {args.codelib.name}  {len(pe.data)} bytes")
         print(f"sha256   {__import__('hashlib').sha256(pe.data).hexdigest()}")
         print(f"pe       timestamp 0x{pe.timestamp:08x} ({stamp} UTC), image base {pe.image_base:#x}")
-        print(f"code     " + ", ".join(f"{n} rva 0x{v:x} ({rs} bytes)" for n, v, _vs, _rp, rs in pe.sections if n.startswith(".text")))
-        base = number(args.base) if args.base else pe.image_base
+        print("code     " + ", ".join(f"{n} rva 0x{v:x} ({rs} bytes)" for n, v, _vs, _rp, rs in pe.exec_sections))
+        base = number(args.base) if args.base is not None else pe.image_base
         for text in (args.at or []):
             print(f"\n{args.codelib.name} --at {text}")
             describe(pe, number(text), 0)
+        invalid_address = False
         for text in (args.va or []):
             print(f"\n{args.codelib.name} --va {text}")
             value = number(text)
-            rva = value - base if value > base else value
-            descum = ""
-            if value > base and rva > (1 << 30):
+            if value < base:
                 print(f"  {text} is below the image base {base:#x} - is --base right?")
+                invalid_address = True
                 continue
-            describe(pe, rva, base)
-        return 0
+            describe(pe, value - base, base)
+        return 1 if invalid_address else 0
 
     sig = signature(args.sig)
     if args.prefix:
@@ -194,7 +215,7 @@ def main() -> int:
         i = blob.find(sig)
         while i >= 0:
             rva = va + i
-            line = f"  {name}+0x{rva:06x}"
+            line = f"  rva 0x{rva:06x}  ({name}+0x{i:x})"
             if args.context:
                 line += "  " + " ".join(f"{b:02X}" for b in blob[i:i + len(sig) + args.context])
             print(line)
