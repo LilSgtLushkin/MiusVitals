@@ -116,7 +116,9 @@ static int lobby_test(bool host, bool steam, const char *own_port, const char *p
     HANDLE welcome_sent = CreateEventA(nullptr, TRUE, FALSE, event_name);
     sprintf_s(event_name, "Local\\netv21_%s_download_%s", steam ? "steam" : "ip", host ? own_port : peer_port);
     HANDLE download_done = CreateEventA(nullptr, TRUE, FALSE, event_name);
-    if (!welcome_sent || !download_done) return 2;
+    sprintf_s(event_name, "Local\\netv21_%s_ready_%s", steam ? "steam" : "ip", host ? own_port : peer_port);
+    HANDLE host_ready = CreateEventA(nullptr, TRUE, FALSE, event_name);
+    if (!welcome_sent || !download_done || !host_ready) return 2;
     strcpy_s(g_program, host ? "tacgame" : "opgame");
     SetEnvironmentVariableA("MP_ROLE", host ? "host" : nullptr);
     SetEnvironmentVariableA("MP_HOST_MODE", "skirmish");
@@ -132,7 +134,10 @@ static int lobby_test(bool host, bool steam, const char *own_port, const char *p
     ((ObjMan *)manager)->vtbl = vt;
     session_start((ObjMan *)manager);
     if ((steam && !steam_ready()) || (!steam && host && !session_test_udp_open())) return 3;
-    if (host) session_test_lobby_image(); // synthetic payload; no game save or process launch
+    if (host) {
+        session_test_lobby_image(); // synthetic payload; no game save or process launch
+        SetEvent(host_ready);       // the client must not send before the host has bound its socket
+    } else if (WaitForSingleObject(host_ready, 5000) != WAIT_OBJECT_0) return 14;
     Joiner lobby;
     if (!host) {
         if (steam) {
@@ -175,7 +180,7 @@ static int lobby_test(bool host, bool steam, const char *own_port, const char *p
         }
         if (host && connected_at && WaitForSingleObject(download_done, 0) == WAIT_OBJECT_0) {
             printf("%s host ok=1\n", result); session_stop(); steam_shutdown();
-            CloseHandle(welcome_sent); CloseHandle(download_done); return 0;
+            CloseHandle(welcome_sent); CloseHandle(download_done); CloseHandle(host_ready); return 0;
         }
         if (!host) {
             lobby.poll(); // sends HELLO
@@ -205,7 +210,7 @@ static int lobby_test(bool host, bool steam, const char *own_port, const char *p
                 bool ok = reserved && released && image_ok;
                 if (ok) SetEvent(download_done);
                 printf("%s join ok=%d reserved=%d released=%d ordered=1 image=%d\n", result, (int)ok, (int)reserved, (int)released, (int)image_ok);
-                lobby.cancel(); session_stop(); steam_shutdown(); CloseHandle(welcome_sent); CloseHandle(download_done);
+                lobby.cancel(); session_stop(); steam_shutdown(); CloseHandle(welcome_sent); CloseHandle(download_done); CloseHandle(host_ready);
                 return ok ? 0 : 1;
             }
             break; // fail immediately: do not allow a later retransmit to hide the ordering bug
@@ -213,7 +218,7 @@ static int lobby_test(bool host, bool steam, const char *own_port, const char *p
         Sleep(10);
     }
     printf("%s %s ok=0 state=%d error=%s\n", result, host ? "host" : "join", (int)lobby.state, lobby.error);
-    lobby.cancel(); session_stop(); steam_shutdown(); CloseHandle(welcome_sent); CloseHandle(download_done);
+    lobby.cancel(); session_stop(); steam_shutdown(); CloseHandle(welcome_sent); CloseHandle(download_done); CloseHandle(host_ready);
     return 1;
 }
 
