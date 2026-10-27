@@ -119,4 +119,5 @@ void steam_tick();
 // Test hooks (self-test only; the module never calls them).
 void steam_test_set_command_line(const char *text);
 void steam_test_join_callback(const char *text, size_t size);
+bool steam_test_callback_abi();
 void steam_test_reset();

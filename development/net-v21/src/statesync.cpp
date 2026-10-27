@@ -6,6 +6,7 @@
 // the object before the next simulation step. Versions only advance on acknowledgement, so a lost
 // datagram costs one retry and never corrupts state.
 #include "common.h"
+#include "env_value.h"
 #include "netlog.h"
 #include "protocol.h"
 #include <stdio.h>
@@ -101,8 +102,8 @@ static bool replicated_singleton(Object *o)
     static const char *names[] = { "i_divisions", "i_statistic", "i_trigman", "i_formation", "i_fireman", "i_shellphys" };
     static int enabled = -1;
     if (enabled < 0) {
-        char v[8];
-        enabled = GetEnvironmentVariableA("MP_SYNC_WORLD", v, sizeof v) ? atoi(v) : 0;
+        enabled = 0;
+        env_integer("MP_SYNC_WORLD", &enabled);
     }
     if (!enabled) return false;
     for (int i = 0; i < enabled && i < 6; i++)
@@ -160,8 +161,9 @@ void statesync_owner_frame(ObjMan *om, DWORD now, bool (*owns)(Object *), void (
     static int kbps = -1;
     static Blob blob;
     if (kbps < 0) {
-        char v[16];
-        kbps = GetEnvironmentVariableA("MP_STATE_KBPS", v, sizeof v) ? atoi(v) : 600;
+        kbps = 600;
+        int requested;
+        if (env_integer("MP_STATE_KBPS", &requested) && requested >= 0) kbps = requested;
     }
     g_send = send;
     double dt = g_last_frame ? (now - g_last_frame) / 1000.0 : 0;
@@ -289,8 +291,8 @@ void statesync_apply(ObjMan *om)
         static int trace = -1, only;
         if (trace < 0) {
             char v[16] = "";
-            trace = GetEnvironmentVariableA("MP_LOG_LOADS", v, sizeof v) != 0;
-            if (GetEnvironmentVariableA("MP_LOAD_ONLY", v, sizeof v)) only = v[0] == 't' ? 1 : 2;
+            trace = env_text("MP_LOG_LOADS", v, sizeof v);
+            if (env_text("MP_LOAD_ONLY", v, sizeof v)) only = v[0] == 't' ? 1 : 2;
         }
         if (only && strcmp(o->iface, only == 1 ? "i_techn" : "i_human")) continue;
         if (!session_state_wanted(o)) continue;

@@ -18,6 +18,7 @@
 //
 // MP_SYNC_SHOTS=0 switches all of this off; MP_LOG_SHOTS=1 writes every launch to out\mp_shots_<pid>.txt.
 #include "common.h"
+#include "env_value.h"
 #include "netlog.h"
 #include "protocol.h"
 #include "reliable_inbox.h"
@@ -202,9 +203,9 @@ void shots_install(ObjMan *om)
     g_install_done = true;
     g_om = om;
     g_main_thread = GetCurrentThreadId();
-    char v[16];
-    if (GetEnvironmentVariableA("MP_SYNC_SHOTS", v, sizeof v)) g_enabled = atoi(v) != 0;
-    if (GetEnvironmentVariableA("MP_LOG_SHOTS", v, sizeof v) && atoi(v)) {
+    int value;
+    if (env_integer("MP_SYNC_SHOTS", &value)) g_enabled = value != 0;
+    if (env_integer("MP_LOG_SHOTS", &value) && value) {
         char path[MAX_PATH];
         sprintf_s(path, "%s\\mp_shots_%lu.txt", g_out_dir, GetCurrentProcessId());
         g_file = _fsopen(path, "w", _SH_DENYNO);

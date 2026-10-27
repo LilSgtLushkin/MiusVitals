@@ -84,9 +84,11 @@ static const char *const kEntryPoints[] = {
     "SteamAPI_ISteamNetworking_AllowP2PPacketRelay", "SteamAPI_RegisterCallback",
 };
 
-// Callback ids from the Steamworks SDK: 1201..1203 are networking, 336..339 friends.
+// Steamworks callback bases are 1200 (networking) and 300 (friends): presence update is
+// +36, while Join Game is +37. Treating 336 as the 264-byte join payload reads past a
+// 16-byte presence update and never handles the real join event (337).
 enum { CALLBACK_SESSION_REQUEST = 1202, CALLBACK_SESSION_FAIL = 1203,
-       CALLBACK_JOIN_REQUESTED = 336, CALLBACK_FRIEND_CHAT = 337 };
+       CALLBACK_PRESENCE_UPDATED = 336, CALLBACK_JOIN_REQUESTED = 337 };
 
 // EP2PSend.  The game's protocol is written for UDP (it does its own pacing), so unreliable is the
 // faithful default; k_EP2PSendReliable is one constant away if a test wants ordering instead.
@@ -99,7 +101,8 @@ static const int kSendType = SEND_UNRELIABLE;
 class callback_base {
 public:
     callback_base() : flags(0), id(0) {}
-    virtual ~callback_base() {}
+    // Steam's CCallbackBase ABI explicitly has NO virtual destructor. Adding one moves every
+    // vtable slot, so Steam would call the wrong function for Run/GetCallbackSizeBytes.
     virtual void run(void *param) = 0;
     virtual void run(void *param, bool io_failure, uint64_t call) = 0;
     virtual int size_of() = 0;
@@ -131,12 +134,10 @@ struct join_requested_cb : callback_base {
     int size_of() override { return (int)(sizeof(uint64_t) + 256); }
 };
 
-struct friend_chat_cb : callback_base {
-    uint64_t user;
-    int32_t message;
+struct presence_updated_cb : callback_base {
     void run(void *param) override;
     void run(void *, bool, uint64_t) override {}
-    int size_of() override { return 16; }
+    int size_of() override { return 16; }     // FriendRichPresenceUpdate_t, Windows x64 packing
 };
 
 // --------------------------------------------------------------------------- state
@@ -172,7 +173,7 @@ static DWORD g_stats_at;
 static session_request_cb g_cb_request;
 static session_fail_cb g_cb_fail;
 static join_requested_cb g_cb_join;
-static friend_chat_cb g_cb_chat;
+static presence_updated_cb g_cb_presence;
 
 static uint64_t g_join_id;
 static bool g_join_pending;
@@ -303,10 +304,9 @@ void join_requested_cb::run(void *param)
     }
 }
 
-void friend_chat_cb::run(void *param)
+void presence_updated_cb::run(void *param)
 {
-    (void)param;
-    // Registered because v20 registers it; it carries no join information we act on yet.
+    (void)param; // presence update 336 is not a Join Game request
 }
 
 // --------------------------------------------------------------------------- interface binding
@@ -421,11 +421,11 @@ bool steam_init()
     g_cb_request.id = CALLBACK_SESSION_REQUEST;
     g_cb_fail.id = CALLBACK_SESSION_FAIL;
     g_cb_join.id = CALLBACK_JOIN_REQUESTED;
-    g_cb_chat.id = CALLBACK_FRIEND_CHAT;
+    g_cb_presence.id = CALLBACK_PRESENCE_UPDATED;
     g_api.register_callback(&g_cb_request, CALLBACK_SESSION_REQUEST);
     g_api.register_callback(&g_cb_fail, CALLBACK_SESSION_FAIL);
+    g_api.register_callback(&g_cb_presence, CALLBACK_PRESENCE_UPDATED);
     g_api.register_callback(&g_cb_join, CALLBACK_JOIN_REQUESTED);
-    g_api.register_callback(&g_cb_chat, CALLBACK_FRIEND_CHAT);
     g_api.request_presence(g_friends, g_user_id);
 
     g_friend_count = g_api.friends_count ? g_api.friends_count(g_friends, 4) : 0;
@@ -687,6 +687,26 @@ void steam_test_join_callback(const char *text, size_t size)
     unsigned char param[8 + 256] = {};
     if (text) memcpy(param + 8, text, size < 256 ? size : 256);
     g_cb_join.run(param);
+}
+
+bool steam_test_callback_abi()
+{
+    // Invoke the actual compiler-generated slots as SteamAPI does, not a direct C++ call.
+    // x64 CCallbackBase is vptr + flag byte + padded callback id, with Run/Run/size in slots 0..2.
+    callback_base *callbacks[] = { &g_cb_request, &g_cb_fail, &g_cb_presence, &g_cb_join };
+    const int sizes[] = { 8, 16, 16, 264 };
+    for (int i = 0; i < 4; i++) {
+        callback_base *cb = callbacks[i];
+        if ((char *)&cb->flags - (char *)cb != 8 || (char *)&cb->id - (char *)cb != 12) return false;
+        void **vt = *(void ***)cb;
+        if (((int (*)(callback_base *))vt[2])(cb) != sizes[i]) return false;
+    }
+    if (CALLBACK_PRESENCE_UPDATED != 336 || CALLBACK_JOIN_REQUESTED != 337) return false;
+    unsigned char payload[264] = {};
+    memcpy(payload + 8, "steam:42", 9);
+    void **vt = *(void ***)&g_cb_join;
+    ((void (*)(callback_base *, void *))vt[0])(&g_cb_join, payload);
+    return g_join_pending && g_join_id == 42;
 }
 
 void steam_test_reset()

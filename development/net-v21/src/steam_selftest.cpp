@@ -147,6 +147,9 @@ int main()
     steam_test_join_callback(unterminated, sizeof unterminated);
     check(steam_join_take(&join) && join == 42, "a non-NUL-terminated callback stays within its field");
 
+    check(steam_test_callback_abi(), "Steam callback vtable slots, payload sizes and event IDs match the SDK");
+    check(steam_join_take(&join) && join == 42, "Steam-style virtual dispatch delivers Join Game");
+
     steam_shutdown();
     closesocket(helper);
     WSACleanup();

@@ -36,7 +36,7 @@ where cl
 cd /d "%~dp0"
 
 rem Our tree: the published sources copied into src\ and changed where we need them.
-set BASE=src\basic_network.cpp src\netlog.cpp src\hooks.cpp src\session.cpp src\ui.cpp src\state.cpp src\statesync.cpp src\shots.cpp src\trench.cpp src\xlate.cpp
+set BASE=src\basic_network.cpp src\netlog.cpp src\hooks.cpp src\render_guard.cpp src\session.cpp src\ui.cpp src\state.cpp src\statesync.cpp src\shots.cpp src\trench.cpp src\xlate.cpp
 set STEAM=src\steam.cpp src\steam_module.cpp
 rem The published sources untouched: the baseline is built from these, not from src\, so M1 keeps
 rem measuring the toolchain instead of our edits. development\upstream\ is the frozen copy.
@@ -77,11 +77,29 @@ cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\for
 if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\reliable_inbox_test.cpp /link /OUT:build\selftest\reliable_inbox_test.exe
 if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\ceasefire_test.cpp /link /OUT:build\selftest\ceasefire_test.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\env_value_test.cpp /link /OUT:build\selftest\env_value_test.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\tactical_mode_test.cpp /link /OUT:build\selftest\tactical_mode_test.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\transform_write_test.cpp /link /OUT:build\selftest\transform_write_test.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\transform_inbox_test.cpp /link /OUT:build\selftest\transform_inbox_test.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\transport_policy_test.cpp /link /OUT:build\selftest\transport_policy_test.exe
+if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\shots.cpp src\hooks.cpp src\shots_integration_test.cpp /link /OUT:build\selftest\shots_integration_test.exe
 if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\hooks.cpp src\hooks_selftest.cpp /link /OUT:build\selftest\hooks_selftest.exe
 if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\xlate.cpp src\hooks.cpp src\xlate_selftest.cpp /link /OUT:build\selftest\xlate_selftest.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\render_guard.cpp src\hooks.cpp src\render_guard_test.cpp /link /OUT:build\selftest\render_guard_test.exe
+if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\loopback_peer.cpp /link ws2_32.lib /OUT:build\selftest\loopback_peer.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\session.cpp src\hooks.cpp src\steam.cpp src\steam_module.cpp src\session_loopback_peer.cpp /link ws2_32.lib ole32.lib oleaut32.lib user32.lib /OUT:build\selftest\session_loopback_peer.exe
 exit /b %errorlevel%
 
 :join

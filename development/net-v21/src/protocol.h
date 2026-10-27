@@ -84,9 +84,10 @@ struct ShotRec {
     float pos[4];
     unsigned char launch[0x90];
 };
-// How the sender's battle stands (M3): bit 0 of h.flags - he proposes a ceasefire, bit 1 - his battle is
-// over. Sent a few times a second while a battle runs, so a lost datagram costs nothing: the state, not the
-// change, is what travels. result is his battle's outcome while bit 1 is set.
+// M3: proposal, actual end, host restart, and (optionally) 16-bit packet ordering in Head.count.
+// Older protocol-13 senders leave bit 3 clear and count unused. The result is the sender's outcome
+// when END_OVER is set; periodic state is repeated, but an extended partition can still delay it.
+enum { END_PROPOSE = 1, END_OVER = 2, END_RESTART = 4, END_SEQUENCED = 8 };
 struct EndState { Head h; unsigned sim_ms, result; };
 #pragma pack(pop)
 

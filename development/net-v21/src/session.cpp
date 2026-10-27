@@ -12,9 +12,16 @@
 // follows them; when both look from the host's side the host owns everything. For owned units a game sends
 // transforms about 15 times a second (this file) and the full saved state when it changes (statesync.cpp).
 #include "common.h"
+#include "env_value.h"
+#include "tactical_mode.h"
+#include "transform_write.h"
+#include "transform_inbox.h"
+#include "transport_policy.h"
+#include "render_guard.h"
 #include "netlog.h"
 #include "steam.h"
 #include "protocol.h"
+#include "ceasefire.h"
 #include "image.h"
 #include "force.h"
 #include "detour.h"
@@ -90,7 +97,7 @@ struct Sent { float pos[3], rot0[3]; DWORD when; };
 static std::unordered_map<u64, Sent> g_sent;            // what was last sent per owned unit
 static std::unordered_map<u64, Object *> g_units;       // local unit per id
 static u32 g_units_count_seen;
-static std::vector<UnitRec> g_pending;                  // received, applied before the next simulation step
+static transforms::Inbox g_pending;                     // latest arrival per unit before the next simulation step
 // The last two transforms received per followed unit, with the time each arrived: the unit is shown
 // between them, a little in the past (see session_sim_step).
 struct Snap { UnitRec rec; double at; };
@@ -104,7 +111,8 @@ static bool g_have_host_clock;
 static u32 g_peer_sim_ms, g_peer_phase;    // host: the joining game's battle clock and phase, and when they were heard
 static DWORD g_peer_clock_at, g_waiting_since;
 static bool g_clock_adopted;
-static u32 g_snapshot, g_stat_sent, g_stat_applied, g_stat_packets, g_stat_rx_bytes, g_stat_tx_bytes, g_stat_snaps;
+static u32 g_snapshot, g_stat_sent, g_stat_applied, g_stat_elided, g_stat_coalesced, g_stat_bad_transforms;
+static u32 g_stat_packets, g_stat_rx_bytes, g_stat_tx_bytes, g_stat_snaps;
 static double g_stat_err_sum;
 static float g_stat_err_max;
 static u64 g_sim_ms;
@@ -115,10 +123,8 @@ static DWORD g_host_lost;                  // joining game: when the host went a
 static u32 g_my_ready, g_peer_ready;       // the phase each player has asked to move on to (1 or 2)
 
 // M3: how far the battle's end has gone (see the "end of a battle" section below).
-static bool g_end_proposed, g_peer_proposed;
-static bool g_peer_over, g_end_left, g_end_leave;
-static u32 g_peer_result;
-static DWORD g_end_at, g_end_last_tx, g_peer_over_at, g_end_key_was;
+static ceasefire::State g_end;
+static DWORD g_end_last_tx, g_end_key_was;
 // The host is starting the battle again with both forces: the joining game must not take the silence that
 // follows for the host leaving.
 static bool g_restart_coming, g_restart_say;
@@ -240,7 +246,8 @@ const char *session_status(void)
 
     const char *what = g_phase == 0 ? "deployment" : "the initial orders";
     bool mine = g_my_ready > g_phase, theirs = g_peer_ready > g_phase;
-    if (g_role == ROLE_HOST && (g_bind_pending || g_sock == INVALID_SOCKET))
+    if (g_role == ROLE_HOST && (g_bind_pending || g_sock == INVALID_SOCKET) &&
+        !(g_tactical && g_connected && g_peer.sin_family == STEAM_FAMILY))
         sprintf_s(state, "UDP port %u is busy, retrying", g_port);
     else if (g_role == ROLE_JOIN && g_host_lost)
         sprintf_s(state, "%s has left, returning to the menu", peer);
@@ -262,13 +269,17 @@ const char *session_status(void)
         sprintf_s(state, "%s", g_map_note);
     else if (!g_tactical)
         sprintf_s(state, "%s has joined and is %s  (F9: lobby)", peer, g_peer_lobby_ready ? "ready" : "not ready yet");
-    else if (g_end_at)
-        sprintf_s(state, "ceasefire agreed - the battle ends in %u s", (unsigned)((g_end_at - GetTickCount()) / 1000 + 1));
-    else if (g_end_proposed)
+    else if (g_end.pending)
+        sprintf_s(state, "battle end: waiting for the game's exit control");
+    else if (g_end.deadline) {
+        DWORD now = GetTickCount();
+        DWORD remaining = ceasefire::State::due(now, g_end.deadline) ? 0 : g_end.deadline - now;
+        sprintf_s(state, "ceasefire agreed - the battle ends in %u s", (unsigned)((remaining + 999) / 1000));
+    } else if (g_end.proposed)
         sprintf_s(state, "you have proposed a ceasefire - F9 takes it back");
-    else if (g_peer_proposed)
+    else if (g_end.peer_proposed)
         sprintf_s(state, "%s proposes a ceasefire - F9 accepts", peer);
-    else if (g_peer_over)
+    else if (g_end.peer_over)
         sprintf_s(state, "%s's battle is over - this one ends too", peer);
     else if (g_phase < 2 && g_start_action && mine && !theirs)
         sprintf_s(state, "waiting for %s to finish %s", peer, what);
@@ -310,7 +321,8 @@ static void send_to(const sockaddr_in &to, const void *data, int size)
 
 static void send_peer(const void *data, int size)
 {
-    if (g_sock != INVALID_SOCKET && g_have_peer) send_to(g_peer, data, size);
+    if (transport_policy::send_peer(g_tactical, g_sock != INVALID_SOCKET, g_have_peer, g_peer.sin_family == STEAM_FAMILY))
+        send_to(g_peer, data, size);
 }
 
 // Full-state replication. MP_SYNC_STATE=0 switches it off (positions only), =1 forces it on.
@@ -321,10 +333,13 @@ static bool sync_state_enabled(void)
 {
     static int forced = -2;
     if (forced == -2) {
-        char v[8];
-        forced = GetEnvironmentVariableA("MP_SYNC_STATE", v, sizeof v) ? (atoi(v) != 0) : -1;
+        int value;
+        forced = env_integer("MP_SYNC_STATE", &value) ? (value != 0) : -1;
     }
-    return forced >= 0 ? forced != 0 : g_host_mode != HOST_MODE_OPERATION;
+    // A tactical operation can be launched directly, without its parent's MP_HOST_MODE.
+    // Even if some other code calls it a skirmish, avoid loading its incompatible full states.
+    static const bool direct_operation = tactical_mode::operation_battle(GetCommandLineA());
+    return forced >= 0 ? forced != 0 : tactical_mode::default_full_state(g_host_mode, g_tactical && direct_operation);
 }
 
 static bool unit_key(Object *o, u64 *key, UnitRec *rec)
@@ -344,8 +359,8 @@ static bool unit_key(Object *o, u64 *key, UnitRec *rec)
 // They are followed by position only. MP_STATE_SKIP lists the model-name fragments (comma separated).
 static void find_position_only_units(void)
 {
-    char list[256] = "opel,zis5,zis_5,gaz_aa,gaz_mm,truck";
-    GetEnvironmentVariableA("MP_STATE_SKIP", list, sizeof list);
+    char list[256] = "opel,zis5,zis_5,gaz_aa,gaz_mm,truck", configured[sizeof list];
+    if (env_text("MP_STATE_SKIP", configured, sizeof configured)) strcpy_s(list, configured);
     g_position_only.clear();
     std::unordered_map<u64, std::string> models = image::unit_models(g_image);
     for (auto &kv : models) {
@@ -415,9 +430,9 @@ static bool read_file(const char *path, std::vector<unsigned char> &out)
 // remembered hash no longer matches: nothing is restored.)
 static void force_restore_leftover(char *path)
 {
-    char v[16];
+    int value;
     // The battle that was just started again on purpose carries both forces: it is no leftover.
-    if (GetEnvironmentVariableA("MP_FORCE_APPLIED", v, sizeof v) && atoi(v)) return;
+    if (env_integer("MP_FORCE_APPLIED", &value) && value) return;
     char sidecar[MAX_PATH], backup[MAX_PATH];
     sprintf_s(sidecar, "%s.mp_combined", path);
     sprintf_s(backup, "%s.before_mp", path);
@@ -571,8 +586,15 @@ static DWORD WINAPI upnp_thread(LPVOID)
 }
 
 // ---------------------------------------------------------------- start / stop
+#ifdef NETV21_TEST_HOOKS
+static bool g_test_no_udp;
+void session_test_disable_udp(bool value) { g_test_no_udp = value; }
+#endif
 static bool open_socket(unsigned short port)
 {
+#ifdef NETV21_TEST_HOOKS
+    if (g_test_no_udp && g_tactical) { g_sock = INVALID_SOCKET; return false; }
+#endif
     WSADATA wsa;
     WSAStartup(MAKEWORD(2, 2), &wsa);
     g_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -726,7 +748,8 @@ static void snapshot_operation_saves(void)
         size_t n = strcspn(p, ",");
         if (n && n < sizeof id) { memcpy(id, p, n); id[n] = 0; }
     }
-    GetEnvironmentVariableA("MP_PEER_NAME", peer, sizeof peer);
+    char configured[sizeof peer];
+    if (env_text("MP_PEER_NAME", configured, sizeof configured)) strcpy_s(peer, configured);
     sprintf_s(from, "%s\\users\\profiles\\%s", g_root, id);
     sprintf_s(to, "%s\\users\\mp_saves", g_root);
     CreateDirectoryA(to, 0);
@@ -1253,7 +1276,10 @@ void session_start(ObjMan *)
     strcpy_s(g_root, g_out_dir);
     if (char *s = strrchr(g_root, '\\')) *s = 0;
     read_profile_name();
-    if (GetEnvironmentVariableA("MP_SWAP", v, sizeof v)) g_swap = atoi(v) != 0;
+    int value;
+    if (g_tactical) {
+        if (env_integer("MP_SWAP", &value)) g_swap = value != 0;
+    } else if (GetEnvironmentVariableA("MP_SWAP", v, sizeof v)) g_swap = atoi(v) != 0;
     if (!g_tactical) SetEnvironmentVariableA("MP_SWAPPED", 0);
     g_map_mode = !g_tactical && GetEnvironmentVariableA("MP_MAP", v, sizeof v) && atoi(v);
     if (!g_tactical && GetEnvironmentVariableA("MP_ENDTURN", v, sizeof v)) {
@@ -1267,11 +1293,20 @@ void session_start(ObjMan *)
         SetEnvironmentVariableA("MP_TURNDONE", 0);
     }
     if (GetEnvironmentVariableA("MP_MAP_EPOCH", v, sizeof v)) g_map_epoch = g_map_base_epoch = strtoul(v, 0, 10);
-    if (GetEnvironmentVariableA("MP_PORT", v, sizeof v)) g_port = (unsigned short)atoi(v);
-    if (GetEnvironmentVariableA("MP_HOST_MODE", v, sizeof v))
+    if (g_tactical) {
+        if (env_integer("MP_PORT", &value) && value >= 0 && value <= 65535) g_port = (unsigned short)value;
+    } else if (GetEnvironmentVariableA("MP_PORT", v, sizeof v)) g_port = (unsigned short)atoi(v);
+    bool host_mode_set = g_tactical ? env_text("MP_HOST_MODE", v, sizeof v) : GetEnvironmentVariableA("MP_HOST_MODE", v, sizeof v) != 0;
+    if (host_mode_set)
         g_host_mode = !_stricmp(v, "operation") ? HOST_MODE_OPERATION : !_stricmp(v, "mission") ? HOST_MODE_MISSION : HOST_MODE_SKIRMISH;
-    if (GetEnvironmentVariableA("MP_PREFER", v, sizeof v)) { char code[5] = { 0 }; strncpy_s(code, v, 4); memcpy(&g_prefer_side, code, 4); }
-    if (!GetEnvironmentVariableA("MP_ROLE", v, sizeof v)) return;
+    else if (g_tactical && tactical_mode::operation_battle(GetCommandLineA())) {
+        g_host_mode = HOST_MODE_OPERATION;
+        mp_log("net: direct tactical operation detected; using operation safety defaults");
+    }
+    bool prefer_set = g_tactical ? env_text("MP_PREFER", v, sizeof v) : GetEnvironmentVariableA("MP_PREFER", v, sizeof v) != 0;
+    if (prefer_set) { char code[5] = { 0 }; strncpy_s(code, v, 4); memcpy(&g_prefer_side, code, 4); }
+    bool role_set = g_tactical ? env_text("MP_ROLE", v, sizeof v) : GetEnvironmentVariableA("MP_ROLE", v, sizeof v) != 0;
+    if (!role_set) return;
     g_role = !_stricmp(v, "host") ? ROLE_HOST : !_stricmp(v, "join") ? ROLE_JOIN : ROLE_NONE;
     if (g_role != ROLE_NONE && g_tactical) load_battle_description();
     if (g_role == ROLE_HOST && g_tactical) {
@@ -1285,15 +1320,17 @@ void session_start(ObjMan *)
         else { sprintf_s(v, "%u", g_map_epoch); SetEnvironmentVariableA("MP_MAP_EPOCH", v); }
     }
     // a joining game is told by its launcher whether its description is the mirrored one
-    if (g_role == ROLE_JOIN && g_tactical && GetEnvironmentVariableA("MP_VERSUS", v, sizeof v)) set_versus(atoi(v) != 0);
+    if (g_role == ROLE_JOIN && g_tactical && env_integer("MP_VERSUS", &value)) set_versus(value != 0);
     if (g_role == ROLE_HOST) {
         if (!g_host_mode) g_host_mode = HOST_MODE_SKIRMISH;
         find_local_ip();
         host_listen();
         if (steam_ready()) steam_broadcast(true, 0);
     } else if (g_role == ROLE_JOIN && (g_tactical || g_map_mode)) {
-        char peer[128] = "127.0.0.1";
-        GetEnvironmentVariableA("MP_PEER", peer, sizeof peer);
+        char peer[128] = "127.0.0.1", configured[sizeof peer];
+        if (g_tactical) {
+            if (env_text("MP_PEER", configured, sizeof configured)) strcpy_s(peer, configured);
+        } else GetEnvironmentVariableA("MP_PEER", peer, sizeof peer);
         g_peer = {};
         if (!_strnicmp(peer, "steam:", 6)) {
             // A friend's game, reached through Steam: the id is all the address there is.
@@ -1301,9 +1338,10 @@ void session_start(ObjMan *)
                 mp_log("net: '%s' is not a Steam address", peer);
                 return;
             }
-            if (open_socket(0)) {
+            bool udp_open = open_socket(0);
+            if (udp_open || g_tactical) {
                 g_have_peer = true;
-                mp_log("net: joining %s through Steam", peer);
+                mp_log("net: joining %s through Steam%s", peer, udp_open ? "" : " (UDP fallback unavailable)");
             }
             return;
         }
@@ -1332,12 +1370,16 @@ void session_start(ObjMan *)
 
 void session_stop(void)
 {
+    if (transport_policy::send_peer(g_tactical, g_sock != INVALID_SOCKET, g_have_peer, g_peer.sin_family == STEAM_FAMILY)) {
+        Head bye = make_head(PKT_BYE); send_to(g_peer, &bye, sizeof bye);
+    }
     if (g_sock != INVALID_SOCKET) {
-        if (g_have_peer) { Head bye = make_head(PKT_BYE); send_to(g_peer, &bye, sizeof bye); }
         closesocket(g_sock);
         g_sock = INVALID_SOCKET;
     }
     g_have_peer = g_connected = g_bind_pending = false;
+    g_pending.clear();
+    g_held.clear();
 }
 
 // ---------------------------------------------------------------- owned units: send transforms
@@ -1420,14 +1462,17 @@ Object *session_unit(u64 key)
 void session_sim_step(ObjMan *om)
 {
     if (!g_connected || !g_tactical) return;
+    render_guard_install();                 // before state.cpp can detour the same renderer function
     // Received states wait until this game has been simulating for a while: a battle that has only just
     // appeared is still setting its units up, and a vehicle that gets a state loaded into it at that point
     // crashes the renderer (seen with large operation battles). MP_APPLY_DELAY = seconds, default 12.
     static DWORD first_step;
     static int delay = -1;
     if (delay < 0) {
-        char v[16];
-        delay = GetEnvironmentVariableA("MP_APPLY_DELAY", v, sizeof v) ? atoi(v) * 1000 : 12000;
+        int seconds;
+        delay = 12000;
+        if (env_integer("MP_APPLY_DELAY", &seconds) && seconds >= 0 && seconds <= INT_MAX / 1000)
+            delay = seconds * 1000;
         first_step = GetTickCount();
     }
     double t0 = seconds_now();
@@ -1451,7 +1496,7 @@ void session_sim_step(ObjMan *om)
     //     quarter of a second, then stands - which also keeps a unit its owner has parked from driving off
     //     under this game's own simulation and being pulled back.
     double now_s = seconds_now();
-    for (const UnitRec &r : g_pending) {
+    for (const UnitRec &r : g_pending.records()) {
         u64 key = ((u64)r.kind << 32) | r.id;
         auto it = g_units.find(key);
         if (it == g_units.end() || owns_object(it->second)) continue;
@@ -1506,13 +1551,8 @@ void session_sim_step(ObjMan *om)
         if (err > g_stat_err_max) g_stat_err_max = err;
         if (err > 3.0f) g_stat_snaps++;
         g_stat_applied++;
-        memcpy(upos, pos, 12);
-        for (int row = 0; row < 3; row++)
-            for (int col = 0; col < 3; col++) {
-                urot[row * 4 + col] = rot[row * 3 + col];
-                uinv[col * 4 + row] = rot[row * 3 + col];
-            }
-        if (moving) { memcpy(u + UNIT_LIN, B.lin, 12); memcpy(u + UNIT_ANG, B.ang, 12); }
+        if (!write_remote_transform(upos, urot, uinv, (float *)(u + UNIT_LIN), (float *)(u + UNIT_ANG),
+                                    pos, rot, B.lin, B.ang, moving)) g_stat_elided++;
         else { memset(u + UNIT_LIN, 0, 12); memset(u + UNIT_ANG, 0, 12); }
     }
 }
@@ -1547,15 +1587,28 @@ void session_test_ready(void) { if (gate_active()) mark_ready(); }
 static bool g_resign_asked;
 void session_test_resign(void) { g_resign_asked = true; }
 
-static void resign_if_asked(ObjMan *om)
+static void end_send(DWORD now, unsigned char extra);
+
+// Keep an exit request pending until both the verified game's exit function and its UI object exist.
+// In particular, do not tell the other player our battle is over merely because a timer expired.
+static bool resign_now(ObjMan *om, bool announce_end)
 {
-    if (!g_resign_asked || !g_tactical || !g_box_result) return;
-    g_resign_asked = false;
+    if (!g_tactical || !g_box_result) return false;
     Object *ui = engine_find(om, "i_intereff", "intereff");
-    if (!ui) return;
-    mp_log("test: leaving the battle through the game's own exit (box 6)");
+    if (!readable(ui, 0xdec)) return false;
+    if (announce_end) {
+        if (!g_end.confirm_exit()) return false;
+        end_send(GetTickCount(), END_OVER); // notify before the game's exit can destroy this process
+    }
+    mp_log("end: leaving the battle through the game's own exit (box 6)");
     *(u32 *)((char *)ui + 0xde8) = 6;
     g_box_result(ui, 1, 0, 0);
+    return true;
+}
+
+static void resign_if_asked(ObjMan *om)
+{
+    if (g_resign_asked && resign_now(om, false)) g_resign_asked = false;
 }
 
 static u64 start_action_hook(Object *ui, u64 a, u64 b, u64 c)
@@ -1697,7 +1750,7 @@ static void timer_step_hook(char *ct, float dt, u32 arg)
     static double hurry = -1;
     if (hurry < 0) {
         char v[16];
-        hurry = GetEnvironmentVariableA("MP_TEST_SPEED", v, sizeof v) && atof(v) > 0 ? atof(v) : 1;
+        hurry = env_text("MP_TEST_SPEED", v, sizeof v) && atof(v) > 0 ? atof(v) : 1;
     }
     double most = g_sim_step * (g_role == ROLE_JOIN ? 12 : 5) * hurry;
     due += dt * scale * hurry;
@@ -1742,8 +1795,8 @@ static void install_detours(void)
         mp_log("net: only %d of the three Start button pieces is in this game build, the button is left alone",
                (start ? 1 : 0) + (input ? 1 : 0) + (box ? 1 : 0));
     }
-    char v[16];
-    if (GetEnvironmentVariableA("MP_SIM_HZ", v, sizeof v)) g_sim_step = atoi(v) > 0 ? 1.0 / atoi(v) : 0;
+    int frequency;
+    if (env_integer("MP_SIM_HZ", &frequency)) g_sim_step = frequency > 0 ? 1.0 / frequency : 0;
     if (timer) g_timer_step = (TimerStep)install_detour(timer, sizeof timer_sig, timer_step_hook);
     mp_log("net: Start button %s, battle clock %s, simulation at %d steps per second",
            g_start_action ? "shared between the players" : "not hooked (unknown game build)",
@@ -1779,7 +1832,7 @@ static void shorten_battle_for_tests(ObjMan *om)
     if (state == 2 || !g_tactical) return;
     if (!state) {
         char v[16];
-        if (!GetEnvironmentVariableA("MP_TEST_MAXTIME", v, sizeof v) || atof(v) <= 0) { state = 2; return; }
+        if (!env_text("MP_TEST_MAXTIME", v, sizeof v) || atof(v) <= 0) { state = 2; return; }
         Object *gs = engine_find(om, "i_gamespec", "gamespec");
         if (!gs || !readable((char *)gs + 0x304, 4)) return;
         wanted = (float)atof(v);
@@ -1824,18 +1877,17 @@ static void leave_battle_for_menu(void)
 // ---------------------------------------------------------------- the end of a battle (M3)
 // A two-player battle has to end the same way in both games. Each player can propose a ceasefire - F9 while
 // the battle runs - and the battle is over five seconds after both have; the same key takes the proposal
-// back. The proposal travels as state, not as an event (EndState, twice a second), so a lost datagram costs
-// nothing. When one game's battle is over, the other game is told and ends its own battle as well.
+// back. The proposal travels as repeated state (EndState, twice a second); newer peers sequence it so a
+// delayed packet cannot resurrect a withdrawn proposal. A long partition can still prevent agreement.
+// When the engine reports a battle over, the other game is told and ends its own battle as well.
 
-static bool end_running(void) { return g_tactical && g_role != ROLE_NONE && g_phase >= 2; }
+static bool end_running(void) { return g_tactical && g_role != ROLE_NONE && g_phase == 2; }
 
 void session_toggle_ceasefire(void)
 {
-    if (!end_running()) return;
-    g_end_proposed = !g_end_proposed;
+    if (!end_running() || !g_end.toggle(g_connected, g_phase)) return;
     g_end_last_tx = 0;                                  // tell the other game at once
-    if (!g_end_proposed) {
-        g_end_at = 0;
+    if (!g_end.proposed) {
         mp_log("end: this player takes the ceasefire proposal back");
         netlog_mark("ceasefire taken back");
     } else {
@@ -1844,7 +1896,14 @@ void session_toggle_ceasefire(void)
     }
 }
 
-bool session_ceasefire_offered(void) { return g_end_proposed; }
+bool session_ceasefire_offered(void) { return g_end.proposed; }
+#ifdef NETV21_TEST_HOOKS
+bool session_test_peer_proposed() { return g_end.peer_proposed; }
+bool session_test_peer_over() { return g_end.peer_over; }
+bool session_test_end_pending() { return g_end.pending; }
+bool session_test_end_left() { return g_end.left; }
+bool session_test_udp_open() { return g_sock != INVALID_SOCKET; }
+#endif
 
 static void end_send(DWORD now, unsigned char extra)
 {
@@ -1852,8 +1911,10 @@ static void end_send(DWORD now, unsigned char extra)
     if (!extra && g_end_last_tx && now - g_end_last_tx < 500) return;
     g_end_last_tx = now;
     EndState e = { make_head(PKT_END) };
-    if (g_restart_say) extra |= 4;                      // "this host is starting the battle again"
-    e.h.flags = (unsigned char)((g_end_proposed ? 1 : 0) | (g_end_left ? 2 : 0) | extra);
+    if (g_restart_say) extra |= END_RESTART;             // this host is starting the battle again
+    e.h.flags = (unsigned char)((g_end.proposed ? END_PROPOSE : 0) |
+                                (g_end.left ? END_OVER : 0) | END_SEQUENCED | extra);
+    e.h.count = ++g_end.tx_seq;
     e.sim_ms = (unsigned)g_sim_ms;
     e.result = 0;
     send_to(g_peer, &e, sizeof e);
@@ -1862,27 +1923,22 @@ static void end_send(DWORD now, unsigned char extra)
 static void end_frame(ObjMan *, DWORD now)
 {
     if (!g_tactical || g_role == ROLE_NONE) return;
-    end_send(now, 0);
-    if (g_end_proposed && g_peer_proposed && !g_end_at && !g_end_left) {
-        g_end_at = now + 5000;
+    unsigned events = g_end.advance(now, g_connected, g_phase);
+    if (events & ceasefire::natural_end) {
+        mp_log("end: the engine reports this battle is over");
+        netlog_mark("battle ended in the engine");
+        end_send(now, END_OVER);
+    } else {
+        end_send(now, 0);
+    }
+    if (events & ceasefire::agreed) {
         mp_log("end: both players want the ceasefire - the battle ends in 5 s");
         netlog_mark("ceasefire agreed");
     }
-    if (g_end_at && !g_end_left && now >= g_end_at) {
-        g_end_left = true;
-        g_end_leave = true;
-        mp_log("end: the ceasefire is on - leaving the battle");
-    }
-    if (g_peer_over && !g_end_left) {
-        if (!g_peer_over_at) {
-            g_peer_over_at = now + 3000;
-            mp_log("end: the other player's battle is over (result %u there) - ending this one", g_peer_result);
-        } else if (now >= g_peer_over_at) {
-            g_end_left = true;
-            g_end_leave = true;
-            mp_log("end: leaving the battle the other player is no longer in");
-        }
-    }
+    if (events & ceasefire::peer_end_wait)
+        mp_log("end: the other player's battle is over (result %u there) - ending this one", g_end.peer_result);
+    if (events & ceasefire::exit_requested)
+        mp_log("end: waiting to leave through the game's exit control");
 }
 
 // F9 in the battle. The game's own functions are left alone: a ceasefire is this module's own arrangement
@@ -1900,17 +1956,18 @@ static void end_on_packet(const unsigned char *data, int size, DWORD now)
 {
     if (size < (int)sizeof(EndState)) return;
     const EndState *e = (const EndState *)data;
-    bool proposed = (e->h.flags & 1) != 0, over = (e->h.flags & 2) != 0, restart = (e->h.flags & 4) != 0;
-    if (proposed != g_peer_proposed) {
-        g_peer_proposed = proposed;
+    bool proposed = (e->h.flags & END_PROPOSE) != 0, over = (e->h.flags & END_OVER) != 0;
+    unsigned events = g_end.observe(proposed, over, e->result, (e->h.flags & END_SEQUENCED) != 0, e->h.count);
+    if (events & ceasefire::stale_packet) return;
+    if (events & ceasefire::changed) {
         if (proposed) mp_log("end: the other player proposes a ceasefire");
         else mp_log("end: the other player takes the ceasefire proposal back");
     }
-    if (over && !g_peer_over) {
-        g_peer_over = true;
-        g_peer_result = e->result;
+    if (events & ceasefire::cancelled) {
+        mp_log("end: ceasefire countdown cancelled by the other player");
+        netlog_mark("peer withdrew ceasefire");
     }
-    if (restart) {
+    if (e->h.flags & END_RESTART) {
         g_restart_coming = true;
         g_restart_until = now + 90000;
     }
@@ -1935,13 +1992,13 @@ static bool force_here(void)
 
 static void force_publish(void)
 {
-    char v[16];
+    int value;
     if (!force_here()) return;
-    if (GetEnvironmentVariableA("MP_FORCE_EXCHANGE", v, sizeof v) && !atoi(v)) {
+    if (env_integer("MP_FORCE_EXCHANGE", &value) && !value) {
         mp_log("lobby: the two players' forces are not exchanged (MP_FORCE_EXCHANGE=0)");
         return;
     }
-    if (GetEnvironmentVariableA("MP_FORCE_APPLIED", v, sizeof v) && atoi(v)) {
+    if (env_integer("MP_FORCE_APPLIED", &value) && value) {
         g_force_applied = true;
         SetEnvironmentVariableA("MP_FORCE_APPLIED", 0);          // the next battle starts clean
         mp_log("lobby: this battle was started again with both forces - they stay as they are");
@@ -2062,7 +2119,7 @@ static void force_restart(void)
     g_restart_say = true;
     for (int i = 0; i < 3; i++) {
         g_end_last_tx = 0;
-        end_send(GetTickCount(), 4);
+        end_send(GetTickCount(), END_RESTART);
         Sleep(15);
     }
     std::string cmd = GetCommandLineA();
@@ -2252,9 +2309,11 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
                         ip, ntohs(from.sin_port), name[0] ? name : "no name", w.user_side,
                         w.enemy_side, (int)versus);
             g_sent.clear();            // a new game needs every unit once
+            g_pending.clear();         // never apply the previous peer's queued transforms
             g_held.clear();
             statesync_reset();
             shots_reset();
+            if (g_tactical) { g_end.new_peer(); g_end_last_tx = 0; }
             g_peer_ready = 0;
             g_peer_swap_known = false;
         }
@@ -2431,7 +2490,7 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
                 if (g_host_mode == HOST_MODE_OPERATION) {
                     mp_log("net: operation battle - units are followed by position only");
                     char peer[128] = "";
-                    if (g_tactical && GetEnvironmentVariableA("MP_PEER", peer, sizeof peer)) SetEnvironmentVariableA("MP_AUTOJOIN", peer);
+                    if (g_tactical && env_text("MP_PEER", peer, sizeof peer)) SetEnvironmentVariableA("MP_AUTOJOIN", peer);
                 }
             }
             set_versus(w->versus != 0);
@@ -2458,7 +2517,11 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
                 g_peer_clock_at = now ? now : 1;
             }
             const UnitRec *recs = (const UnitRec *)(sh + 1);
-            g_pending.insert(g_pending.end(), recs, recs + sh->h.count);
+            for (unsigned i = 0; i < sh->h.count; i++) {
+                transforms::Put result = g_pending.put(recs[i]);
+                if (result == transforms::Put::replaced) g_stat_coalesced++;
+                else if (result == transforms::Put::invalid || result == transforms::Put::full) g_stat_bad_transforms++;
+            }
             g_stat_packets++;
         }
         break;
@@ -2496,6 +2559,7 @@ void session_frame(ObjMan *om)
         steam_broadcast(true, 0);
     }
     update_ai_commander();
+    if (g_tactical && g_role != ROLE_NONE) { render_guard_install(); render_guard_report(now); }
     if (g_tactical && (g_role != ROLE_NONE || GetEnvironmentVariableA("MP_LOG_SHOTS", 0, 0))) shots_install(om);
     if (g_tactical && g_role != ROLE_NONE) trench_install();
     shorten_battle_for_tests(om);
@@ -2509,22 +2573,25 @@ void session_frame(ObjMan *om)
             unsigned char steam_buf[2048];
             int n = steam_recv(&from_id, steam_buf, sizeof steam_buf);
             if (n <= 0) break;
+            g_stat_rx_bytes += n;
             sockaddr_in from = {};
             steam_peer_make(from_id, &from);
             on_packet(from, steam_buf, n, now);
         }
     }
-    if (g_sock == INVALID_SOCKET) return;
+    if (!transport_policy::drive_session(g_tactical, g_sock != INVALID_SOCKET, steam_ready())) return;
 
-    unsigned char buf[2048];
-    for (int i = 0; i < 2048; i++) {
-        sockaddr_in from;
-        int flen = sizeof from;
-        int n = recvfrom(g_sock, (char *)buf, sizeof buf, 0, (sockaddr *)&from, &flen);
-        if (n <= 0) break;
-        g_stat_rx_bytes += n;
-        on_packet(from, buf, n, now);
-        if (g_sock == INVALID_SOCKET) return;
+    if (g_sock != INVALID_SOCKET) {
+        unsigned char buf[2048];
+        for (int i = 0; i < 2048; i++) {
+            sockaddr_in from;
+            int flen = sizeof from;
+            int n = recvfrom(g_sock, (char *)buf, sizeof buf, 0, (sockaddr *)&from, &flen);
+            if (n <= 0) break;
+            g_stat_rx_bytes += n;
+            on_packet(from, buf, n, now);
+            if (g_sock == INVALID_SOCKET) return;
+        }
     }
 
     install_detours();
@@ -2532,7 +2599,7 @@ void session_frame(ObjMan *om)
     end_keys();
     end_frame(om, now);
     force_frame(om, now);
-    if (g_end_leave) { g_end_leave = false; g_resign_asked = true; }
+    if (g_end.pending && resign_now(om, true)) g_resign_asked = false;
     resign_if_asked(om);
     host_map_frame(om, now);
     if ((g_role == ROLE_HOST && !g_tactical) || g_map_mode) request_map_pieces(now);
@@ -2599,8 +2666,9 @@ void session_frame(ObjMan *om)
     if (g_host_lost && now - g_host_lost > 4000 && !g_restart_coming) leave_battle_for_menu();
     if (now - g_last_report >= 5000) {
         if (g_connected && g_tactical && (g_stat_sent || g_stat_applied)) {
-            mp_log("net: 5 s: sent %u and applied %u unit transforms, mean correction %.2f m, largest %.2f m, %u jumps, rx %.1f / tx %.1f KB/s",
-                   g_stat_sent, g_stat_applied, g_stat_applied ? g_stat_err_sum / g_stat_applied : 0.0, g_stat_err_max, g_stat_snaps,
+            mp_log("net: 5 s: sent %u and applied %u unit transforms (%u coalesced, %u identical writes elided, %u invalid/full), mean correction %.2f m, largest %.2f m, %u jumps, rx %.1f / tx %.1f KB/s",
+                   g_stat_sent, g_stat_applied, g_stat_coalesced, g_stat_elided, g_stat_bad_transforms,
+                   g_stat_applied ? g_stat_err_sum / g_stat_applied : 0.0, g_stat_err_max, g_stat_snaps,
                    g_stat_rx_bytes / 5120.0, g_stat_tx_bytes / 5120.0);
             statesync_report();
             shots_report();
@@ -2618,7 +2686,8 @@ void session_frame(ObjMan *om)
         g_prof_frames = g_prof_steps = g_prof_step_ms = 0;
         g_prof_save = g_prof_load = 0;
         g_last_report = now;
-        g_stat_sent = g_stat_applied = g_stat_packets = g_stat_rx_bytes = g_stat_tx_bytes = g_stat_snaps = 0;
+        g_stat_sent = g_stat_applied = g_stat_elided = g_stat_coalesced = g_stat_bad_transforms = 0;
+        g_stat_packets = g_stat_rx_bytes = g_stat_tx_bytes = g_stat_snaps = 0;
         g_stat_err_sum = 0;
         g_stat_err_max = 0;
     }
