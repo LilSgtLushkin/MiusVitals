@@ -43,6 +43,10 @@ ZIP детерминированный: фиксируются время и п�
 тестов — в `NET_V21_SPECTATOR_1_0_6.md`; документы M5 описывают историческую отменённую схему.
 Протокол 15 несовместим с 1.0.5. F9 не завершает бой и не гарантирует зачёт.
 
+Опубликованный тестовый ZIP 1.0.6: SHA-256 `ce4f80223b4a876b5d65b0c7ddc90b818c9fb7bf63de1bb827af1d0dccf284c5`.
+MSVC-built `basic_network.codelib`: `c3547d4efcb1c92ab2f53849f7995b018fb286ed502fc5ddc7beef0a52f0e7f3`;
+`mp_join.exe`: `da58a3bcc7839cde725717ac72c1460fd94763d45dd4e5cbc13947e18dad4c72`. Старые тестовые архивы сохранены.
+
 ## Публичный исходный MiusPlayer и полная source workspace
 
 `development/upstream/miusplayer-public-43b2736/` содержит отобранный редактируемый public source snapshot `VampyrCat/MiusPlayer@43b2736d3b4a1e208e6c80f45f6ebbdd476de3aa`: C++ `basic_network`, headers, program-pack Python tooling и mpmod1 templates. Лицензия CC0 и origin зафиксированы в `UPSTREAM.json`; `SOURCE_MANIFEST.sha256` защищает каждый vendored source file. Это расширяет development workspace за пределы player kit, но не добавляет непроверенные файлы в игру.
