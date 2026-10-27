@@ -5,6 +5,7 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 python3 "$ROOT/development/kit-source/src/verify_artifacts.py" --kit "$ROOT/development/kit-source"
 python3 "$ROOT/development/merged-source/verify_workspace.py"
 python3 "$ROOT/scripts/check_artifacts.py"
+python3 "$ROOT/scripts/check_artifacts_selftest.py"
 python3 "$ROOT/development/merged-source/tests/test_ordered_operation_patch.py"
 python3 "$ROOT/scripts/package_unified_mod.py" --verify "$ROOT/MiusMultiplayer_OUTDATED_INSTALL.zip"
 python3 "$ROOT/scripts/package_unified_fps_mod.py" --verify "$ROOT/MiusMultiplayer_v1.0.1_INSTALL.zip"
