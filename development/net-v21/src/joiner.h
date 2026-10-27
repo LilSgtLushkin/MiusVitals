@@ -158,14 +158,15 @@ struct Joiner {
                 int flen = sizeof from;
                 n = recvfrom(sock, (char *)buf, sizeof buf, 0, (sockaddr *)&from, &flen);
                 if (n <= 0) break;
-                if (from.sin_addr.s_addr != host.sin_addr.s_addr) continue;
+                if (from.sin_family != AF_INET || from.sin_addr.s_addr != host.sin_addr.s_addr ||
+                    from.sin_port != host.sin_port) continue;
             }
             if (n < (int)sizeof(Head)) continue;
             const Head *h = (const Head *)buf;
             if (h->magic != k_magic) continue;
             if (h->type == PKT_WELCOME && n >= 24 && state != RECEIVING) {
+                if (!valid_welcome(buf, (size_t)n)) { fail("The host runs a different version of the multiplayer files."); return; }
                 const Welcome *w = (const Welcome *)buf;
-                if (w->version != k_version || n < (int)sizeof(Welcome)) { fail("The host runs a different version of the multiplayer files."); return; }
                 last_welcome = now;
                 swap = w->swap != 0;
                 host_in_battle = w->in_battle != 0;

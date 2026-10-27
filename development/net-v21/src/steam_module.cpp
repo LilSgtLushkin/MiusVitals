@@ -27,19 +27,25 @@ void steam_traffic_note(unsigned long long sent, unsigned long long received)
     netlog_count("steam_received", (long long)received);
 }
 
-// Called once from session_start(): reads the command line for a join request, then brings the
-// layer up.  Cheap enough to call more than once - steam_init() memoises its answer.
+// Called from session_start() and ui_frame(): read the join request once, then bring the layer up.
+// If the game's Steam DLL is loaded late, steam_init() retries at a bounded rate.
 void steam_install()
 {
-    steam_note_command_line(GetCommandLineA());
+    // ui_frame calls this every frame. Re-reading the command line there re-queues the same
+    // Join Game request forever and floods the log. The API may still need a later retry if the
+    // game's Steam library has not been loaded/initialised yet, so only the parsing is once-only.
+    static bool command_line_noted;
+    if (!command_line_noted) {
+        command_line_noted = true;
+        steam_note_command_line(GetCommandLineA());
+    }
     steam_init();
 }
 
 // Called once per frame from session_frame(): delivers Steam callbacks and P2P packets.
 void steam_tick()
 {
-    if (!steam_ready())
-        return;
+    if (!steam_ready() && !steam_init()) return;
     steam_frame();
 }
 

@@ -39,6 +39,12 @@ int main()
     check(!steam_init(), "MP_STEAM=0 turns the layer off");
     check(!steam_ready(), "and reports itself not ready");
 
+    set_env("MP_STEAM", nullptr);
+    set_env("MP_STEAM_FAKE", "65536");
+    steam_test_reset();
+    check(!steam_init() && !steam_ready(), "an out-of-range stand-in port is refused");
+    check(!steam_init(), "a failed stand-in does not silently switch to real Steam");
+
     // ---- 2. stand-in mode
     const unsigned short port = 39917;
     char text[32];
@@ -114,6 +120,10 @@ int main()
               (unsigned long long)steam_user_id());
     check(strcmp(steam_connect_text(), expected) == 0,
           "and Join Game carries the progpack plus the steam: address");
+    check(steam_broadcast(true, 17), "the same successful broadcast is idempotent");
+    check(steam_presence("different"), "a changed presence can be detected");
+    check(steam_broadcast(true, 17) && strcmp(steam_presence_value(), "17 game") == 0,
+          "advertising restores a note changed after the first broadcast");
     check(steam_broadcast(false, 0), "leaving the game is advertised too");
     check(steam_presence_value()[0] == 0 && steam_connect_text()[0] == 0,
           "with both notes cleared, so friends see nothing to join");
@@ -125,6 +135,17 @@ int main()
     check(!steam_join_take(&join), "and is taken only once");
     steam_note_command_line("\"gtmp.exe\" +gtmf_join=not-a-game");
     check(!steam_join_take(&join), "a foreign join request is ignored");
+    const char *full = "root\\programs\\opgame.progpack, +gtmf_join=steam:76561198000000042";
+    steam_test_join_callback(full, strlen(full));
+    check(steam_join_take(&join) && join == 76561198000000042ULL &&
+          strcmp(steam_join_source(), "a friend's game") == 0,
+          "the full advertised connect string works in a friend's callback");
+    char unterminated[256];
+    memset(unterminated, 'x', sizeof unterminated);
+    const char *short_request = "steam:42";
+    memcpy(unterminated, short_request, strlen(short_request));
+    steam_test_join_callback(unterminated, sizeof unterminated);
+    check(steam_join_take(&join) && join == 42, "a non-NUL-terminated callback stays within its field");
 
     steam_shutdown();
     closesocket(helper);

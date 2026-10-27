@@ -5,15 +5,18 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+#include <share.h>
+#include <atomic>
+#include <limits.h>
 
 // --------------------------------------------------------------------------- state
 static FILE *g_file;
 static CRITICAL_SECTION g_cs;
-static bool g_cs_ready;
-static char g_path[MAX_PATH];
+static INIT_ONCE g_cs_once = INIT_ONCE_STATIC_INIT;
+static char g_path[MAX_PATH], g_part_path[MAX_PATH], g_identity[1024];
 static char g_program[32] = "";
 static DWORD g_started;
-static unsigned long long g_frames;
+static std::atomic<unsigned long long> g_frames{0};
 
 static unsigned long long g_rx_packets, g_rx_bytes, g_tx_packets, g_tx_bytes;
 static unsigned long long g_rx_type[NETLOG_TYPES], g_tx_type[NETLOG_TYPES];
@@ -31,22 +34,25 @@ enum { NETLOG_NAMES = 16 };
 static struct { char name[20]; long long value; } g_names[NETLOG_NAMES];
 static int g_name_count;
 
-// 8 MB is about a long battle at the rate this writes; beyond that the file is closed and a new one
-// started, so an overnight session cannot fill a disk.
+// Keep the current and previous 8 MiB segments plus the previous run; never truncate a segment
+// unless its rename succeeded. The collector includes both current and .part/.prev files.
 static const long k_max_bytes = 8 * 1024 * 1024;
+static long g_rotate_at = k_max_bytes;
 
 // --------------------------------------------------------------------------- locking
-static void lock()
+static BOOL CALLBACK init_cs(PINIT_ONCE, PVOID, PVOID *)
 {
-    if (g_cs_ready)
-        EnterCriticalSection(&g_cs);
+    InitializeCriticalSection(&g_cs);
+    return TRUE;
 }
 
-static void unlock()
+static void lock()
 {
-    if (g_cs_ready)
-        LeaveCriticalSection(&g_cs);
+    InitOnceExecuteOnce(&g_cs_once, init_cs, nullptr, nullptr);
+    EnterCriticalSection(&g_cs);
 }
+
+static void unlock() { LeaveCriticalSection(&g_cs); }
 
 // --------------------------------------------------------------------------- writing
 static void prefix(const char *channel)
@@ -55,20 +61,51 @@ static void prefix(const char *channel)
     DWORD now = GetTickCount();
     GetLocalTime(&t);
     fprintf(g_file, "%02u:%02u:%02u.%03u [t%05lu f%06llu +%6.1fs] %-7s ",
-            t.wHour, t.wMinute, t.wSecond, t.wMilliseconds, GetCurrentThreadId(), g_frames,
-            (now - g_started) / 1000.0, channel);
+            t.wHour, t.wMinute, t.wSecond, t.wMilliseconds, GetCurrentThreadId(),
+            g_frames.load(std::memory_order_relaxed), (now - g_started) / 1000.0, channel);
+}
+
+// Caller holds g_cs. If rotation fails, append to the original and retry only after another MiB;
+// a locked destination must never turn a failed rename into a truncated log.
+static void rotate_locked(bool force = false)
+{
+    if (!g_file) return;
+    long at = ftell(g_file);
+    if (!force && (at < 0 || at < g_rotate_at)) return;
+    fflush(g_file);
+    fclose(g_file);
+    g_file = nullptr;
+    if (!MoveFileExA(g_path, g_part_path, MOVEFILE_REPLACE_EXISTING)) {
+        DWORD error = GetLastError();
+        g_file = _fsopen(g_path, "a", _SH_DENYNO);
+        g_rotate_at = at >= 0 && at < LONG_MAX - 1024 * 1024 ? at + 1024 * 1024 : LONG_MAX;
+        if (g_file) {
+            prefix("note");
+            fprintf(g_file, "log rotation failed (%lu); continuing the existing file\n", error);
+            fflush(g_file);
+        }
+        return;
+    }
+    g_file = _fsopen(g_path, "w", _SH_DENYNO);
+    g_rotate_at = k_max_bytes;
+    if (g_file) {
+        prefix("boot");
+        fprintf(g_file, "continued after log rotation; previous segment is .part.log\n");
+        prefix("boot");
+        fprintf(g_file, "%s\n", g_identity[0] ? g_identity : "identity was not yet available");
+        fflush(g_file);
+    }
 }
 
 static void write_va(const char *channel, const char *fmt, va_list args)
 {
-    if (!g_file)
-        return;
     lock();
     if (g_file) {
         prefix(channel);
         vfprintf(g_file, fmt, args);
         fputc('\n', g_file);
         fflush(g_file);
+        rotate_locked();
     }
     unlock();
 }
@@ -137,27 +174,33 @@ static int counter_slot(const char *name)
 // --------------------------------------------------------------------------- open / close
 static bool open_file(const char *out_dir, const char *program)
 {
-    char previous[MAX_PATH];
+    char previous[MAX_PATH], previous_part[MAX_PATH];
     sprintf_s(g_path, sizeof g_path, "%s\\net_v21_%s.log", out_dir, program);
+    sprintf_s(g_part_path, sizeof g_part_path, "%s\\net_v21_%s.part.log", out_dir, program);
     sprintf_s(previous, sizeof previous, "%s\\net_v21_%s.prev.log", out_dir, program);
-    DeleteFileA(previous);
-    MoveFileA(g_path, previous);   // keep the previous run; overwriting it would lose the last crash
-    return fopen_s(&g_file, g_path, "w") == 0 && g_file;
+    sprintf_s(previous_part, sizeof previous_part, "%s\\net_v21_%s.part.prev.log", out_dir, program);
+    g_identity[0] = 0;
+    g_rotate_at = k_max_bytes;
+    if (GetFileAttributesA(g_path) != INVALID_FILE_ATTRIBUTES) {
+        if (!MoveFileExA(g_path, previous, MOVEFILE_REPLACE_EXISTING)) {
+            // A reader may have the old file open. Append rather than erase the only surviving log.
+            g_file = _fsopen(g_path, "a", _SH_DENYNO);
+            return g_file != nullptr;
+        }
+        if (GetFileAttributesA(g_part_path) != INVALID_FILE_ATTRIBUTES)
+            MoveFileExA(g_part_path, previous_part, MOVEFILE_REPLACE_EXISTING);
+    }
+    g_file = _fsopen(g_path, "w", _SH_DENYNO);
+    return g_file != nullptr;
 }
 
 void netlog_open(HMODULE self, const char *program, const char *out_dir)
 {
-    if (g_file)
-        return;
-    if (!g_cs_ready) {
-        InitializeCriticalSection(&g_cs);
-        g_cs_ready = true;
-    }
-    if (!out_dir || !program)
-        return;
+    if (!out_dir || !program) return;
+    lock();
+    if (g_file) { unlock(); return; }
     strncpy_s(g_program, program, _TRUNCATE);
-    if (!open_file(out_dir, program))
-        return;
+    if (!open_file(out_dir, program)) { unlock(); return; }
 
     g_started = GetTickCount();
     g_last_summary = g_started;
@@ -172,7 +215,9 @@ void netlog_open(HMODULE self, const char *program, const char *out_dir)
         fclose(image);
     }
 
-    write_line("boot", "=== net_v21: our own network module, v1.0.0 ===");
+    sprintf_s(g_identity, sizeof g_identity, "net_v21 v1.0.3-test, %s %s, program %s; image %s, %llu bytes, fnv1a64 %016llx, pe stamp %08lx",
+              __DATE__, __TIME__, program, path, size, hash, pe_stamp(self));
+    write_line("boot", "=== net_v21: our own network module, v1.0.3-test ===");
 #ifdef _MSC_VER
     write_line("boot", "build: compiled %s %s, MSVC %d", __DATE__, __TIME__, (int)_MSC_VER);
 #else
@@ -190,7 +235,13 @@ void netlog_open(HMODULE self, const char *program, const char *out_dir)
                env_or("MP_SYNC_STATE", "<unset>"), env_or("MP_VERSUS", "<unset>"),
                env_or("MP_ROLE", "<unset>"), env_or("MP_SWAP", "<unset>"),
                env_or("MP_MAP", "<unset>"));
+    write_line("boot", "battle flags: MP_SYNC_SHOTS=%s MP_LOG_SHOTS=%s MP_SYNC_HITS=%s MP_LOG_HITS=%s MP_SYNC_ANIM=%s",
+               env_or("MP_SYNC_SHOTS", "<unset>"), env_or("MP_LOG_SHOTS", "<unset>"),
+               env_or("MP_SYNC_HITS", "<unset>"), env_or("MP_LOG_HITS", "<unset>"),
+               env_or("MP_SYNC_ANIM", "<unset>"));
+    write_line("boot", "feature status: hit and soldier animation replication are not implemented in this candidate");
     write_line("boot", "log: %s (previous run kept as .prev.log)", g_path);
+    unlock();
 }
 
 void netlog_shutdown()
@@ -199,7 +250,7 @@ void netlog_shutdown()
     if (g_file) {
         prefix("bye");
         fprintf(g_file, "module going away after %.1f s, %llu frames\n",
-                (GetTickCount() - g_started) / 1000.0, g_frames);
+                (GetTickCount() - g_started) / 1000.0, g_frames.load(std::memory_order_relaxed));
         fflush(g_file);
         fclose(g_file);
         g_file = nullptr;
@@ -233,21 +284,23 @@ void netlog_mark(const char *fmt, ...)
 
 void netlog_count(const char *name, long long delta)
 {
-    if (!g_file || !name)
-        return;
+    if (!name) return;
     lock();
-    int index = counter_slot(name);
-    if (index >= 0)
-        g_names[index].value += delta;
+    if (g_file) {
+        int index = counter_slot(name);
+        if (index >= 0) g_names[index].value += delta;
+    }
     unlock();
 }
 
 void netlog_state(int phase, unsigned sim_ms, int peers, unsigned sides)
 {
+    lock();
     g_phase = phase;
     g_sim_ms = sim_ms;
     g_peers = peers;
     g_sides = sides;
+    unlock();
 }
 
 // --------------------------------------------------------------------------- traffic
@@ -265,6 +318,7 @@ static const char *type_name(unsigned char type)
     case 9: return "OBJECT_ACK";
     case 10: return "SHOT";
     case 11: return "SHOT_ACK";
+    case 12: return "END";
     default: return "?";
     }
 }
@@ -272,14 +326,14 @@ static const char *type_name(unsigned char type)
 void netlog_packet(const char *dir, const unsigned char *data, int size,
                    unsigned int peer_ip, unsigned short peer_port, unsigned short family)
 {
-    if (!g_file || !data || size <= 0)
-        return;
+    if (!data || size <= 0) return;
     bool out = dir && dir[0] == 't';
     unsigned char type = size > 5 ? data[4] : 0;   // Head: magic(4), type(1)
     if (type >= NETLOG_TYPES)
         type = 0;
 
     lock();
+    if (!g_file) { unlock(); return; }
     if (out) {
         g_tx_packets++;
         g_tx_bytes += (unsigned)size;
@@ -306,6 +360,7 @@ void netlog_packet(const char *dir, const unsigned char *data, int size,
         fprintf(g_file, "%s %-10s %5d B  peer %s  #%llu\n", out ? "->" : "<-", type_name(type),
                 size, peer, *seen);
         fflush(g_file);
+        rotate_locked();
     }
     unlock();
 }
@@ -315,10 +370,15 @@ static void summary_locked();
 
 void netlog_test_summary()
 {
-    if (!g_file)
-        return;
     lock();
-    summary_locked();
+    if (g_file) summary_locked();
+    unlock();
+}
+
+void netlog_test_rotate()
+{
+    lock();
+    rotate_locked(true);
     unlock();
 }
 
@@ -327,8 +387,8 @@ static void summary_locked()
 {
     g_last_summary = GetTickCount();
     prefix("summary");
-    fprintf(g_file, "%llu frames, rx %llu/%llu B, tx %llu/%llu B", g_frames, g_rx_packets,
-            g_rx_bytes, g_tx_packets, g_tx_bytes);
+    fprintf(g_file, "%llu frames, rx %llu/%llu B, tx %llu/%llu B",
+            g_frames.load(std::memory_order_relaxed), g_rx_packets, g_rx_bytes, g_tx_packets, g_tx_bytes);
     if (g_phase >= 0)
         fprintf(g_file, ", phase %d, sim %.1f s, %d peer(s), sides 0x%x",
                 g_phase, g_sim_ms / 1000.0, g_peers, g_sides);
@@ -350,16 +410,13 @@ static void summary_locked()
         fputc('\n', g_file);
     }
     fflush(g_file);
+    rotate_locked();
 }
 
 void netlog_frame()
 {
-    g_frames++;
-    if (!g_file)
-        return;
-    if (GetTickCount() - g_last_summary < 5000)
-        return;
+    g_frames.fetch_add(1, std::memory_order_relaxed);
     lock();
-    summary_locked();
+    if (g_file && GetTickCount() - g_last_summary >= 5000) summary_locked();
     unlock();
 }

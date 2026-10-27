@@ -17,6 +17,7 @@ on:
       - "development/net-v21-kit/**"
       - "development/game-build-3598-1/**"
       - "scripts/package_net_v21_test.py"
+      - "scripts/package_net_v21_test_selftest.py"
       - ".github/workflows/build-network-module.yml"
   pull_request:
     paths:
@@ -24,6 +25,7 @@ on:
       - "development/net-v21-kit/**"
       - "development/game-build-3598-1/**"
       - "scripts/package_net_v21_test.py"
+      - "scripts/package_net_v21_test_selftest.py"
       - ".github/workflows/build-network-module.yml"
   workflow_dispatch:
 
@@ -55,6 +57,23 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python development/net-v21/tools/pe_scan_selftest.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python development/net-v21/tools/hook_audit.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python development/net-v21/tools/hook_audit_selftest.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python development/net-v21/tools/tactical_hook_selftest.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Test archive validation and rollback protection
+        run: |
+          python scripts/package_net_v21_test_selftest.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Test the log collector with a simulated game folder
+        shell: powershell
+        run: |
+          & development/net-v21/tools/collect_logs_selftest.ps1
+          if (-not $?) { exit 1 }
 
       - name: Install the disassembler the comparison needs
         run: python -m pip install --quiet capstone
@@ -99,6 +118,22 @@ jobs:
           type development\net-v21\build\selftest.log
           if not %rc%==0 exit /b %rc%
           development\net-v21\build\selftest\force_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\reliable_inbox_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\hooks_selftest.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\shots_integration_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          python development\net-v21\tools\loopback_pair.py --peer development\net-v21\build\selftest\loopback_peer.exe >> development\net-v21\build\selftest.log 2>&1
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log
           exit /b %rc%
@@ -151,18 +186,18 @@ jobs:
         run: |
           python scripts/package_net_v21_test.py \
             --codelib development/net-v21/build/module/basic_network.codelib \
-            --output MiusMultiplayer_v1.0.0_TEST_INSTALL.zip \
+            --output MiusMultiplayer_v1.0.3_TEST_INSTALL.zip \
             2>&1 | tee development/net-v21/build/package.log
           exit ${PIPESTATUS[0]}
 
       - name: Publish the test installer into the branch
-        if: always() && github.event_name == 'push'
+        if: success() && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/arena/')
         shell: bash
         run: |
           # The archive has to be reachable without the Actions API (artifact downloads are blocked
           # where this build is checked), so it is committed into the branch it was built from and
           # travels to main with the pull request.
-          archive=MiusMultiplayer_v1.0.0_TEST_INSTALL.zip
+          archive=MiusMultiplayer_v1.0.3_TEST_INSTALL.zip
           if [ ! -f "$archive" ]; then echo "no archive was built; nothing to publish"; exit 0; fi
           git config user.name "net-v21 build"
           git config user.email "net-v21-build@users.noreply.github.com"
@@ -171,7 +206,7 @@ jobs:
           # unchanged source tree does not add a commit every run.
           if git diff --cached --quiet; then echo "the archive has not changed"; exit 0; fi
           git commit -m "build: refresh the net_v21 test installer [skip ci]"
-          git push
+          git push origin "HEAD:${GITHUB_REF_NAME}"
 
       - name: Put the numbers in the job summary
         if: always()
@@ -220,8 +255,8 @@ jobs:
               echo '</details>'
             fi
             echo
-            if [ -f MiusMultiplayer_v1.0.0_TEST_INSTALL.zip ]; then
-              echo "test installer: MiusMultiplayer_v1.0.0_TEST_INSTALL.zip, sha256 $(sha256sum MiusMultiplayer_v1.0.0_TEST_INSTALL.zip | cut -d' ' -f1)"
+            if [ -f MiusMultiplayer_v1.0.3_TEST_INSTALL.zip ]; then
+              echo "test installer: MiusMultiplayer_v1.0.3_TEST_INSTALL.zip, sha256 $(sha256sum MiusMultiplayer_v1.0.3_TEST_INSTALL.zip | cut -d' ' -f1)"
             else
               echo "test installer: not built"
             fi
@@ -246,6 +281,6 @@ jobs:
           name: network-module
           path: |
             development/net-v21/build/**
-            MiusMultiplayer_v1.0.0_TEST_INSTALL.zip
+            MiusMultiplayer_v1.0.3_TEST_INSTALL.zip
           if-no-files-found: warn
           retention-days: 14

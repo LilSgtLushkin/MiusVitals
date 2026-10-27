@@ -143,7 +143,9 @@ struct friend_chat_cb : callback_base {
 static bool g_initialised;      // steam_init() has run to completion at least once
 static bool g_ready;            // a transport is usable
 static bool g_fake;             // MP_STEAM_FAKE stand-in instead of real Steam
+static bool g_fake_requested;   // do not silently fall back to real Steam after a stand-in error
 static bool g_off;              // MP_STEAM=0: explicitly no Steam
+static DWORD g_retry_at;         // the game may load/initialise Steam after the network module
 static steam_api g_api;
 static void *g_friends;
 static void *g_user;
@@ -156,6 +158,7 @@ static char g_persona[STEAM_NAME_MAX] = {0};
 static char g_presence[128] = {0};
 static char g_connect[256] = {0};
 static bool g_broadcasting;      // last "can be joined" state we told Steam about
+static bool g_broadcast_valid;   // both Steam writes actually succeeded
 static unsigned g_operation;     // and the operation it was for
 
 static SOCKET g_fake_socket = INVALID_SOCKET;
@@ -217,8 +220,10 @@ static bool fake_open(uint16_t port)
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
         return false;
     g_fake_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (g_fake_socket == INVALID_SOCKET)
+    if (g_fake_socket == INVALID_SOCKET) {
+        WSACleanup();
         return false;
+    }
     sockaddr_in address = {};
     address.sin_family = AF_INET;
     address.sin_port = htons(port);
@@ -226,6 +231,7 @@ static bool fake_open(uint16_t port)
     if (bind(g_fake_socket, (sockaddr *)&address, sizeof(address)) != 0) {
         closesocket(g_fake_socket);
         g_fake_socket = INVALID_SOCKET;
+        WSACleanup();
         return false;
     }
     u_long nonblocking = 1;
@@ -276,18 +282,25 @@ void session_fail_cb::run(void *param)
 
 void join_requested_cb::run(void *param)
 {
-    if (!param)
-        return;
-    uint64_t friend_id = *(uint64_t *)param;
-    const char *connect = (const char *)param + 8;
-    steam_log("steam: Steam's Join Game asks to join %s (a friend's game, while this game runs)",
-              connect);
-    if (connect[0] && _strnicmp(connect, "steam:", 6) == 0) {
+    if (!param) return;
+    // Steam supplies a fixed 256-byte field, which need not end in NUL. Its contents can be either
+    // steam:<id> or the full connect string published by steam_broadcast().
+    char connect[257];
+    memcpy(connect, (const char *)param + 8, 256);
+    connect[256] = 0;
+    steam_log("steam: Steam's Join Game asks to join %.256s (a friend's game, while this game runs)", connect);
+    if (_strnicmp(connect, "steam:", 6) == 0) {
         g_join_id = _strtoui64(connect + 6, nullptr, 10);
         g_join_pending = g_join_id != 0;
-        g_join_source = "a friend's game";
+        if (g_join_pending) g_join_source = "a friend's game";
+    } else if (const char *marker = strstr(connect, "+gtmf_join=steam:")) {
+        uint64_t id = _strtoui64(marker + strlen("+gtmf_join=steam:"), nullptr, 10);
+        if (id) {
+            g_join_id = id;
+            g_join_pending = true;
+            g_join_source = "a friend's game";
+        }
     }
-    (void)friend_id;
 }
 
 void friend_chat_cb::run(void *param)
@@ -339,9 +352,16 @@ static bool bind_interfaces(HMODULE library)
 // --------------------------------------------------------------------------- lifecycle
 bool steam_init()
 {
-    if (g_initialised)
-        return g_ready;
+    if (g_initialised) {
+        if (g_ready || g_off || g_fake_requested) return g_ready;
+        // basic_steam.codelib imports steam_api64.dll, but it can be loaded after this module.
+        // Never load or initialise a foreign DLL ourselves; retry the game's own library once it
+        // exists, at most once per five seconds while its interfaces are still being brought up.
+        DWORD now = GetTickCount();
+        if (!GetModuleHandleA("steam_api64.dll") || now - g_retry_at < 5000) return false;
+    }
     g_initialised = true;
+    g_retry_at = GetTickCount();
 
     uint64_t value = 0;
     if (env_number("MP_STEAM", &value) && value == 0) {
@@ -351,6 +371,11 @@ bool steam_init()
     }
 
     if (env_number("MP_STEAM_FAKE", &value) && value != 0) {
+        g_fake_requested = true;
+        if (value > 65535) {
+            steam_log("steam: test stand-in port %llu is outside 1..65535", value);
+            return false;
+        }
         g_fake = true;
         g_fake_port = (uint16_t)value;
         if (!fake_open(g_fake_port)) {
@@ -562,17 +587,26 @@ bool steam_broadcast(bool hosting, unsigned operation)
                   (unsigned long long)g_user_id);
     }
 
-    if (g_broadcasting == hosting && g_operation == operation &&
-        strcmp(g_presence, note) == 0 && strcmp(g_connect, connect) == 0)
-        return true;  // already said; v20 does not repeat itself either
+    if (g_broadcast_valid && g_broadcasting == hosting && g_operation == operation &&
+        strcmp(g_presence, note) == 0 && strcmp(g_connect, connect) == 0) {
+        if (g_fake) return true;
+        // The menu and tactical programs can overlap. One may clear the account's presence after
+        // this process advertised it. Verify both keys before treating the cached result as valid.
+        const char *held_note = g_api.get_presence ? g_api.get_presence(g_friends, g_user_id, "gtmf") : nullptr;
+        bool same_note = strcmp(held_note ? held_note : "", note) == 0;
+        const char *held_connect = g_api.get_presence ? g_api.get_presence(g_friends, g_user_id, "connect") : nullptr;
+        if (same_note && strcmp(held_connect ? held_connect : "", connect) == 0) return true;
+    }
 
     copy_text(g_presence, sizeof(g_presence), note);
     copy_text(g_connect, sizeof(g_connect), connect);
     g_broadcasting = hosting;
     g_operation = operation;
+    g_broadcast_valid = false;
 
     if (g_fake) {
         fake_flush();
+        g_broadcast_valid = true;
         if (hosting)
             steam_log("steam: friends are told that this game can be joined (%s)", g_presence);
         else
@@ -582,13 +616,14 @@ bool steam_broadcast(bool hosting, unsigned operation)
 
     bool noted = g_api.set_presence && g_api.set_presence(g_friends, "gtmf", g_presence);
     const char *held = g_api.get_presence ? g_api.get_presence(g_friends, g_user_id, "gtmf") : nullptr;
-    if (!noted || !held || strcmp(held, g_presence) != 0)
+    if (!noted || strcmp(held ? held : "", g_presence) != 0)
         steam_log("steam: Steam did not take the note for friends (asked for '%s', it holds '%s')",
                   g_presence, held ? held : "");
-    if (!(g_api.set_presence && g_api.set_presence(g_friends, "connect", g_connect))) {
-        steam_log("steam: Steam did not take the \"connect\" text for its Join Game");
-        return false;
-    }
+    bool connected = g_api.set_presence && g_api.set_presence(g_friends, "connect", g_connect);
+    if (!connected) steam_log("steam: Steam did not take the \"connect\" text for its Join Game");
+    // A failed attempt must not be cached as a success: a later frame can retry it.
+    g_broadcast_valid = noted && connected;
+    if (!g_broadcast_valid) return false;
     if (hosting)
         steam_log("steam: friends are told that this game can be joined (%s)", g_presence);
     else
@@ -647,22 +682,33 @@ const char *steam_join_source() { return g_join_source; }
 
 void steam_test_set_command_line(const char *text) { steam_note_command_line(text); }
 
+void steam_test_join_callback(const char *text, size_t size)
+{
+    unsigned char param[8 + 256] = {};
+    if (text) memcpy(param + 8, text, size < 256 ? size : 256);
+    g_cb_join.run(param);
+}
+
 void steam_test_reset()
 {
     g_initialised = false;
     g_ready = false;
     g_fake = false;
+    g_fake_requested = false;
     g_off = false;
+    g_retry_at = 0;
     g_join_pending = false;
     g_join_id = 0;
     g_presence[0] = 0;
     g_connect[0] = 0;
     g_broadcasting = false;
+    g_broadcast_valid = false;
     g_operation = 0;
     g_sent_packets = g_received_packets = g_sent_total = g_received_total = 0;
     g_stats_at = 0;
     if (g_fake_socket != INVALID_SOCKET) {
         closesocket(g_fake_socket);
         g_fake_socket = INVALID_SOCKET;
+        WSACleanup();
     }
 }

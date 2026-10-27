@@ -63,6 +63,6 @@ void netlog_state(int phase, unsigned sim_ms, int peers, unsigned sides);
 
 const char *netlog_path();
 
-// Test hook: write the five-second summary now instead of waiting for the timer.  The module never
-// calls it; the self-test does, because a test cannot sit still for five seconds.
+// Test hooks: force the summary or a rotation instead of waiting for time/size limits.
 void netlog_test_summary();
+void netlog_test_rotate();

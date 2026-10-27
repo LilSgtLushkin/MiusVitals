@@ -59,6 +59,25 @@ int main()
     expect(sizeof(StateHead) + 14 * sizeof(UnitRec), 1148, "a fourteen-unit state datagram");
     expect(k_chunk, 1000, "image piece size");
 
+    Welcome welcome = {};
+    welcome.h = make_head(PKT_WELCOME);
+    memcpy(welcome.proto, k_protocol, sizeof k_protocol);
+    welcome.version = k_version;
+    expect(valid_welcome(&welcome, sizeof welcome), 1, "matching welcome is accepted");
+    expect(valid_welcome(&welcome, sizeof welcome - 1), 0, "short welcome is rejected");
+    expect(valid_welcome(nullptr, sizeof welcome), 0, "null welcome is rejected");
+    welcome.version++;
+    expect(valid_welcome(&welcome, sizeof welcome), 0, "other protocol version is rejected");
+    welcome.version = k_version;
+    welcome.proto[0] ^= 1;
+    expect(valid_welcome(&welcome, sizeof welcome), 0, "other protocol id is rejected");
+    welcome.proto[0] ^= 1;
+    welcome.h.type = PKT_HELLO;
+    expect(valid_welcome(&welcome, sizeof welcome), 0, "wrong packet type is rejected");
+    welcome.h.type = PKT_WELCOME;
+    welcome.h.magic = 0;
+    expect(valid_welcome(&welcome, sizeof welcome), 0, "wrong magic is rejected");
+
     // Pieces of a real description: 1 115 295 bytes took 1116 requests in the 26.10 log.
     expect((1115295 + (int)k_chunk - 1) / (int)k_chunk, 1116, "pieces of a 1 115 295 byte description");
     expect((1000 + k_chunk - 1) / k_chunk, 1, "a blob of exactly one piece");

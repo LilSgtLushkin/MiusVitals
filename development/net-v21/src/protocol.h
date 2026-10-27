@@ -1,6 +1,8 @@
 // Wire format shared by the game module (session.cpp, statesync.cpp, ui.cpp) and the join launcher
 // (mp_join.cpp). UDP, little endian.
 #pragma once
+#include <stddef.h>
+#include <string.h>
 
 enum { PKT_HELLO = 1, PKT_WELCOME, PKT_KEEPALIVE, PKT_IMAGE_REQUEST, PKT_IMAGE_DATA, PKT_STATE, PKT_BYE, PKT_OBJECT, PKT_OBJECT_ACK, PKT_SHOT, PKT_SHOT_ACK, PKT_END };
 enum { HOST_MODE_SKIRMISH = 1, HOST_MODE_OPERATION = 2, HOST_MODE_MISSION = 3 };       // mission: made in the battle editor
@@ -63,9 +65,10 @@ struct ObjectFrag { Head h; unsigned long long key; unsigned version, base_versi
 struct ObjectAck { Head h; unsigned long long key; unsigned version; };
 // Shell launches by units the sending game owns (shots.cpp). They are events, not state: each one has to
 // arrive, once, and in the order it happened. A PKT_SHOT datagram is a ShotHead and h.count ShotRecs with
-// consecutive sequence numbers; the receiver takes the next one it is waiting for and answers every datagram
-// with a ShotAck naming the last one it has; the sender repeats what is not acknowledged. epoch changes
-// when the sender starts counting again (a new battle, a new connection).
+// consecutive sequence numbers; the receiver answers every datagram with the last contiguous record handed
+// to its feature. A shot is acknowledged only after replay or an explicit validation refusal; a control
+// event is acknowledged after it is handed to its handler. The sender repeats what is not acknowledged.
+// epoch changes when the sender starts counting again (a new battle, a new connection).
 struct ShotHead { Head h; unsigned epoch; };
 struct ShotAck { Head h; unsigned epoch, seq; };
 // kind 0: one launch; kind 2: one squad digging in (trench.cpp; its values are in `launch`); kind 3, 4: a
@@ -86,6 +89,17 @@ struct ShotRec {
 // change, is what travels. result is his battle's outcome while bit 1 is set.
 struct EndState { Head h; unsigned sim_ms, result; };
 #pragma pack(pop)
+
+// A joiner must not accept a host's battle or events merely because its packet has our magic.
+// The tactical process can join directly, bypassing the menu's Joiner, so both paths use this.
+inline bool valid_welcome(const void *data, size_t size)
+{
+    if (!data || size < sizeof(Welcome)) return false;
+    Welcome w;
+    memcpy(&w, data, sizeof w);
+    return w.h.magic == k_magic && w.h.type == PKT_WELCOME && w.version == k_version &&
+           memcmp(w.proto, k_protocol, sizeof k_protocol) == 0;
+}
 
 inline unsigned fnv(const unsigned char *p, size_t n)
 {

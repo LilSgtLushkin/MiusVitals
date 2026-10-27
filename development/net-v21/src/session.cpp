@@ -483,17 +483,20 @@ static void load_battle_description(void)
 // player takes command; it comes back if the battle begins without a second player, or with one on the host's side.
 static void update_ai_commander(void)
 {
-    static const unsigned char sig[] = { 0x57, 0x48, 0x83, 0xec, 0x30, 0x48, 0x8b, 0xf9 };
+    static const unsigned char sig[] = { 0x40, 0x57, 0x48, 0x83, 0xec, 0x30, 0x48, 0x8b, 0xf9 };
     static int state = -1;          // -1 unknown, 0 active, 1 off, 2 unknown game build
+    static unsigned char *fn;
     if (!g_tactical || g_role == ROLE_NONE || state == 2) return;
     bool off = g_versus || (g_role == ROLE_HOST && !g_connected && g_phase < 2);
     if (state == (int)off) return;
-    HMODULE m = GetModuleHandleA("adv_game.codelib");
-    if (!m) return;
-    unsigned char *fn = (unsigned char *)m + 0xbec30;
-    if ((*fn != 0x40 && *fn != 0xc3) || memcmp(fn + 1, sig, sizeof sig)) {
+    if (!fn) {
+        if (!GetModuleHandleA("adv_game.codelib")) return;
+        const HookSig where[] = { { 0xbec30, sig, sizeof sig } };
+        fn = (unsigned char *)hook_resolve_checked("adv_game.codelib", where, 1, "AI commander");
+    }
+    if (!fn || !readable(fn, sizeof sig) || (*fn != 0x40 && *fn != 0xc3) || memcmp(fn + 1, sig + 1, sizeof sig - 1)) {
         state = 2;
-        mp_log("net: unknown game build, the AI commander stays active");
+        mp_log("net: AI commander bytes do not match, its code is left unchanged");
         return;
     }
     DWORD old;
@@ -623,11 +626,15 @@ void session_host(int mode)
     g_peer_name[0] = 0;
     find_local_ip();
     host_listen();
+    // The mode is not an operation slot id, so advertise slot 0 rather than a fabricated id.
+    // Steam Join Game is preferred when available; the UDP listener remains the IP fallback.
+    if (steam_ready()) steam_broadcast(true, 0);
 }
 
 // Back to single player (multiplayer menu).
 void session_single_player(void)
 {
+    if (g_role == ROLE_HOST && steam_ready()) steam_broadcast(false, 0);
     session_stop();
     g_role = ROLE_NONE;
     SetEnvironmentVariableA("MP_ROLE", 0);
@@ -1283,6 +1290,7 @@ void session_start(ObjMan *)
         if (!g_host_mode) g_host_mode = HOST_MODE_SKIRMISH;
         find_local_ip();
         host_listen();
+        if (steam_ready()) steam_broadcast(true, 0);
     } else if (g_role == ROLE_JOIN && (g_tactical || g_map_mode)) {
         char peer[128] = "127.0.0.1";
         GetEnvironmentVariableA("MP_PEER", peer, sizeof peer);
@@ -1721,10 +1729,10 @@ static void install_detours(void)
     HMODULE interf = GetModuleHandleA("adv_interf.codelib"), base = GetModuleHandleA("base_main.codelib");
     if (!interf || !base) return;
     done = true;
-    char *start = hook_resolve("adv_interf.codelib", start_where, 1, "the Start button");
-    char *input = hook_resolve("adv_interf.codelib", input_where, 2, "the Start key");
-    char *box = hook_resolve("adv_interf.codelib", box_where, 1, "the end-deployment box");
-    char *timer = hook_resolve("base_main.codelib", timer_where, 1, "the battle clock");
+    char *start = hook_resolve_checked("adv_interf.codelib", start_where, 1, "the Start button");
+    char *input = hook_resolve_checked("adv_interf.codelib", input_where, 2, "the Start key");
+    char *box = hook_resolve_checked("adv_interf.codelib", box_where, 1, "the end-deployment box");
+    char *timer = hook_resolve_checked("base_main.codelib", timer_where, 1, "the battle clock");
     // all three or none: a half-gated Start button would let one player skip the other
     if (start && input && box) {
         g_input_action = (InputAction)install_detour(input, sizeof input_sig, input_action_hook);
@@ -2195,9 +2203,11 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
     // that is dropped for a wrong magic is exactly the kind of thing a battle log has to show.
     netlog_packet("rx", data, size, ntohl(from.sin_addr.s_addr), ntohs(from.sin_port), from.sin_family);
     if (size < (int)sizeof(Head) || h->magic != k_magic) return;
-    bool from_peer = g_have_peer && (from.sin_family == STEAM_FAMILY || g_peer.sin_family == STEAM_FAMILY)
-        ? steam_peer_id(&from) == steam_peer_id(&g_peer)
-        : from.sin_addr.s_addr == g_peer.sin_addr.s_addr && from.sin_port == g_peer.sin_port;
+    bool from_peer = g_have_peer &&
+        ((from.sin_family == STEAM_FAMILY || g_peer.sin_family == STEAM_FAMILY)
+             ? steam_peer_id(&from) != 0 && steam_peer_id(&from) == steam_peer_id(&g_peer)
+             : from.sin_family == AF_INET && g_peer.sin_family == AF_INET &&
+               from.sin_addr.s_addr == g_peer.sin_addr.s_addr && from.sin_port == g_peer.sin_port);
 
     if (g_role == ROLE_HOST && h->type == PKT_HELLO) {
         if (size < 24) return;
@@ -2293,6 +2303,17 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
         return;
     }
     if (!from_peer) return;
+    if (g_role == ROLE_JOIN && h->type == PKT_WELCOME && !valid_welcome(data, (size_t)size)) {
+        // The lobby checks this too, but a tactical game can reconnect without going through it.
+        // Never mark another protocol/version as a connected peer or apply its battle state.
+        static DWORD last_bad_welcome;
+        if (!last_bad_welcome || now - last_bad_welcome >= 5000) {
+            last_bad_welcome = now ? now : 1;
+            mp_log("net: rejected a host welcome with a different version, protocol, or size");
+        }
+        g_connected = false;
+        return;
+    }
     g_last_rx = now;
 
     switch (h->type) {
@@ -2467,6 +2488,13 @@ void session_frame(ObjMan *om)
     g_prof_frames++;
     netlog_frame();
     steam_tick();
+    // Retry a failed advertisement and recover if the game's other process briefly cleared the
+    // shared Steam presence during a menu/battle transition. Do not stop the IP listener.
+    static DWORD last_presence;
+    if (g_role == ROLE_HOST && steam_ready() && (!last_presence || now - last_presence >= 5000)) {
+        last_presence = now ? now : 1;
+        steam_broadcast(true, 0);
+    }
     update_ai_commander();
     if (g_tactical && (g_role != ROLE_NONE || GetEnvironmentVariableA("MP_LOG_SHOTS", 0, 0))) shots_install(om);
     if (g_tactical && g_role != ROLE_NONE) trench_install();

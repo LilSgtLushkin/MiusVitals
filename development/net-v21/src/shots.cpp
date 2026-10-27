@@ -20,6 +20,8 @@
 #include "common.h"
 #include "netlog.h"
 #include "protocol.h"
+#include "reliable_inbox.h"
+#include "hooks.h"
 #include "detour.h"
 #include <intrin.h>
 #include <share.h>
@@ -36,13 +38,14 @@ static Explode g_explode;
 static ObjMan *g_om;
 static char *g_shellphys;
 static DWORD g_main_thread;
-static bool g_injecting, g_enabled = true;
+static bool g_injecting, g_install_done, g_enabled = true;
 static FILE *g_file;
-static u32 g_seq, g_epoch, g_last_seq_in, g_epoch_in, g_dumped;
+static u32 g_seq, g_epoch, g_dumped;
 static u64 g_stat_own, g_stat_dropped, g_stat_injected, g_stat_refused, g_stat_free, g_stat_sent_bytes, g_stat_repeats;
 struct Pending { ShotRec rec; DWORD sent; unsigned char tries; };
 static std::deque<Pending> g_out;               // launched here, not yet acknowledged by the other game
-static std::vector<ShotRec> g_in;               // received, carried out before the next simulation step
+static reliable::Inbox<ShotRec> g_in;           // receipt is separate from completion / acknowledgement
+static void (*g_ack_send)(const void *, int);
 
 // launch record: pointers at +0x38 (ammunition), +0x40 (weapon), +0x48 (firing object), +0x50 (object),
 // +0x60 (description)
@@ -193,11 +196,10 @@ void shots_install(ObjMan *om)
     static const unsigned char launch_sig[] = { 0x48, 0x89, 0x54, 0x24, 0x10, 0x55, 0x53, 0x56, 0x57, 0x41, 0x54, 0x41, 0x56,
                                                 0x48, 0x8d, 0xac, 0x24, 0xe8, 0xfd, 0xff, 0xff };
     static const unsigned char explode_sig[] = { 0x48, 0x89, 0x5c, 0x24, 0x08, 0x57, 0x48, 0x81, 0xec, 0x70, 0x02, 0x00, 0x00, 0x48, 0x8b, 0xf9 };
-    static bool done;
-    if (done) return;
+    if (g_install_done) return;
     HMODULE m = GetModuleHandleA("basic_physic.codelib");
     if (!m) return;
-    done = true;
+    g_install_done = true;
     g_om = om;
     g_main_thread = GetCurrentThreadId();
     char v[16];
@@ -208,10 +210,15 @@ void shots_install(ObjMan *om)
         g_file = _fsopen(path, "w", _SH_DENYNO);
     }
     if (!g_enabled && !g_file) { mp_log("shots: each game fires for itself (MP_SYNC_SHOTS=0)"); return; }
-    char *launch = (char *)m + 0x18430, *explode = (char *)m + 0x19260;
-    if (memcmp(launch, launch_sig, sizeof launch_sig)) { mp_log("shots: unknown game build, each game fires for itself"); g_enabled = false; return; }
+    const HookSig launch_where[] = { { 0x18430, launch_sig, sizeof launch_sig } };
+    const HookSig explode_where[] = { { 0x19260, explode_sig, sizeof explode_sig } };
+    char *launch = hook_resolve_checked("basic_physic.codelib", launch_where, 1, "shell launch");
+    if (!launch) { mp_log("shots: launch hook refused, each game fires for itself"); g_enabled = false; return; }
     g_launch = (Launch)install_detour(launch, sizeof launch_sig, launch_hook);
-    if (g_file && !memcmp(explode, explode_sig, sizeof explode_sig)) g_explode = (Explode)install_detour(explode, sizeof explode_sig, explode_hook);
+    if (g_file) {
+        char *explode = hook_resolve_checked("basic_physic.codelib", explode_where, 1, "shell explosion log");
+        if (explode) g_explode = (Explode)install_detour(explode, sizeof explode_sig, explode_hook);
+    }
     mp_log("shots: %s%s", !g_launch ? "could not be hooked" : g_enabled ? "a unit's shots are its owner's: sent to the other game, not made up locally" : "watched only",
            g_file ? ", every launch is written to mp_shots" : "");
     if (!g_launch) g_enabled = false;
@@ -251,39 +258,48 @@ void shots_frame(void (*send)(const void *, int))
     }
 }
 
+static void shots_ack(void (*send)(const void *, int))
+{
+    if (!send || !g_in.current_epoch()) return;
+    ShotAck ack = { make_head(PKT_SHOT_ACK), g_in.current_epoch(), g_in.committed() };
+    send(&ack, sizeof ack);
+}
+
 void shots_on_packet(const unsigned char *data, int size, void (*send)(const void *, int))
 {
+    if (!data || size < (int)sizeof(Head)) return;
     const Head *head = (const Head *)data;
     if (head->type == PKT_SHOT_ACK) {
         if (size < (int)sizeof(ShotAck)) return;
         const ShotAck *a = (const ShotAck *)data;
-        if (a->epoch != g_epoch) return;
-        while (!g_out.empty() && g_out.front().rec.seq <= a->seq) g_out.pop_front();
+        if (a->epoch != g_epoch || a->seq > g_seq) return;
+        // An event that has never been sent cannot have been acknowledged by the peer.
+        while (!g_out.empty() && g_out.front().sent && g_out.front().rec.seq <= a->seq) g_out.pop_front();
         return;
     }
-    if (size < (int)sizeof(ShotHead) || size < (int)(sizeof(ShotHead) + head->count * sizeof(ShotRec))) return;
+    if (head->type != PKT_SHOT || !head->count || head->count > 5 ||
+        size < (int)sizeof(ShotHead) || size < (int)(sizeof(ShotHead) + head->count * sizeof(ShotRec))) return;
     const ShotHead *h = (const ShotHead *)data;
     const ShotRec *recs = (const ShotRec *)(h + 1);
-    if (h->epoch != g_epoch_in) {               // the other game started counting again
-        g_epoch_in = h->epoch;
-        g_last_seq_in = 0;
-    }
+    u32 old_epoch = g_in.current_epoch();
+    size_t old_pending = g_in.pending();
+    if (!g_in.epoch(h->epoch, recs[0].seq)) return;
+    if (old_epoch && old_epoch != h->epoch && old_pending)
+        mp_log("shots: peer restarted its event stream; %zu unfinished events from the old epoch were discarded", old_pending);
+    g_ack_send = send;
     unsigned long long fresh = 0;
-    for (unsigned i = 0; i < head->count; i++) {
-        if (recs[i].seq != g_last_seq_in + 1) continue;         // had already, or not its turn yet
-        g_last_seq_in = recs[i].seq;
-        g_in.push_back(recs[i]);
-        fresh++;
-    }
+    for (unsigned i = 0; i < head->count; i++)
+        if (g_in.receive(recs[i]) == reliable::Inbox<ShotRec>::accepted) fresh++;
     netlog_count("shots_in", (long long)fresh);
-    ShotAck ack = { make_head(PKT_SHOT_ACK), g_epoch_in, g_last_seq_in };
-    send(&ack, sizeof ack);
+    // ACK only what the simulation has completed, not the records just copied into the queue.
+    shots_ack(send);
 }
 
 // A new connection: both directions start again.
 void shots_reset(void)
 {
-    g_in.clear();
+    g_in.reset();
+    g_ack_send = 0;
     g_out.clear();
     g_seq = 0;
     g_epoch = (GetTickCount() ^ (GetCurrentProcessId() << 16) ^ (g_epoch * 2654435761u)) | 1;
@@ -295,23 +311,52 @@ void shots_reset(void)
 void shots_sim_step(ObjMan *om)
 {
     if (g_in.empty()) return;
-    for (const ShotRec &s : g_in) {
-        if (s.kind == 2) trench_received(s);
-        else if (s.kind == 3 || s.kind == 4) xlate_received(s, om);
+    // Tables and trenches do not depend on the shell manager. Handle them once even if an earlier
+    // shot must wait; the cumulative ACK still cannot move past that earlier shot.
+    for (auto &item : g_in.items()) {
+        if (item.complete) continue;
+        const ShotRec &s = item.record;
+        if (s.kind == 2) { trench_received(s); item.complete = true; }
+        else if (s.kind == 3 || s.kind == 4) { xlate_received(s, om); item.complete = true; }
+        else if (s.kind != 0) {
+            // kind 1 was never emitted by this module; reject unknown records explicitly.
+            g_stat_refused++;
+            item.complete = true;
+        }
     }
-    if (!g_launch || !g_enabled) { g_in.clear(); return; }
-    if (!g_shellphys) g_shellphys = (char *)engine_find(om, "i_shellphys", "shellphys");
-    if (!g_shellphys) { g_in.clear(); return; }
+    if (g_launch && g_enabled && !g_shellphys)
+        g_shellphys = (char *)engine_find(om, "i_shellphys", "shellphys");
     g_om = om;
-    for (const ShotRec &s : g_in) {
-        if (s.kind != 0) continue;
+    for (auto &item : g_in.items()) {
+        if (item.complete || item.record.kind != 0) continue;
+        const ShotRec &s = item.record;
+        if (!g_install_done || (g_launch && g_enabled && !g_shellphys)) {
+            // The engine may appear on a later simulation step. Do not clear or acknowledge it.
+            static DWORD last_wait;
+            DWORD now = GetTickCount();
+            if (!last_wait || now - last_wait >= 5000) {
+                last_wait = now ? now : 1;
+                mp_log("shots: %zu incoming events are waiting for the shell manager", g_in.pending());
+            }
+            continue;
+        }
+        if (!g_launch || !g_enabled) {
+            // This build explicitly refused/disabled its hook; do not pretend the shot was played.
+            g_stat_refused++;
+            item.complete = true;
+            continue;
+        }
         void *ammo = desc_ptr(xlate_desc(s.ammo)), *weapon = desc_ptr(xlate_desc(s.weapon));
         float two[2];
         u32 code;
         ammo_check(ammo, two, &code);
         Object *shooter = s.shooter ? session_unit(s.shooter) : 0;
         // not the same ammunition here, or a unit this game does not have: no shot rather than a wrong one
-        if (!ammo || !weapon || memcmp(two, s.ammo_check, 8) || code != s.ammo_code || (s.shooter && !shooter)) { g_stat_refused++; continue; }
+        if (!ammo || !weapon || memcmp(two, s.ammo_check, 8) || code != s.ammo_code || (s.shooter && !shooter)) {
+            g_stat_refused++;
+            item.complete = true;
+            continue;
+        }
         char rec[L_SIZE];
         memcpy(rec, s.launch, L_SIZE);
         *(void **)(rec + L_AMMO) = ammo;
@@ -326,9 +371,26 @@ void shots_sim_step(ObjMan *om)
         g_launch(g_shellphys, rec, s.flags & ~2u, s.has_pos ? pos : 0, s.obj5 ? session_unit(s.obj5) : 0, s.arg6);
         g_injecting = false;
         g_stat_injected++;
+        item.complete = true;
     }
-    g_in.clear();
+    u32 before = g_in.committed();
+    if (g_in.commit() != before) shots_ack(g_ack_send);
 }
+
+#ifdef NETV21_TEST_HOOKS
+// The Windows no-game integration test supplies a fake shell manager; none of these seams is
+// compiled into the game module.
+void shots_test_engine(ObjMan *om, char *shell, Launch launch)
+{
+    g_om = om;
+    g_shellphys = shell;
+    g_launch = launch;
+    g_enabled = true;
+    g_install_done = true;
+}
+size_t shots_test_outstanding() { return g_out.size(); }
+u32 shots_test_epoch() { return g_epoch; }
+#endif
 
 void shots_report(void)
 {
