@@ -1,11 +1,13 @@
 // Wire format shared by the game module (session.cpp, statesync.cpp, ui.cpp) and the join launcher
 // (mp_join.cpp). UDP, little endian.
 #pragma once
+#include <stddef.h>
+#include <string.h>
 
-enum { PKT_HELLO = 1, PKT_WELCOME, PKT_KEEPALIVE, PKT_IMAGE_REQUEST, PKT_IMAGE_DATA, PKT_STATE, PKT_BYE, PKT_OBJECT, PKT_OBJECT_ACK, PKT_SHOT, PKT_SHOT_ACK };
+enum { PKT_HELLO = 1, PKT_WELCOME, PKT_KEEPALIVE, PKT_IMAGE_REQUEST, PKT_IMAGE_DATA, PKT_STATE, PKT_BYE, PKT_OBJECT, PKT_OBJECT_ACK, PKT_SHOT, PKT_SHOT_ACK, PKT_END };
 enum { HOST_MODE_SKIRMISH = 1, HOST_MODE_OPERATION = 2, HOST_MODE_MISSION = 3 };       // mission: made in the battle editor
 static const unsigned k_magic = 0x504d5447;          // "GTMP"
-static const unsigned k_version = 12;
+static const unsigned k_version = 13;      // 13: the two players' forces travel (Hello.force_*) and the battle can end by agreement
 static const char k_protocol[12] = "GTMF_TA_A1";     // the engine's own protocol id for this game
 static const unsigned k_chunk = 1000;
 static const unsigned short k_default_port = 1943;   // the port the engine's own network settings name
@@ -23,9 +25,12 @@ struct Head { unsigned magic; unsigned char type, flags; unsigned short count; }
 // turn_done: on the operational map, this player has pressed "next turn". map_epoch: which state of the
 // operation his copy of the map is of (see Welcome.map_flags); with another number he is not counted as
 // being on the map - his copy is of a turn that is over.
+// force_size / force_hash: this player's own force is offered - his battle description, from which the
+// other game takes his squads and units (force.h). 0: nothing to offer.
 struct Hello {
     Head h; char proto[12]; unsigned version, prefer_side; unsigned char ready, phase, lobby_ready, swap_req; char name[24];
     unsigned map_size, map_hash, turn_done, map_epoch;
+    unsigned force_size, force_hash;
 };
 // battle description = the file the operational phase hands to the tactical phase (units, map, sides, seed).
 // in_battle 0: the host is still in its menus or on the operational map; the joining game waits.
@@ -60,9 +65,10 @@ struct ObjectFrag { Head h; unsigned long long key; unsigned version, base_versi
 struct ObjectAck { Head h; unsigned long long key; unsigned version; };
 // Shell launches by units the sending game owns (shots.cpp). They are events, not state: each one has to
 // arrive, once, and in the order it happened. A PKT_SHOT datagram is a ShotHead and h.count ShotRecs with
-// consecutive sequence numbers; the receiver takes the next one it is waiting for and answers every datagram
-// with a ShotAck naming the last one it has; the sender repeats what is not acknowledged. epoch changes
-// when the sender starts counting again (a new battle, a new connection).
+// consecutive sequence numbers; the receiver answers every datagram with the last contiguous record handed
+// to its feature. A shot is acknowledged only after replay or an explicit validation refusal; a control
+// event is acknowledged after it is handed to its handler. The sender repeats what is not acknowledged.
+// epoch changes when the sender starts counting again (a new battle, a new connection).
 struct ShotHead { Head h; unsigned epoch; };
 struct ShotAck { Head h; unsigned epoch, seq; };
 // kind 0: one launch; kind 2: one squad digging in (trench.cpp; its values are in `launch`); kind 3, 4: a
@@ -78,7 +84,23 @@ struct ShotRec {
     float pos[4];
     unsigned char launch[0x90];
 };
+// M3: proposal, actual end, host restart, and (optionally) 16-bit packet ordering in Head.count.
+// Older protocol-13 senders leave bit 3 clear and count unused. The result is the sender's outcome
+// when END_OVER is set; periodic state is repeated, but an extended partition can still delay it.
+enum { END_PROPOSE = 1, END_OVER = 2, END_RESTART = 4, END_SEQUENCED = 8 };
+struct EndState { Head h; unsigned sim_ms, result; };
 #pragma pack(pop)
+
+// A joiner must not accept a host's battle or events merely because its packet has our magic.
+// The tactical process can join directly, bypassing the menu's Joiner, so both paths use this.
+inline bool valid_welcome(const void *data, size_t size)
+{
+    if (!data || size < sizeof(Welcome)) return false;
+    Welcome w;
+    memcpy(&w, data, sizeof w);
+    return w.h.magic == k_magic && w.h.type == PKT_WELCOME && w.version == k_version &&
+           memcmp(w.proto, k_protocol, sizeof k_protocol) == 0;
+}
 
 inline unsigned fnv(const unsigned char *p, size_t n)
 {

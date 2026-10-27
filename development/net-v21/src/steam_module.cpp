@@ -5,6 +5,7 @@
 // place the module touches to switch the layer on.
 #include "steam.h"
 #include "common.h"
+#include "netlog.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -19,32 +20,38 @@ void steam_log(const char *fmt, ...)
     mp_log("%s", text);
 }
 
-// Called once from session_start(): reads the command line for a join request, then brings the
-// layer up.  Cheap enough to call more than once - steam_init() memoises its answer.
+// The five-second Steam totals, for the run log's summary line.
+void steam_traffic_note(unsigned long long sent, unsigned long long received)
+{
+    netlog_count("steam_sent", (long long)sent);
+    netlog_count("steam_received", (long long)received);
+}
+
+// Called from session_start() and ui_frame(): read the join request once, then bring the layer up.
+// If the game's Steam DLL is loaded late, steam_init() retries at a bounded rate.
 void steam_install()
 {
-    steam_note_command_line(GetCommandLineA());
+    // ui_frame calls this every frame. Re-reading the command line there re-queues the same
+    // Join Game request forever and floods the log. The API may still need a later retry if the
+    // game's Steam library has not been loaded/initialised yet, so only the parsing is once-only.
+    static bool command_line_noted;
+    if (!command_line_noted) {
+        command_line_noted = true;
+        steam_note_command_line(GetCommandLineA());
+    }
     steam_init();
 }
 
 // Called once per frame from session_frame(): delivers Steam callbacks and P2P packets.
 void steam_tick()
 {
-    if (!steam_ready())
-        return;
+    if (!steam_ready() && !steam_init()) return;
     steam_frame();
 }
 
-// Nothing in the module calls the layer yet: the session code that will (it is part of M3) is not
-// written, and /O1 puts every function in its own COMDAT, so /OPT:REF drops unreachable code.  The
-// whole layer would silently vanish from basic_network.codelib - and then "M2 is in the build"
-// would be a claim nobody could check, and the CI comparison would be comparing the baseline to
-// v20 while calling it M2.
-//
-// This exported table is the anchor: the loader references it, so everything it points at stays in
-// the image and shows up in the .map and in the comparison.  It doubles as a manifest - `dumpbin
-// /exports basic_network.codelib` lists it, which is how a build can be asked whether the Steam
-// layer is really there.
+// The session and UI now call this layer. Keep the exported table as an anchor for its public
+// entry points as well: /OPT:REF must not silently remove an API that is currently reached only by
+// a different launcher or test. It also acts as a manifest in the DLL's exports and link map.
 extern "C" __declspec(dllexport) const void *const gtmf_steam_layer[] = {
     reinterpret_cast<const void *>(&steam_init),
     reinterpret_cast<const void *>(&steam_shutdown),

@@ -7,6 +7,7 @@
 //
 //   stream: +0x00 begin, +0x08 end, +0x10 capacity end, +0x18 read position, +0x1c underrun count
 #include "common.h"
+#include "hooks.h"
 #include "detour.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -141,18 +142,26 @@ bool state_remote_loading(void) { return g_remote_load > 0; }
 static void install_part_guard(void)
 {
     static const unsigned char sig[] = { 0x48, 0x89, 0x5c, 0x24, 0x10, 0x48, 0x89, 0x6c, 0x24, 0x18, 0x56, 0x57, 0x41, 0x54, 0x41, 0x56 };
+    // The older 22-byte prefix also occurs at +0x12fd0 in the supplied build. Include the next
+    // instructions so a moved node-lookup can be found uniquely instead of detouring its neighbour.
     static const unsigned char lookup_sig[] = { 0x48, 0x89, 0x6c, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18, 0x57, 0x48, 0x83, 0xec, 0x20,
-                                                0x4c, 0x8b, 0x89, 0x40, 0x02, 0x00, 0x00 };
-    static bool tried;
-    if (tried) return;
-    tried = true;
-    HMODULE m = GetModuleHandleA("adv_physic.codelib"), render = GetModuleHandleA("basic_render.codelib");
-    if (!m || memcmp((char *)m + 0x82090, sig, sizeof sig)) { mp_log("state: unknown game build, render handles are not guarded"); return; }
-    g_base_load = (BaseLoad)install_detour((char *)m + 0x82090, 14, base_load_hook);
-    if (render && !memcmp((char *)render + 0x13ab0, lookup_sig, sizeof lookup_sig))
-        g_node_lookup = (NodeLookup)install_detour((char *)render + 0x13ab0, 15, node_lookup_hook);
-    mp_log("state: render handles %s%s", g_base_load ? "stay local when states are loaded" : "could not be guarded",
-           g_node_lookup ? ", node look-ups are guarded" : "");
+                                                0x4c, 0x8b, 0x89, 0x40, 0x02, 0x00, 0x00, 0x43, 0x8d, 0x34, 0x80, 0xc1, 0xe6, 0x06, 0x48, 0x8b, 0xe9 };
+    static bool tried_load, tried_render;
+    // These DLLs may appear at different times. Do not permanently mark a missing module as tried.
+    if (!tried_load && GetModuleHandleA("adv_physic.codelib")) {
+        tried_load = true;
+        const HookSig where[] = { { 0x82020, sig, sizeof sig }, { 0x82090, sig, sizeof sig } };
+        char *load = hook_resolve_checked("adv_physic.codelib", where, 2, "state part-handle guard");
+        if (load) g_base_load = (BaseLoad)install_detour(load, 14, base_load_hook);
+        mp_log("state: render handles %s", g_base_load ? "stay local when states are loaded" : "could not be guarded");
+    }
+    if (!tried_render && GetModuleHandleA("basic_render.codelib")) {
+        tried_render = true;
+        const HookSig where[] = { { 0x13ab0, lookup_sig, sizeof lookup_sig } };
+        char *lookup = hook_resolve_checked("basic_render.codelib", where, 1, "render node-lookup guard");
+        if (lookup) g_node_lookup = (NodeLookup)install_detour(lookup, 15, node_lookup_hook);
+        mp_log("state: node look-ups %s", g_node_lookup ? "are guarded" : "could not be guarded");
+    }
 }
 
 // Is a state saved by the other game safe to load into this unit? The saved state carries render handles

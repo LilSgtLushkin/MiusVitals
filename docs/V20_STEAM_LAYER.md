@@ -3,6 +3,11 @@
 Дата: **2026-10-26**. Источник: `basic_network.codelib` версии 20 (`8108bd1e…5723`), псевдо-C
 angr с подставленными строками (`development/v20-recovery/work/decomp/`).
 
+> Уточнение 27.10: пользователь установил внутреннюю приёмку всех этапов до M6. Упоминание
+> реального Steam и двух ПК ниже — отдельная будущая проверка поведения, а не условие внутренней
+> приёмки. ABI и stand-in уже покрыты CI; настоящий Steam этой автоматикой не подтверждён.
+> Текущий статус: [STATUS_AND_BUILD_RULES_2026-10-27.md](STATUS_AND_BUILD_RULES_2026-10-27.md).
+
 Это самый рискованный участок порта и единственный, который нельзя «взять из публичного кода»:
 в v12 Steam нет. Ниже — всё, что бинарник говорит о слое, в виде, достаточном для написания
 файла `steam.cpp` без гаданий.
@@ -35,15 +40,20 @@ if (!g_user) mp_log("steam: no Steam user - no Steam joining");
 SteamAPI_ISteamNetworking_AllowP2PPacketRelay(net, 1);
 SteamAPI_RegisterCallback(&g_5a308, 1202);   // P2PSessionRequest_t
 SteamAPI_RegisterCallback(&g_5a318, 1203);   // P2PSessionConnectFail_t
-SteamAPI_RegisterCallback(&g_5a328, 336);    // GameRichPresenceJoinRequested_t
-SteamAPI_RegisterCallback(&g_5a338, 337);    // GameConnectedFriendChatMsg_t
+SteamAPI_RegisterCallback(&g_5a328, 336);    // FriendRichPresenceUpdate_t
+SteamAPI_RegisterCallback(&g_5a338, 337);    // GameRichPresenceJoinRequested_t
 SteamAPI_ISteamFriends_RequestFriendRichPresence(friends, g_user);
 mp_log("steam: ready - user %llu (%s), application %u, %d friends, logged on: %s", ...);
 ```
 
-Номера 1202/1203 и 336/337 — это `EP2PSessionRequest_t` / `EP2PSessionConnectFail_t` и
-`GameRichPresenceJoinRequested_t` / `GameConnectedFriendChatMsg_t` из Steamworks SDK (диапазоны
-1200 и 300), то есть регистрация именно тех событий, которые нужны для джойна «из списка друзей».
+Номера 1202/1203 и 336/337 — это `P2PSessionRequest_t` / `P2PSessionConnectFail_t` и
+`FriendRichPresenceUpdate_t` / `GameRichPresenceJoinRequested_t`: базовые значения 1200 и 300,
+смещения 2/3 и 36/37. `GameConnectedFriendChatMsg_t` имеет номер **343**, не 337. Ранее эти
+два имени в документе и реализации были перепутаны; исправление в net_v21 сопоставляет обработчики
+фактическим структурам SDK. См. [steam_api_internal.h](https://github.com/rlabrecque/SteamworksSDK/blob/df2baabf574a738ef1ea90a7e89339107fc0a279/public/steam/steam_api_internal.h),
+[isteamfriends.h](https://github.com/rlabrecque/SteamworksSDK/blob/df2baabf574a738ef1ea90a7e89339107fc0a279/public/steam/isteamfriends.h) и
+[steam_api_common.h](https://github.com/rlabrecque/SteamworksSDK/blob/df2baabf574a738ef1ea90a7e89339107fc0a279/public/steam/steam_api_common.h)
+(у `CCallbackBase` также нет виртуального деструктора). Windows MSVC размещает две перегрузки `Run` в обратном относительно объявления порядке; обе проверяются через реальные слоты. GNU/MinGW использует другой порядок, поэтому его кросс-сборка годится только для синтаксиса и stand-in: реальный Steam там отклоняется с логом, используется MSVC build. Это проверка ABI по заголовкам, не живой прогон Steam.
 
 Режим «стенд» нужен автору для отладки на одной машине и **нам полезен напрямую**: он позволяет
 гонять два процесса на одном ПК без второго аккаунта Steam.
@@ -197,10 +207,10 @@ Steam-джойн в v20 работает так же надёжно, как IP: 
   `net: player connected through Steam (steam:%s, %s)`. Для IP-пира — та же ветка с `inet_ntop`
   и `net: player connected from %s:%u (%s)`. Никакого отдельного «Steam-протокола» нет: тот же
   буфер датаграммы, другой транспорт.
-* **Тело обработчика `GameConnectedFriendChatMsg` (337)** — единственное, что осталось не
-  разобрано: callback регистрируется, но его `run()` в дампе пока пуст по смыслу (сохраняет
-  `user` и `message` и ничего не делает). Рабочая гипотеза «приглашение через чат» не
-  подтвердилась; считаем, что v20 его только регистрирует, и у нас так же.
+* **Имена callback'ов в прежнем разборе были неверны:** 336 — обновление Rich Presence,
+  337 — запрос Join Game; чат друзей — 343. По одному номеру регистрации нельзя доказать
+  содержимое обработчика в v20. Новая реализация обрабатывает Join Game и отдельно игнорирует
+  уведомление об обновлении присутствия; настоящий Steam ещё требует проверки.
 
 ## 9. Что сделано в M2
 
@@ -222,3 +232,26 @@ Steam-джойн в v20 работает так же надёжно, как IP: 
 
 Чего это не доказывает: настоящий Steam, P2P-ретрансляцию и переход друга в лобби. Это M6 —
 два ПК, см. [`TWO_PC_TEST_PLAN_2026-10-26`](TWO_PC_TEST_PLAN_2026-10-26.md).
+
+## 10. Шов теперь настоящий (2026-10-26)
+
+Слой перестал быть библиотекой, которую никто не вызывает, и стал транспортом.
+
+| где | что |
+|---|---|
+| `steam.h` | `steam_peer_make()` / `steam_peer_id()`: пир Steam — обычный `sockaddr_in` с `sa_family=0x5354` и Steam ID на +8, ровно как у v20 |
+| `session.cpp` `send_to()` | адрес решает транспорт: `0x5354` → `steam_send()`, иначе `sendto()` |
+| `session.cpp` `session_frame()` | пакеты P2P сливаются в тот же `on_packet()`; HELLO, передача образа, состояние и выстрелы общие для обоих транспортов |
+| `session.cpp` `MP_PEER` | принимает `steam:<id>` (проверяется до разбора `host:port`) |
+| `joiner.h` | `start("steam:<id>")` и `send_host()`; приём — из Steam, когда хост в Steam |
+| `ui.cpp` | отложенный Join Game забирается с главного меню и ведёт в лобби — строка `ui: Steam's Join Game - into the lobby of %s when the main menu is up` дословно как у v20 |
+| `steam_module.cpp` | `steam_install()` / `steam_tick()` вызываются из `session_start`/`session_frame` **и** из `ui_frame`: запрос друга приходит именно в процесс меню |
+| `build.bat join` | `mp_join.exe` снова собирается, уже со слоем Steam |
+
+Что доказывается самотестом (27 проверок): кодировка адреса, датаграммы в обе стороны через стенд,
+presence в двух ключах, разбор `+gtmf_join=`, счётчики трафика (`steam: 5 s: … datagrams`).
+Что по-прежнему доказывается только двумя ПК: настоящий Steam, ретрансляция P2P и переход друга в
+лобби.
+
+Совместимость: формат пакетов не менялся (наш `protocol.h` — копия опубликованного), поэтому наш
+модуль понимает v20-й `mp_join.exe`, а модуль v20 понимает наш лаунчер.

@@ -515,7 +515,7 @@ static void on_ctrl_tick(Object *o, void *msg)
     }
     u32 ms = *(u32 *)((char *)msg + 0x18), fl = *(u32 *)((char *)msg + 0x1c);
     session_note_sim_ms(ms);
-    session_sim_step(o->objman);
+    session_sim_step(o->objman, ms);
     if (g_debug) state_debug_step(o->objman, n->sim_ms);
     n->ctrl_ticks++;
     u64 before = n->sim_ms;

@@ -3,22 +3,21 @@
 
 Why a separate archive and not a new release
 --------------------------------------------
-The module built in `development/net-v21/` is our own code, but it is not v20: the battle delta of
-M3-M5 is still being written, and it deliberately does not import `mp_vitals.dll`.  Shipping it as
-*the* module would make every player's first v1.0.2 experience worse than v1.0.1, which is exactly
-what this project must not do.
+The module built in `development/net-v21/` is our own candidate, but hit/animation replication and
+its `mp_vitals.dll` integration are not complete. Shipping it as the default would replace working
+functionality from the proven v1.0.1 module. This is a test archive, not a full 1.0.3 release.
 
 So this archive installs exactly what v1.0.1 installs - the same bytes, checked against the same
 hashes - and carries our module in `net_v21/` beside it, with a switch script and a one-click way
 back.  Installing this archive changes nothing about how the game runs until somebody runs
 `Switch_To_NetV21.bat`, and even then the proven module travels in the same archive.
 
-The one thing that is new is that our module logs: identity, traffic and battle counters, into
-`out/net_v21_<program>.log`.  That log is the point of the test.
+The candidate logs identity, traffic and battle counters into `out/net_v21_<program>.log`.
+The archive includes a log collector and preserves the known-good rollback separately.
 
     python scripts/package_net_v21_test.py --codelib build/module/basic_network.codelib \
-        --output MiusMultiplayer_v1.0.2_TEST_INSTALL.zip
-    python scripts/package_net_v21_test.py --verify MiusMultiplayer_v1.0.2_TEST_INSTALL.zip
+        --output MiusMultiplayer_v1.0.3_TEST_INSTALL.zip
+    python scripts/package_net_v21_test.py --verify MiusMultiplayer_v1.0.3_TEST_INSTALL.zip
 """
 from __future__ import annotations
 
@@ -26,9 +25,10 @@ import argparse
 import hashlib
 import os
 from pathlib import Path
+import struct
 import zipfile
 
-VERSION = "1.0.2-test"
+VERSION = "1.0.3"
 ROOT = "MiusMultiplayer"
 PROVEN = Path("development/unified-fps-kit-source")
 KIT = Path("development/net-v21-kit")
@@ -47,7 +47,7 @@ PROVEN_BINARIES = {
 PROVEN_TEXT = ("Enable_Multiplayer.bat", "Disable_Multiplayer.bat", "Check_Install.bat",
                "Check_Install.ps1", "README.txt", "LICENSE_CC0.txt", "game_build_3598_1.sha256")
 KIT_TEXT = ("net_v21/Switch_To_NetV21.bat", "net_v21/Switch_Back_To_Proven.bat",
-            "net_v21/Collect_Logs.bat", "net_v21/README_TEST.txt")
+            "net_v21/Collect_Logs.bat", "net_v21/Collect_Logs.ps1", "net_v21/README_TEST.txt")
 PASSPORT = "TEST_BUILD.txt"
 
 BINARY_SUFFIXES = {".codelib", ".dll", ".exe", ".progpack"}
@@ -60,6 +60,71 @@ DIRS = tuple(f"{ROOT}{suffix}" for suffix in (
 
 def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def validate_module(data: bytes) -> None:
+    """Reject a truncated/non-x64/non-DLL payload or one without the engine and Steam exports."""
+    def fail(reason: str) -> None:
+        raise SystemExit(f"invalid net_v21 module: {reason}")
+
+    def read(fmt: str, at: int):
+        size = struct.calcsize(fmt)
+        if at < 0 or at + size > len(data):
+            fail("truncated PE data")
+        return struct.unpack_from(fmt, data, at)
+
+    if len(data) < 0x40 or data[:2] != b"MZ":
+        fail("missing DOS header")
+    (pe,) = read("<I", 0x3c)
+    if pe < 0x40 or pe + 24 > len(data) or data[pe:pe + 4] != b"PE\0\0":
+        fail("missing PE header")
+    machine, nsections, _, _, _, opt_size, flags = read("<HHIIIHH", pe + 4)
+    opt = pe + 24
+    if machine != 0x8664 or not flags & 0x2000 or not 1 <= nsections <= 96:
+        fail("expected an x86-64 DLL with sections")
+    if opt_size < 120 or opt + opt_size > len(data) or read("<H", opt)[0] != 0x20b:
+        fail("expected a PE32+ optional header")
+    section_table = opt + opt_size
+    if section_table + 40 * nsections > len(data):
+        fail("truncated section table")
+    sections = []
+    for i in range(nsections):
+        at = section_table + 40 * i
+        virtual_size, rva, raw_size, raw = read("<IIII", at + 8)
+        if raw + raw_size > len(data):
+            fail("truncated section")
+        sections.append((rva, virtual_size, raw, raw_size))
+
+    def offset(rva: int, size: int) -> int:
+        for start, virtual_size, raw, raw_size in sections:
+            relative = rva - start
+            if 0 <= relative and relative + size <= raw_size and relative + size <= max(virtual_size, raw_size):
+                return raw + relative
+        fail("export address is outside file-backed sections")
+        return 0
+
+    if read("<I", opt + 108)[0] < 1:
+        fail("missing data directories")
+    export_rva, export_size = read("<II", opt + 112)
+    if not export_rva or export_size < 40:
+        fail("missing exports")
+    directory = offset(export_rva, 40)
+    n_names = read("<I", directory + 24)[0]
+    names_rva = read("<I", directory + 32)[0]
+    if not 1 <= n_names <= 4096:
+        fail("invalid export count")
+    names_offset = offset(names_rva, n_names * 4)
+    names = set()
+    for i in range(n_names):
+        name_rva = read("<I", names_offset + i * 4)[0]
+        at = offset(name_rva, 1)
+        end = data.find(b"\0", at, min(len(data), at + 256))
+        if end < 0:
+            fail("unterminated export name")
+        offset(name_rva, end - at + 1)
+        names.add(data[at:end])
+    if not {b"GetFactory3", b"gtmf_steam_layer"} <= names:
+        fail("GetFactory3 or gtmf_steam_layer export is missing")
 
 
 def with_crlf(name: str, data: bytes) -> bytes:
@@ -91,7 +156,11 @@ def collect(repo: Path, codelib: Path) -> dict[str, bytes]:
             raise SystemExit(f"the net_v21 kit is incomplete: {relative}")
         tree[relative] = source.read_bytes()
 
-    tree["net_v21/basic_network.netv21.codelib"] = codelib.read_bytes()
+    candidate = codelib.read_bytes()
+    validate_module(candidate)
+    if candidate == tree["files/bin/rel/x64/basic_network.codelib"]:
+        raise SystemExit("candidate is the proven module, not the net_v21 build")
+    tree["net_v21/basic_network.netv21.codelib"] = candidate
     tree["net_v21/basic_network.proven.codelib"] = tree["files/bin/rel/x64/basic_network.codelib"]
 
     module_hash = sha256(tree["net_v21/basic_network.netv21.codelib"])
@@ -140,8 +209,7 @@ def verify(archive_path: Path) -> None:
                 raise SystemExit(f"ZIP timestamp is not reproducible: {entry.filename}")
         stamp = archive.read(f"{ROOT}/{PASSPORT}").decode()
         module = archive.read(f"{ROOT}/net_v21/basic_network.netv21.codelib")
-        if not module:
-            raise SystemExit("the net_v21 module in the archive is empty")
+        validate_module(module)
         if sha256(module) not in stamp:
             raise SystemExit("the passport does not describe the module in the archive")
         proven = archive.read(f"{ROOT}/files/bin/rel/x64/basic_network.codelib")
@@ -155,13 +223,27 @@ def verify(archive_path: Path) -> None:
         if b"basic_network.codelib" not in archive.read(f"{ROOT}/files/root/programs/opgame.progpack"):
             raise SystemExit("opgame.progpack no longer loads basic_network.codelib")
         for relative in KIT_TEXT:
-            if not archive.read(f"{ROOT}/{relative}"):
+            name = f"{ROOT}/{relative}"
+            # Older rollback archives used a self-contained .bat.  A newer .bat that calls the
+            # PowerShell collector must never be accepted without that companion file.
+            if relative == "net_v21/Collect_Logs.ps1" and name not in names:
+                bat = archive.read(f"{ROOT}/net_v21/Collect_Logs.bat")
+                if b"Collect_Logs.ps1" in bat:
+                    raise SystemExit("collector calls a missing Collect_Logs.ps1")
+                continue
+            if not archive.read(name):
                 raise SystemExit(f"kit script is empty: {relative}")
     print(f"OK {archive_path}: {len(names)} entries, net_v21 module {sha256(module)[:16]}, "
           f"archive sha256 {sha256(archive_path.read_bytes())}")
 
 
 def build(repo: Path, codelib: Path, archive_path: Path) -> None:
+    # New builds must never overwrite any preserved release/test or the known-good rollback.
+    protected = ("MiusMultiplayer_v1.0.0_TEST_INSTALL_known_good.zip",
+                 "MiusMultiplayer_v1.0.0_TEST_INSTALL.zip", "MiusMultiplayer_v1.0.0_M3M4_INSTALL.zip",
+                 "MiusMultiplayer_v1.0.1_INSTALL.zip", "MiusMultiplayer_v1.0.2_TEST_INSTALL.zip")
+    if archive_path.resolve() in {(repo / name).resolve() for name in protected}:
+        raise SystemExit("refusing to overwrite a preserved archive")
     if not codelib.is_file():
         raise SystemExit(f"no module to package: {codelib}")
     tree = collect(repo, codelib)

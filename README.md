@@ -30,7 +30,7 @@ Alpha нужна для проверки исправлений DLL на жив�
 
 Перед campaign/FPS comparison обязателен Steam two-PC regression: rich-presence host → friend Join Game → P2P lobby → tactical session → reconnect/exit, в обеих host directions. До этой живой проверки Steam/FPS результат не следует считать gameplay-certified.
 
-> Не устанавливайте [`development/`](development/). Это расширенная рабочая область: source MiusPlayer/MiusVitals, manifests и проверки. Для игры используйте только `MiusMultiplayer_v1.0.1_INSTALL.zip`; для редактирования/полной source rebuild цепочки см. [`development/merged-source/`](development/merged-source/).
+> Не устанавливайте [`development/`](development/). Это расширенная рабочая область: source MiusPlayer/MiusVitals, manifests и проверки. Для игры используйте только `MiusMultiplayer_v1.0.1_INSTALL.zip`; для редактирования/полной source rebuild цепочки см. [`development/merged-source/`](development/merged-source/). Переданная папка игры `x64` сохранена как справочный снимок в [`development/game-build-3598-1/`](development/game-build-3598-1/) и не является установщиком.
 
 Оба игрока должны установить один и тот же v1.0.1 archive. Откат: после закрытия игры запустите `MiusMultiplayer\\Disable_Multiplayer.bat`; если нужен именно прежний v1.0.0, распакуйте `MiusMultiplayer_OUTDATED_INSTALL.zip` и выполните его `Enable_Multiplayer.bat`.
 

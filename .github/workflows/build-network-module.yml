@@ -15,13 +15,17 @@ on:
     paths:
       - "development/net-v21/**"
       - "development/net-v21-kit/**"
+      - "development/game-build-3598-1/**"
       - "scripts/package_net_v21_test.py"
+      - "scripts/package_net_v21_test_selftest.py"
       - ".github/workflows/build-network-module.yml"
   pull_request:
     paths:
       - "development/net-v21/**"
       - "development/net-v21-kit/**"
+      - "development/game-build-3598-1/**"
       - "scripts/package_net_v21_test.py"
+      - "scripts/package_net_v21_test_selftest.py"
       - ".github/workflows/build-network-module.yml"
   workflow_dispatch:
 
@@ -44,6 +48,34 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Verify the supplied game reference and PE address scanner
+        run: |
+          python development/game-build-3598-1/manifest.py --verify
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python development/game-build-3598-1/manifest_selftest.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python development/net-v21/tools/pe_scan_selftest.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python development/net-v21/tools/hook_audit.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python development/net-v21/tools/hook_audit_selftest.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python development/net-v21/tools/tactical_hook_selftest.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python development/net-v21/tools/statesync_legacy_selftest.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Test archive validation and rollback protection
+        run: |
+          python scripts/package_net_v21_test_selftest.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Test the log collector with a simulated game folder
+        shell: powershell
+        run: |
+          & development/net-v21/tools/collect_logs_selftest.ps1
+          if (-not $?) { exit 1 }
 
       - name: Install the disassembler the comparison needs
         run: python -m pip install --quiet capstone
@@ -82,6 +114,118 @@ jobs:
           development\net-v21\build\selftest\netlog_selftest.exe >> development\net-v21\build\selftest.log 2>&1
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\protocol_selftest.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\force_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\battle_file_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\retry_gate_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\atomic_file_selftest.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\reliable_inbox_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\ceasefire_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\env_value_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\tactical_mode_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\transform_write_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\transform_gc_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\transform_send_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\transform_inbox_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\transport_policy_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\peer_guard_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\state_fragments_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\statesync_integration_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\hooks_selftest.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\render_guard_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\xlate_selftest.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\shots_integration_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          python development\net-v21\tools\loopback_pair.py --peer development\net-v21\build\selftest\loopback_peer.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          python development\net-v21\tools\session_loopback_pair.py --peer development\net-v21\build\selftest\session_loopback_peer.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          exit /b %rc%
+
+      # Keep the failing test/compiler tail visible through the checks API, even where Actions'
+      # external log/artifact storage is inaccessible. Tests here use only synthetic data.
+      - name: Expose the self-test failure
+        if: failure()
+        shell: pwsh
+        run: |
+          $log = 'development/net-v21/build/selftest.log'
+          if (Test-Path -LiteralPath $log) {
+            $tail = ((Get-Content -LiteralPath $log -Tail 60) -join ' | ').Replace('%', '%25')
+            Write-Output "::error title=Self-test log::$tail"
+          }
+
+      - name: M2 - build the command-line join launcher with the Steam layer
+        shell: cmd
+        run: |
+          call development\net-v21\build.bat join > development\net-v21\build\join.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\join.log
           exit /b %rc%
 
       - name: M1 - compare our baseline against the released v12 module
@@ -108,7 +252,15 @@ jobs:
             --focus steam,gtmf,presence,upnp,find_local \
             --out development/net-v21/build/compare-m2.md \
             --json development/net-v21/build/compare-m2.json \
+            --missing-out development/net-v21/build/missing-m2.txt \
             2>&1 | tee development/net-v21/build/compare-m2.log
+          exit ${PIPESTATUS[0]}
+
+      - name: Self-test the battle report (the tool a two-PC run is read with)
+        shell: bash
+        run: |
+          python development/net-v21/tools/battle_report_selftest.py \
+            2>&1 | tee development/net-v21/build/battle-report-selftest.log
           exit ${PIPESTATUS[0]}
 
       - name: Package the test installer (proven v1.0.1 + our module beside it)
@@ -116,18 +268,18 @@ jobs:
         run: |
           python scripts/package_net_v21_test.py \
             --codelib development/net-v21/build/module/basic_network.codelib \
-            --output MiusMultiplayer_v1.0.2_TEST_INSTALL.zip \
+            --output MiusMultiplayer_v1.0.3_TEST_INSTALL.zip \
             2>&1 | tee development/net-v21/build/package.log
           exit ${PIPESTATUS[0]}
 
       - name: Publish the test installer into the branch
-        if: always() && github.event_name == 'push'
+        if: success() && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/arena/')
         shell: bash
         run: |
           # The archive has to be reachable without the Actions API (artifact downloads are blocked
           # where this build is checked), so it is committed into the branch it was built from and
           # travels to main with the pull request.
-          archive=MiusMultiplayer_v1.0.2_TEST_INSTALL.zip
+          archive=MiusMultiplayer_v1.0.3_TEST_INSTALL.zip
           if [ ! -f "$archive" ]; then echo "no archive was built; nothing to publish"; exit 0; fi
           git config user.name "net-v21 build"
           git config user.email "net-v21-build@users.noreply.github.com"
@@ -136,7 +288,7 @@ jobs:
           # unchanged source tree does not add a commit every run.
           if git diff --cached --quiet; then echo "the archive has not changed"; exit 0; fi
           git commit -m "build: refresh the net_v21 test installer [skip ci]"
-          git push
+          git push origin "HEAD:${GITHUB_REF_NAME}"
 
       - name: Put the numbers in the job summary
         if: always()
@@ -153,11 +305,19 @@ jobs:
       # The job log is not reachable from outside this cluster (the log endpoint is blocked), so the
       # compiler output is mirrored into a pull-request comment while the build is being brought up.
       - name: Mirror the compiler output into the pull request
-        if: always() && github.event_name == 'pull_request'
+        if: always()
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # The job log is not reachable from where this build is checked, so the output has to be
+          # reachable somewhere else.  On a pull request that is the request itself; on a push it is
+          # whatever request is open for this branch, which is how work continues after a merge.
+          number="${{ github.event.number }}"
+          if [ -z "$number" ]; then
+            number=$(gh pr list --head "${{ github.ref_name }}" --state open --json number --jq '.[0].number')
+          fi
+          if [ -z "$number" ]; then echo "no pull request to mirror into"; exit 0; fi
           body=/tmp/build-comment.md
           {
             echo "### network module build (${{ github.sha }})"
@@ -166,13 +326,23 @@ jobs:
               echo "#### $report"
               cat "development/net-v21/build/$report.md" 2>/dev/null || echo "no $report report"
             done
+            if [ -f development/net-v21/build/missing-m2.txt ]; then
+              echo
+              echo "<details><summary>every missing work item, by milestone</summary>"
+              echo
+              echo '```'
+              cat development/net-v21/build/missing-m2.txt
+              echo '```'
+              echo
+              echo '</details>'
+            fi
             echo
-            if [ -f MiusMultiplayer_v1.0.2_TEST_INSTALL.zip ]; then
-              echo "test installer: MiusMultiplayer_v1.0.2_TEST_INSTALL.zip, sha256 $(sha256sum MiusMultiplayer_v1.0.2_TEST_INSTALL.zip | cut -d' ' -f1)"
+            if [ -f MiusMultiplayer_v1.0.3_TEST_INSTALL.zip ]; then
+              echo "test installer: MiusMultiplayer_v1.0.3_TEST_INSTALL.zip, sha256 $(sha256sum MiusMultiplayer_v1.0.3_TEST_INSTALL.zip | cut -d' ' -f1)"
             else
               echo "test installer: not built"
             fi
-            for name in baseline module selftest package compare-m1 compare-m2; do
+            for name in baseline module selftest join battle-report-selftest package compare-m1 compare-m2; do
               log="development/net-v21/build/$name.log"
               echo
               echo "<details><summary>$name log</summary>"
@@ -184,7 +354,7 @@ jobs:
               echo '</details>'
             done
           } > "$body"
-          gh pr comment "${{ github.event.number }}" --body-file "$body"
+          gh pr comment "$number" --body-file "$body"
 
       - name: Upload the build, the logs and both comparisons
         if: always()
@@ -193,6 +363,6 @@ jobs:
           name: network-module
           path: |
             development/net-v21/build/**
-            MiusMultiplayer_v1.0.2_TEST_INSTALL.zip
+            MiusMultiplayer_v1.0.3_TEST_INSTALL.zip
           if-no-files-found: warn
           retention-days: 14

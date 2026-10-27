@@ -28,7 +28,7 @@ inline Object **all_objects(ObjMan *om, u32 *count)
 enum { ROLE_NONE, ROLE_HOST, ROLE_JOIN };
 void session_start(ObjMan *om);          // once, when the engine starts ticking; reads the environment
 void session_frame(ObjMan *om);          // every rendered frame
-void session_sim_step(ObjMan *om);       // before every simulation step (tactical only)
+void session_sim_step(ObjMan *om, u32 sim_ms); // before each tactical ctrl_tick, including zero-ms ticks
 void session_stop(void);
 void session_host(int host_mode);        // menu: become host now
 void session_single_player(void);        // menu: leave multiplayer
@@ -40,6 +40,8 @@ bool session_connected(void);
 bool session_versus(void);
 bool session_state_wanted(Object *o);      // false: this unit is followed by position only
 void session_test_resign(void);     // tests: leave the battle the way the game's own "to the operation" box does
+void session_toggle_ceasefire(void);     // M3: propose the end of the battle, or take the proposal back (F9)
+bool session_ceasefire_offered(void);
 void session_test_ready(void);      // tests: same as this player pressing Start
 const char *session_my_name(void);
 bool session_peer(char *name, size_t size, bool *ready);     // the other player, if connected
@@ -81,12 +83,17 @@ void statesync_owner_frame(ObjMan *om, DWORD now, bool (*owns)(Object *), void (
 void statesync_on_packet(const unsigned char *data, int size, void (*send)(const void *, int), bool versus);
 void statesync_apply(ObjMan *om);
 void statesync_reset(void);
+void statesync_forget_peer(void);      // tactical: discard snapshots and partials from the previous peer
 void statesync_report(void);
+// The unchanged pre-hardening receiver is used only by the non-tactical session; M5 is out of scope.
+void statesync_legacy_on_packet(const unsigned char *data, int size, void (*send)(const void *, int), bool versus);
+void statesync_legacy_reset(void);
 
 // ---- shell launches (shots.cpp)
 void shots_install(ObjMan *om);
 void shots_frame(void (*send)(const void *, int));
 void shots_on_packet(const unsigned char *data, int size, void (*send)(const void *, int));
+void shots_on_packet_legacy(const unsigned char *data, int size, void (*send)(const void *, int));
 void shots_sim_step(ObjMan *om);
 void shots_reset(void);
 void shots_report(void);

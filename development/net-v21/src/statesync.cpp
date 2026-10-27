@@ -6,8 +6,10 @@
 // the object before the next simulation step. Versions only advance on acknowledgement, so a lost
 // datagram costs one retry and never corrupts state.
 #include "common.h"
+#include "env_value.h"
 #include "netlog.h"
 #include "protocol.h"
+#include "state_fragments.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,6 +30,7 @@ static bool get_varint(const unsigned char *&p, const unsigned char *end, u32 &v
     v = 0;
     for (int shift = 0; p < end && shift < 35; shift += 7) {
         unsigned char b = *p++;
+        if (shift == 28 && (b & 0xf0)) return false; // a u32 varint has only four bits left
         v |= (u32)(b & 0x7f) << shift;
         if (!(b & 0x80)) return true;
     }
@@ -62,14 +65,17 @@ static bool decode_delta(const Blob &base, const unsigned char *p, size_t len, u
 {
     if (raw_size > (16u << 20)) return false;
     out.assign(raw_size, 0);
-    memcpy(out.data(), base.data(), min(base.size(), (size_t)raw_size));
+    size_t initial = min(base.size(), (size_t)raw_size);
+    if (initial) memcpy(out.data(), base.data(), initial);
+    if (!len) return true;
+    if (!p) return false;
     const unsigned char *end = p + len;
     size_t i = 0;
     while (p < end) {
         u32 z, l;
         if (!get_varint(p, end, z) || !get_varint(p, end, l)) return false;
         i += z;
-        if (i + l > raw_size || p + l > end) return false;
+        if (i > raw_size || l > raw_size - i || l > (size_t)(end - p)) return false;
         for (u32 k = 0; k < l; k++) {
             // XOR against the padded base: bytes beyond the old size were zero
             out[i + k] = (unsigned char)((i + k < base.size() ? base[i + k] : 0) ^ p[k]);
@@ -81,7 +87,7 @@ static bool decode_delta(const Blob &base, const unsigned char *p, size_t len, u
 }
 
 // ---------------------------------------------------------------- shared
-static const u32 k_frag = 1100;
+static const u32 k_frag = state_fragments::fragment_bytes;
 static void (*g_send)(const void *, int);
 static u64 g_stat_bytes, g_stat_objects, g_stat_raw, g_stat_loads, g_stat_bad, g_stat_received, g_stat_unsafe;
 static bool g_translate;      // versus: the two games see every unit from opposite sides
@@ -101,8 +107,8 @@ static bool replicated_singleton(Object *o)
     static const char *names[] = { "i_divisions", "i_statistic", "i_trigman", "i_formation", "i_fireman", "i_shellphys" };
     static int enabled = -1;
     if (enabled < 0) {
-        char v[8];
-        enabled = GetEnvironmentVariableA("MP_SYNC_WORLD", v, sizeof v) ? atoi(v) : 0;
+        enabled = 0;
+        env_integer("MP_SYNC_WORLD", &enabled);
     }
     if (!enabled) return false;
     for (int i = 0; i < enabled && i < 6; i++)
@@ -130,6 +136,15 @@ static void send_object(u64 key, Track &t, DWORD now)
     static Blob delta;
     const Blob &cur = t.sent_versions.back().blob;
     encode_delta(t.base, cur, delta);
+    if (cur.size() > state_fragments::maximum_bytes || delta.size() > state_fragments::maximum_bytes) {
+        static DWORD last_oversize;
+        if (!last_oversize || now - last_oversize >= 5000) {
+            last_oversize = now ? now : 1;
+            mp_log("state: object state exceeds the 16 MiB wire limit; not sent (%zu/%zu bytes)", cur.size(), delta.size());
+        }
+        ++g_stat_bad;
+        return;
+    }
     u32 nfrags = (u32)((delta.size() + k_frag - 1) / k_frag);
     if (!nfrags) nfrags = 1;
     for (u32 f = 0; f < nfrags; f++) {
@@ -144,7 +159,7 @@ static void send_object(u64 key, Track &t, DWORD now)
         h->delta_size = (u32)delta.size();
         h->frag = (unsigned short)f;
         h->nfrags = (unsigned short)nfrags;
-        memcpy(h + 1, delta.data() + off, len);
+        if (len) memcpy(h + 1, delta.data() + off, len);
         g_send(packet, (int)(sizeof(ObjectFrag) + len));
         g_budget -= sizeof(ObjectFrag) + len + 28;
         g_stat_bytes += sizeof(ObjectFrag) + len;
@@ -160,14 +175,17 @@ void statesync_owner_frame(ObjMan *om, DWORD now, bool (*owns)(Object *), void (
     static int kbps = -1;
     static Blob blob;
     if (kbps < 0) {
-        char v[16];
-        kbps = GetEnvironmentVariableA("MP_STATE_KBPS", v, sizeof v) ? atoi(v) : 600;
+        kbps = 600;
+        int requested;
+        if (env_integer("MP_STATE_KBPS", &requested) && requested >= 0) kbps = requested;
     }
     g_send = send;
     double dt = g_last_frame ? (now - g_last_frame) / 1000.0 : 0;
     g_last_frame = now;
-    g_budget += dt * kbps * 1024;
-    if (g_budget > kbps * 1024 * 0.25) g_budget = kbps * 1024 * 0.25;       // at most a quarter second saved up
+    // Convert before multiplication: a valid but very large MP_STATE_KBPS must not overflow int.
+    const double bytes_per_second = (double)kbps * 1024.0;
+    g_budget += dt * bytes_per_second;
+    if (g_budget > bytes_per_second * 0.25) g_budget = bytes_per_second * 0.25; // at most a quarter second saved up
     u32 count;
     Object **all = all_objects(om, &count);
     for (u32 n = 0; n < count && g_budget > 0; n++) {
@@ -185,7 +203,8 @@ void statesync_owner_frame(ObjMan *om, DWORD now, bool (*owns)(Object *), void (
             continue;
         }
         if (t.sent_versions.size() >= 6) t.sent_versions.erase(t.sent_versions.begin());
-        t.sent_versions.push_back({ ++t.last_ver, blob });
+        if (++t.last_ver == 0) ++t.last_ver; // zero denotes "no base" on the wire
+        t.sent_versions.push_back({ t.last_ver, blob });
         send_object(statesync_key(o), t, now);
     }
 }
@@ -201,10 +220,23 @@ struct Incoming {
     u32 base_ver = 0;
     Blob partial;                  // delta being reassembled
     u32 part_ver = 0, part_have = 0, part_frags = 0;
+    u32 part_base = 0, part_raw = 0, part_size = 0;
     std::vector<unsigned char> got;
     bool fresh = false;            // base not yet loaded into the object
 };
 static std::unordered_map<u64, Incoming> g_incoming;
+static std::unordered_map<u64, Object *> g_state_index;
+static u32 g_state_seen_count = 0xffffffffu;
+
+// Ownership and version numbers are scoped to a peer. Keeping a previous peer's base can make a
+// new peer's version 1 look like an already acknowledged duplicate or load the old player's state.
+void statesync_forget_peer(void)
+{
+    g_incoming.clear();
+    g_state_index.clear();
+    g_state_seen_count = 0xffffffffu;
+    g_translate = false;
+}
 
 void statesync_on_packet(const unsigned char *data, int size, void (*send)(const void *, int), bool versus)
 {
@@ -216,6 +248,7 @@ void statesync_on_packet(const unsigned char *data, int size, void (*send)(const
         auto it = g_tracks.find(a->key);
         if (it == g_tracks.end() || a->version == it->second.base_ver) return;
         Track &t = it->second;
+        if (t.base_ver && a->version && !state_fragments::newer(a->version, t.base_ver)) return;
         for (size_t i = 0; i < t.sent_versions.size(); i++)
             if (t.sent_versions[i].ver == a->version) {
                 t.base.swap(t.sent_versions[i].blob);
@@ -231,66 +264,83 @@ void statesync_on_packet(const unsigned char *data, int size, void (*send)(const
     if (head->type != PKT_OBJECT || size < (int)sizeof(ObjectFrag)) return;
     const ObjectFrag *f = (const ObjectFrag *)data;
     u32 len = head->count;
-    if (size < (int)(sizeof(ObjectFrag) + len) || f->frag >= f->nfrags || f->delta_size > (16u << 20)) return;
+    if (!state_fragments::valid(*f, (size_t)size)) { ++g_stat_bad; return; }
     Incoming &in = g_incoming[f->key];
     ObjectAck ack = { make_head(PKT_OBJECT_ACK), f->key, f->version };
     if (f->version == in.base_ver && in.base_ver) { send(&ack, sizeof ack); return; }      // already have it: the ack was lost
+    if (in.base_ver && !state_fragments::newer(f->version, in.base_ver)) {
+        // A delayed old baseline must not roll a newer object state backwards.
+        if (f->frag == 0) { ack.version = in.base_ver; send(&ack, sizeof ack); }
+        return;
+    }
     if (f->base_version != in.base_ver && f->base_version != 0) {
         // built on a version we do not hold: say which one we do hold, so the owner can rebase
         if (f->frag == 0) { ack.version = in.base_ver; send(&ack, sizeof ack); }
         return;
     }
-    if (in.part_ver != f->version || in.part_frags != f->nfrags) {
+    if (in.part_ver && f->version != in.part_ver && !state_fragments::newer(f->version, in.part_ver))
+        return; // a delayed older version must not displace a newer partial assembly
+    if (in.part_ver != f->version || in.part_frags != f->nfrags || in.part_base != f->base_version ||
+        in.part_raw != f->raw_size || in.part_size != f->delta_size) {
         in.part_ver = f->version;
         in.part_frags = f->nfrags;
+        in.part_base = f->base_version;
+        in.part_raw = f->raw_size;
+        in.part_size = f->delta_size;
         in.part_have = 0;
         in.got.assign(f->nfrags, 0);
         in.partial.assign(f->delta_size, 0);
     }
     if ((size_t)f->frag * k_frag + len > in.partial.size() || in.got[f->frag]) return;
-    memcpy(in.partial.data() + (size_t)f->frag * k_frag, f + 1, len);
+    if (len) memcpy(in.partial.data() + (size_t)f->frag * k_frag, f + 1, len);
     in.got[f->frag] = 1;
     if (++in.part_have < in.part_frags) return;
     Blob next;
     static const Blob nothing;
-    if (!decode_delta(f->base_version ? in.base : nothing, in.partial.data(), in.partial.size(), f->raw_size, next)) { g_stat_bad++; return; }
+    if (!decode_delta(f->base_version ? in.base : nothing, in.partial.data(), in.partial.size(), f->raw_size, next)) {
+        ++g_stat_bad;
+        in.part_ver = in.part_have = in.part_frags = 0;
+        Blob().swap(in.partial);
+        std::vector<unsigned char>().swap(in.got);
+        return; // the sender receives no ACK and can retry a complete copy
+    }
     in.base.swap(next);
     in.base_ver = f->version;
     in.part_ver = 0;
     in.fresh = true;
     g_stat_received += in.partial.size();
+    Blob().swap(in.partial);                       // completed assembly need not retain a second copy
+    std::vector<unsigned char>().swap(in.got);
     send(&ack, sizeof ack);
 }
 
 // Before a simulation step: load every newly received state into its object.
 void statesync_apply(ObjMan *om)
 {
-    static std::unordered_map<u64, Object *> index;
-    static u32 seen_count;
     bool any = false;
     for (auto &kv : g_incoming) if (kv.second.fresh) { any = true; break; }
     if (!any) return;
     u32 count;
     Object **all = all_objects(om, &count);
-    if (count != seen_count) {
-        index.clear();
-        for (u32 i = 0; i < count; i++) if (replicated(all[i])) index[statesync_key(all[i])] = all[i];
-        seen_count = count;
+    if (count != g_state_seen_count) {
+        g_state_index.clear();
+        for (u32 i = 0; i < count; i++) if (replicated(all[i])) g_state_index[statesync_key(all[i])] = all[i];
+        g_state_seen_count = count;
     }
     for (auto &kv : g_incoming) {
         Incoming &in = kv.second;
         if (!in.fresh) continue;
+        auto it = g_state_index.find(kv.first);
+        if (it == g_state_index.end()) continue; // a late-created object may be found on a later step
         in.fresh = false;
-        auto it = index.find(kv.first);
-        if (it == index.end()) continue;
         Object *o = it->second;
         // debugging aids: MP_LOG_LOADS=1 names every state before it is loaded, MP_LOAD_ONLY=techn|human
         // restricts loading to one class
         static int trace = -1, only;
         if (trace < 0) {
             char v[16] = "";
-            trace = GetEnvironmentVariableA("MP_LOG_LOADS", v, sizeof v) != 0;
-            if (GetEnvironmentVariableA("MP_LOAD_ONLY", v, sizeof v)) only = v[0] == 't' ? 1 : 2;
+            trace = env_text("MP_LOG_LOADS", v, sizeof v);
+            if (env_text("MP_LOAD_ONLY", v, sizeof v)) only = v[0] == 't' ? 1 : 2;
         }
         if (only && strcmp(o->iface, only == 1 ? "i_techn" : "i_human")) continue;
         if (!session_state_wanted(o)) continue;
@@ -310,6 +360,15 @@ void statesync_apply(ObjMan *om)
         }
     }
 }
+
+#ifdef NETV21_TEST_HOOKS
+size_t statesync_test_incoming_count() { return g_incoming.size(); }
+bool statesync_test_fresh(u64 key) {
+    auto it = g_incoming.find(key);
+    return it != g_incoming.end() && it->second.fresh;
+}
+double statesync_test_budget() { return g_budget; }
+#endif
 
 void statesync_report(void)
 {

@@ -151,6 +151,8 @@ def main() -> int:
     parser.add_argument("--backlog", type=Path,
                         default=RECOVERY / "reports" / "v20-functions.csv",
                         help="the v20 classification; coverage is filed by its milestones")
+    parser.add_argument("--missing-out", type=Path,
+                        help="write every missing work item, grouped by milestone")
     parser.add_argument("--focus", default="",
                         help="comma separated substrings: functions whose name matches are listed first")
     args = parser.parse_args()
@@ -251,6 +253,26 @@ def main() -> int:
                         f"| `{row['rva']:06x}` | `{name}` | {row['size']} | {where[row['rva']]} | "
                         f"{strings} |")
                 coverage_lines.append("")
+            if args.missing_out:
+                # The full list, grouped the way the work is done: a milestone is the unit that gets
+                # built and accepted, so "which of these eight are left" has to be answerable without
+                # a debugger and without downloading an artifact.
+                full: list[str] = []
+                for tag in order:
+                    group = groups.get(tag)
+                    if not group or not group["missing"]:
+                        continue
+                    full.append(f"# {tag} {group['label']} - {len(group['missing'])} missing "
+                                f"({group['bytes'] - group['covered_bytes']} bytes)")
+                    for row in sorted(group["missing"], key=lambda r: -r["size"]):
+                        name = row["v12_name"].split("@@")[0].lstrip("?") or "(no name)"
+                        full.append(f"{row['rva']:06x} {row['size']:6d}  {name}")
+                        for text in row["strings"].split(" | ")[:4]:
+                            if text.strip():
+                                full.append(f"                | {text.strip()[:100]}")
+                    full.append("")
+                args.missing_out.write_text("\n".join(full) + "\n")
+                print(f"  wrote the missing work items to {args.missing_out}")
 
     if args.out:
         lines = [

@@ -6,6 +6,15 @@
 #include <windows.h>
 #include <string.h>
 
+// The engine's functions are reached through typed function pointers; a hook handed over by name is
+// one of those types. This overload does the conversion once, so every call site reads the same way
+// under both compilers the module has been built with (MSVC allows the implicit conversion, clang not).
+template <class Hook>
+inline void *install_detour(void *target, size_t len, Hook hook)
+{
+    return install_detour(target, len, (void *)hook);
+}
+
 inline void *install_detour(void *target, size_t len, void *hook)
 {
     if (len < 14 || len > 32) return 0;

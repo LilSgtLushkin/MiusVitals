@@ -20,6 +20,7 @@
 #include <winsock2.h>
 #include <windows.h>
 #include <stdint.h>
+#include <string.h>
 
 // A peer that lives inside Steam: sa_family is STEAM_FAMILY, the Steam ID sits at +8, the name
 // at +32.  Same encoding as v20, so a packet can be addressed the same way for both transports.
@@ -37,6 +38,11 @@ struct steam_peer {
 // in the same log as everything else, the self-test prints to stdout.
 void steam_log(const char *fmt, ...);
 
+// Where the five-second traffic totals go.  The module feeds them to the run log; a console program
+// (self-test, join launcher) links the empty implementation in steam_logger.cpp.  One of the two is
+// always linked, so steam.cpp never needs to know which world it is in.
+void steam_traffic_note(unsigned long long sent, unsigned long long received);
+
 // Lifecycle.  steam_init() is idempotent and safe to call every frame; it returns true when the
 // transport is usable.  It never throws and never aborts the game: every failure is a log line.
 bool steam_init();
@@ -52,6 +58,33 @@ int steam_friend_count();
 
 // Pump: delivers callbacks and drains P2P packets.  Call once per frame.
 void steam_frame();
+
+// A peer on the Steam transport is an ordinary sockaddr_in whose family is STEAM_FAMILY and whose
+// Steam ID sits at +8, where sin_zero starts - the encoding v20 uses, so one address describes a peer
+// whichever way its bytes travel.  These two turn it around; they are inline so the session code and
+// the joiner can use them without linking anything extra.
+inline bool steam_peer_make(uint64_t id, sockaddr_in *out)
+{
+    if (!out || !id)
+        return false;
+    *out = sockaddr_in();
+    out->sin_family = STEAM_FAMILY;
+    memcpy(out->sin_zero, &id, sizeof id);
+    return true;
+}
+
+inline uint64_t steam_peer_id(const sockaddr_in *address)
+{
+    if (!address || address->sin_family != STEAM_FAMILY)
+        return 0;
+    uint64_t id = 0;
+    memcpy(&id, address->sin_zero, sizeof id);
+    return id;
+}
+
+// Totals since the layer came up: what the transport has actually moved.  The self-test uses them;
+// the five-second line is built from the same counters.
+void steam_traffic_totals(unsigned long long *sent, unsigned long long *received);
 
 // Datagrams.  Returns false when the peer is unreachable or the transport is off.
 bool steam_send(uint64_t peer, const void *data, int len);
@@ -78,6 +111,13 @@ void steam_note_command_line(const char *command_line);
 bool steam_join_take(uint64_t *id);          // true once per request
 const char *steam_join_source();             // "the command line" / "a friend's game"
 
+// Glue supplied by steam_module.cpp: read the command line for a join request and bring the layer
+// up; deliver callbacks and P2P packets once per frame.  Both are cheap to call repeatedly.
+void steam_install();
+void steam_tick();
+
 // Test hooks (self-test only; the module never calls them).
 void steam_test_set_command_line(const char *text);
+void steam_test_join_callback(const char *text, size_t size);
+bool steam_test_callback_abi();
 void steam_test_reset();

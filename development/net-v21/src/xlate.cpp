@@ -16,6 +16,7 @@
 // for the thing the other game meant. The tables travel on the shots' reliable channel (ShotRec.kind 3, 4).
 #include "common.h"
 #include "protocol.h"
+#include "hooks.h"
 #include <string.h>
 #include <map>
 #include <unordered_map>
@@ -25,8 +26,9 @@ typedef void *(*Lookup)(ObjMan *, u32);
 static Lookup g_obj_by_place, g_desc_by_num;
 static std::unordered_map<u32, u32> g_desc, g_obj;          // the other game's number -> this game's
 static std::vector<std::pair<u32, u32>> g_their_desc, g_their_obj;      // (number, fingerprint) as received
+static std::vector<std::pair<u32, u32>> g_last_desc, g_last_obj;        // last tables actually queued
 static u32 g_expect_desc, g_expect_obj, g_sent_desc, g_sent_obj;
-static bool g_ready, g_hooked, g_send_due;
+static bool g_ready, g_hooked, g_hook_tried, g_send_due;
 static void *g_vtbl_copy[97];
 
 static u32 text_hash(const char *s, size_t max)
@@ -49,12 +51,32 @@ static u32 fingerprint(const void *p)
             const unsigned char *s = (const unsigned char *)v;
             int n = 0;
             while (n < 16 && s[n] >= 0x20 && s[n] < 0x7f) n++;
-            v = n >= 3 && (n == 16 || !s[n]) ? text_hash((const char *)s, 64) : 0;
+            if (n >= 3 && (n == 16 || !s[n])) {
+                // Only the first 16 bytes were checked. A long name can end at a page boundary:
+                // hash a fully readable 64-byte span fast, otherwise check every additional byte.
+                if (n < 16 || readable(s, 64)) v = text_hash((const char *)s, 64);
+                else {
+                    u32 hash = text_hash((const char *)s, 16);
+                    bool safe = true;
+                    for (size_t i = 16; i < 64; i++) {
+                        if (!readable(s + i, 1)) { safe = false; break; }
+                        if (!s[i]) break;
+                        hash = (hash ^ s[i]) * 16777619u;
+                    }
+                    v = safe ? hash : 0;
+                }
+            } else v = 0;
         }
         for (int i = 0; i < 8; i++) h = (h ^ (unsigned char)(v >> (i * 8))) * 16777619u;
     }
     return h ? h : 1;
 }
+
+#ifdef NETV21_TEST_HOOKS
+// Exercise the production fingerprint reader against guarded pages without touching game code.
+u32 xlate_test_fingerprint(const void *p) { return fingerprint(p); }
+bool xlate_test_tables_complete() { return g_ready; }
+#endif
 
 static void local_tables(ObjMan *om, std::vector<std::pair<u32, u32>> &desc, std::vector<std::pair<u32, u32>> &obj)
 {
@@ -80,7 +102,10 @@ static void send_table(const std::vector<std::pair<u32, u32>> &t, unsigned char 
         u32 total = (u32)t.size(), n = (u32)(t.size() - at < per ? t.size() - at : per);
         memcpy(s.launch, &total, 4);
         memcpy(s.launch + 4, &n, 4);
-        for (u32 i = 0; i < n; i++) memcpy(s.launch + 8 + i * 8, &t[at + i], 8);
+        for (u32 i = 0; i < n; i++) {
+            memcpy(s.launch + 8 + i * 8, &t[at + i].first, 4);
+            memcpy(s.launch + 12 + i * 8, &t[at + i].second, 4);
+        }
         shots_queue(s);
         if (t.empty()) break;
     }
@@ -139,17 +164,28 @@ static void match(const std::vector<std::pair<u32, u32>> &theirs, const std::vec
 
 void xlate_received(const ShotRec &s, ObjMan *om)
 {
+    if (s.kind != 3 && s.kind != 4) return;
     u32 total, n;
     memcpy(&total, s.launch, 4);
     memcpy(&n, s.launch + 4, 4);
     std::vector<std::pair<u32, u32>> &t = s.kind == 3 ? g_their_desc : g_their_obj;
     u32 &expect = s.kind == 3 ? g_expect_desc : g_expect_obj;
-    if (t.size() >= expect) { t.clear(); g_ready = false; }         // a new table begins
-    expect = total;
-    for (u32 i = 0; i < n && i < 17; i++) {
-        std::pair<u32, u32> e;
-        memcpy(&e, s.launch + 8 + i * 8, 8);
-        t.push_back(e);
+    const u32 limit = s.kind == 3 ? 100000u : 1000000u;  // same bounds as local_tables
+    const bool starting = t.size() >= expect;
+    if (total > limit || n > 17 || n > total || (total && !n) ||
+        (!starting && total != expect) || (!starting && n > expect - t.size())) {
+        g_ready = false;
+        g_their_desc.clear(); g_their_obj.clear();
+        g_expect_desc = g_expect_obj = 0;
+        mp_log("numbers: invalid or inconsistent remote table; full-state loading remains off");
+        return;
+    }
+    if (starting) { t.clear(); g_ready = false; expect = total; }  // a new table begins
+    for (u32 i = 0; i < n; i++) {
+        u32 id, hash;
+        memcpy(&id, s.launch + 8 + i * 8, 4);
+        memcpy(&hash, s.launch + 12 + i * 8, 4);
+        t.push_back({ id, hash });
     }
     if (g_their_desc.size() >= g_expect_desc && g_their_obj.size() >= g_expect_obj && g_expect_obj) {
         std::vector<std::pair<u32, u32>> desc, obj;
@@ -160,7 +196,9 @@ void xlate_received(const ShotRec &s, ObjMan *om)
     }
 }
 
-bool xlate_ready(void) { return g_ready; }
+// Tables alone cannot make remote object-state loads safe: the checked vtable hooks must also
+// be installed. Shots may still use the tables separately via xlate_desc().
+bool xlate_ready(void) { return g_ready && g_hooked; }
 u32 xlate_desc(u32 theirs) { auto it = g_desc.find(theirs); return it == g_desc.end() ? theirs : it->second; }
 
 static void *obj_by_place_hook(ObjMan *om, u32 place)
@@ -177,25 +215,62 @@ static void *desc_by_num_hook(ObjMan *om, u32 num)
 
 void xlate_resend(void) { g_send_due = true; g_ready = false; g_their_desc.clear(); g_their_obj.clear(); g_expect_desc = g_expect_obj = 0; }
 
+static void send_changed_tables(ObjMan *om)
+{
+    u32 nd = *(u32 *)((char *)om + 0x1754), no = *(u32 *)((char *)om + 0x15c);
+    if (!g_send_due && nd == g_sent_desc && no == g_sent_obj) return;
+    std::vector<std::pair<u32, u32>> desc, obj;
+    local_tables(om, desc, obj);
+    // Counts can change as temporary objects come and go even when the transferable table did
+    // not. Queue only tables whose actual contents changed, but always send both after a reset.
+    if (g_send_due || desc != g_last_desc) send_table(desc, 3);
+    if (g_send_due || obj != g_last_obj) send_table(obj, 4);
+    g_last_desc.swap(desc);
+    g_last_obj.swap(obj);
+    g_sent_desc = nd;
+    g_sent_obj = no;
+    g_send_due = false;
+}
+#ifdef NETV21_TEST_HOOKS
+void xlate_test_send_changed(ObjMan *om) { send_changed_tables(om); }
+#endif
+
 // Every frame of a connected battle: this game's tables go out once the battle stands, and again when
 // something new has been registered.
 void xlate_frame(ObjMan *om)
 {
     if (!session_connected() || session_role() == ROLE_NONE) return;
-    if (!g_hooked) {
-        g_hooked = true;
+    if (!g_hook_tried) {
         HMODULE shell = GetModuleHandleA("base_shell.codelib");
-        void **vt = om->vtbl;
-        if (shell && (char *)vt == (char *)shell + 0x4ca10 && (char *)vt[54] == (char *)shell + 0x98e0 && (char *)vt[57] == (char *)shell + 0x121d0) {
+        if (!shell) return;                    // the game can load the shell after the first frame
+        g_hook_tried = true;
+        static const unsigned char obj_lookup_sig[] = {
+            0x3b,0x91,0x5c,0x01,0x00,0x00,0x73,0x0e,0x48,0x8b,0x81,0x50,0x01,
+            0x00,0x00,0x8b,0xd2,0x48,0x8b,0x04,0xd0,0xc3,0x33,0xc0,0xc3
+        };
+        static const unsigned char desc_lookup_sig[] = {
+            0x40,0x53,0x44,0x8b,0xd2,0x48,0x8b,0xd9,0x83,0xfa,0xff,0x75,
+            0x04,0x33,0xc0,0x5b,0xc3,0x45,0x33,0xdb,0x48,0x89,0x74,0x24
+        };
+        const HookSig obj_where[] = { { 0x98e0, obj_lookup_sig, sizeof obj_lookup_sig } };
+        const HookSig desc_where[] = { { 0x121d0, desc_lookup_sig, sizeof desc_lookup_sig } };
+        char *obj_fn = hook_resolve_checked("base_shell.codelib", obj_where, 1, "object number lookup");
+        char *desc_fn = hook_resolve_checked("base_shell.codelib", desc_where, 1, "description number lookup");
+        void **vt = readable(om, sizeof *om) ? om->vtbl : nullptr;
+        MEMORY_BASIC_INFORMATION mbi = {};
+        bool table_ok = vt && (uintptr_t)vt >= sizeof(void *) && readable(vt - 1, sizeof g_vtbl_copy) &&
+                        VirtualQuery(vt - 1, &mbi, sizeof mbi) && mbi.AllocationBase == shell;
+        if (obj_fn && desc_fn && table_ok && vt[54] == obj_fn && vt[57] == desc_fn && om->vtbl == vt) {
             memcpy(g_vtbl_copy, vt - 1, sizeof g_vtbl_copy);
             g_obj_by_place = (Lookup)vt[54];
             g_desc_by_num = (Lookup)vt[57];
-            g_vtbl_copy[1 + 54] = obj_by_place_hook;
-            g_vtbl_copy[1 + 57] = desc_by_num_hook;
+            g_vtbl_copy[1 + 54] = (void *)obj_by_place_hook;
+            g_vtbl_copy[1 + 57] = (void *)desc_by_num_hook;
             om->vtbl = g_vtbl_copy + 1;
-            mp_log("numbers: the other game's description and object numbers are translated when its states are loaded");
+            g_hooked = true;
+            mp_log("numbers: verified object/description lookup hooks installed (vtable +0x%lx)", hook_offset("base_shell.codelib", vt));
         } else {
-            mp_log("numbers: unknown game build, the other game's numbers are taken as they are");
+            mp_log("numbers: lookup bytes or vtable did not match; remote full-state loading stays off");
         }
         g_send_due = true;
     }
@@ -203,13 +278,5 @@ void xlate_frame(ObjMan *om)
     DWORD now = GetTickCount();
     if (now - last < 3000) return;
     last = now;
-    u32 nd = *(u32 *)((char *)om + 0x1754), no = *(u32 *)((char *)om + 0x15c);
-    if (!g_send_due && nd == g_sent_desc && no == g_sent_obj) return;
-    std::vector<std::pair<u32, u32>> desc, obj;
-    local_tables(om, desc, obj);
-    send_table(desc, 3);
-    send_table(obj, 4);
-    g_sent_desc = nd;
-    g_sent_obj = no;
-    g_send_due = false;
+    send_changed_tables(om);
 }

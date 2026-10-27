@@ -17,8 +17,10 @@
 // The records travel on the same reliable, ordered channel as the shots (ShotRec.kind 2).
 // MP_SYNC_TRENCH=0 switches this off; MP_LOG_TRENCH=1 logs every dig.
 #include "common.h"
+#include "env_value.h"
 #include "netlog.h"
 #include "protocol.h"
+#include "hooks.h"
 #include "detour.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -200,12 +202,13 @@ void trench_install(void)
     if (!m) return;
     done = true;
     g_main_thread = GetCurrentThreadId();
-    char v[16];
-    if (GetEnvironmentVariableA("MP_SYNC_TRENCH", v, sizeof v)) g_enabled = atoi(v) != 0;
-    g_trace = GetEnvironmentVariableA("MP_LOG_TRENCH", v, sizeof v) && atoi(v);
+    int value;
+    if (env_integer("MP_SYNC_TRENCH", &value)) g_enabled = value != 0;
+    g_trace = env_integer("MP_LOG_TRENCH", &value) && value;
     if (!g_enabled && !g_trace) { mp_log("trench: each game digs for itself (MP_SYNC_TRENCH=0)"); return; }
-    char *dig = (char *)m + 0xdbc20;
-    if (memcmp(dig, sig, sizeof sig)) { mp_log("trench: unknown game build, each game digs for itself"); g_enabled = false; return; }
+    const HookSig where[] = { { 0xdbc20, sig, sizeof sig } };
+    char *dig = hook_resolve_checked("adv_game.codelib", where, 1, "trench digging");
+    if (!dig) { mp_log("trench: digging hook refused, each game digs for itself"); g_enabled = false; return; }
     g_dig = (Dig)install_detour(dig, 14, dig_hook);
     mp_log("trench: %s", !g_dig ? "could not be hooked" : g_enabled ? "a squad's trenches are its owner's: dug there, sent, and dug the same here"
                                                                      : "each game digs for itself (MP_SYNC_TRENCH=0); digs are logged");
