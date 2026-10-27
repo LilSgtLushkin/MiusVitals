@@ -22,6 +22,7 @@ void session_test_state_dispatch(bool tactical);
 void session_test_shot_dispatch(bool tactical);
 bool session_test_transform_dispatch();
 bool session_test_new_force_offer();
+bool session_test_force_fragments();
 bool session_test_legacy_end();
 void session_test_motion_begin();
 void session_test_motion_push(const UnitRec &);
@@ -118,7 +119,8 @@ int main(int argc, char **argv)
     if (legacy_shot_packets != 1 || tactical_shot_packets != 1) { puts("FAIL: shot dispatch by mode"); return 1; }
     if (!session_test_legacy_end()) { puts("FAIL: non-tactical end packet behavior"); return 1; }
     if (!session_test_transform_dispatch()) { puts("FAIL: transform dispatch by mode"); return 1; }
-    if (!session_test_new_force_offer()) { puts("FAIL: new force with the same size"); return 1; }
+    if (!session_test_new_force_offer()) { puts("FAIL: changed force offer"); return 1; }
+    if (!session_test_force_fragments()) { puts("FAIL: force fragment lengths"); return 1; }
     if (!motion_test()) { puts("FAIL: zero-ms simulation and remote transform processing"); return 1; }
     puts("state, force, zero-ms motion and cache tests passed");
     bool host = !strcmp(argv[1], "host");

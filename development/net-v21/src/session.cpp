@@ -838,20 +838,36 @@ static void host_swap_sides_if_asked(void)
     if (GetEnvironmentVariableA("MP_SWAPPED", v, sizeof v)) return;         // this is the restarted battle
     std::vector<unsigned char> turned = g_image;
     if (!image::mirror(turned)) { mp_log("lobby: this battle cannot be swapped, playing it as set up"); return; }
-    FILE *f = 0;
-    if (fopen_s(&f, g_image_file, "wb") || !f) { mp_log("lobby: cannot rewrite the battle description, playing it as set up"); return; }
-    fwrite(turned.data(), 1, turned.size(), f);
-    fclose(f);
+    // Never truncate the battle which the running process loaded. Save a separate backup before
+    // replacing it, and refuse to overwrite an unresolved backup from a previous failed restart.
+    std::vector<unsigned char> disk;
+    if (!read_file(g_image_file, disk) || disk != g_image) {
+        mp_log("lobby: battle description changed on disk; sides are not swapped");
+        return;
+    }
+    const std::string backup = std::string(g_image_file) + ".before_swap";
+    if (!CopyFileA(g_image_file, backup.c_str(), TRUE)) {
+        mp_log("lobby: cannot save %s (%lu); sides are not swapped", backup.c_str(), GetLastError());
+        return;
+    }
+    if (!atomic_file::replace(g_image_file, turned.data(), turned.size())) {
+        if (read_file(g_image_file, disk) && disk == g_image) DeleteFileA(backup.c_str());
+        mp_log("lobby: cannot replace the battle description, playing it as set up");
+        return;
+    }
     SetEnvironmentVariableA("MP_SWAPPED", "1");
     std::string cmd = GetCommandLineA();
     STARTUPINFOA si = { sizeof si };
     PROCESS_INFORMATION pi;
     if (CreateProcessA(0, &cmd[0], 0, 0, FALSE, 0, 0, g_root, &si, &pi)) {
+        DeleteFileA(backup.c_str());
         mp_log("lobby: sides swapped, restarting the battle from the turned description");
         ExitProcess(0);
     }
-    mp_log("lobby: could not restart the battle (%lu), playing it as set up", GetLastError());
-    if (!fopen_s(&f, g_image_file, "wb") && f) { fwrite(g_image.data(), 1, g_image.size(), f); fclose(f); }
+    DWORD error = GetLastError();
+    if (atomic_file::replace(g_image_file, g_image.data(), g_image.size())) DeleteFileA(backup.c_str());
+    else mp_log("lobby: could not restore the original battle description; backup retained at %s", backup.c_str());
+    mp_log("lobby: could not restart the battle (%lu), playing it as set up", error);
     SetEnvironmentVariableA("MP_SWAPPED", 0);
 }
 
@@ -2232,6 +2248,11 @@ static void force_offer_to_hello(Hello *hello)
     hello->force_hash = g_force_out_hash;
 }
 
+static bool force_offer_changed(u32 size, u32 hash)
+{
+    return hash != g_force_in_hash || size != g_force_in.size();
+}
+
 // Start a new offer even when it happens to have the same length as the previous one.
 static void force_begin_offer(u32 size, u32 hash, const char *name)
 {
@@ -2248,10 +2269,11 @@ static void force_begin_offer(u32 size, u32 hash, const char *name)
 bool session_test_new_force_offer()
 {
     force_begin_offer(4, 11, "test");
+    bool changed = !force_offer_changed(4, 11) && force_offer_changed(5, 11) && force_offer_changed(4, 12);
     g_force_in[0] = 0x55; g_force_have[0] = 1; g_force_got = 1;
     (void)g_force_retry.due(10, 5000);
     force_begin_offer(4, 12, "test");
-    bool ok = g_force_in.size() == 4 && g_force_in[0] == 0 && g_force_have.size() == 1 &&
+    bool ok = changed && g_force_in.size() == 4 && g_force_in[0] == 0 && g_force_have.size() == 1 &&
               g_force_have[0] == 0 && !g_force_got && g_force_in_hash == 12 && g_force_retry.due(10, 5000);
     g_force_in.clear(); g_force_have.clear(); g_force_asked.clear();
     g_force_got = g_force_in_hash = g_force_last_ask = 0;
@@ -2281,13 +2303,34 @@ static void force_ask(DWORD now)
 static bool force_write_in(const ImageData *d, int size)
 {
     if (!g_force_in.size() || d->index >= g_force_have.size() || g_force_have[d->index] || d->size > k_chunk) return false;
-    if ((size_t)d->index * k_chunk + d->size > g_force_in.size()) return false;
-    if (size < (int)(sizeof(ImageData) - k_chunk + d->size)) return false;
-    memcpy(g_force_in.data() + (size_t)d->index * k_chunk, d->data, d->size);
+    size_t offset = (size_t)d->index * k_chunk;
+    size_t expected = min((size_t)k_chunk, g_force_in.size() - offset);
+    if (d->size != expected || size < (int)(sizeof(ImageData) - k_chunk + d->size)) return false;
+    memcpy(g_force_in.data() + offset, d->data, d->size);
     g_force_have[d->index] = 1;
     g_force_got++;
     return true;
 }
+#ifdef NETV21_TEST_HOOKS
+bool session_test_force_fragments()
+{
+    force_begin_offer(k_chunk + 3, 123, "test");
+    ImageData d = { make_head(PKT_IMAGE_DATA), 0, k_chunk - 1 };
+    const int header = sizeof(ImageData) - k_chunk;
+    bool ok = !force_write_in(&d, header + d.size) && g_force_got == 0;
+    d.size = k_chunk;
+    ok = force_write_in(&d, header + d.size) && ok && g_force_got == 1;
+    ok = !force_write_in(&d, header + d.size) && ok; // duplicate
+    d.index = 1; d.size = 2;
+    ok = !force_write_in(&d, header + d.size) && ok; // short final chunk
+    d.size = 3;
+    ok = !force_write_in(&d, header + 2) && ok; // truncated packet
+    ok = force_write_in(&d, header + 3) && ok && g_force_got == 2;
+    g_force_in.clear(); g_force_have.clear(); g_force_asked.clear();
+    g_force_got = g_force_in_hash = g_force_last_ask = 0; g_force_retry.reset();
+    return ok;
+}
+#endif
 
 // The host: the joining player's force is in. It is his own battle's description; what goes into this
 // battle is his squads and units for the side he commands here.
@@ -2420,8 +2463,10 @@ static void desc_ask(DWORD now)
 static void desc_write_in(ImageData *d, int size)
 {
     if (g_desc_have.empty() || d->index >= g_desc_have.size() || g_desc_have[d->index] || d->size > k_chunk) return;
-    if ((size_t)d->index * k_chunk + d->size > g_desc_in.size() || size < (int)(sizeof(ImageData) - k_chunk + d->size)) return;
-    memcpy(g_desc_in.data() + (size_t)d->index * k_chunk, d->data, d->size);
+    size_t offset = (size_t)d->index * k_chunk;
+    size_t expected = min((size_t)k_chunk, g_desc_in.size() - offset);
+    if (d->size != expected || size < (int)(sizeof(ImageData) - k_chunk + d->size)) return;
+    memcpy(g_desc_in.data() + offset, d->data, d->size);
     g_desc_have[d->index] = 1;
     if (++g_desc_got != g_desc_have.size()) return;
     if (fnv(g_desc_in.data(), g_desc_in.size()) != g_desc_hash) {
@@ -2585,10 +2630,10 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
         }
         // The joining player's own force: his battle description, from which this game takes his squads and
         // units (force.h). Fetched on the image channel; the host puts it into its own description.
-        if (g_tactical && full && in->force_size && in->force_hash && !g_force_applied && in->force_hash != g_force_in_hash &&
-            in->force_size <= (16u << 20)) {
-            // A changed hash is a different offer even if its length is identical. Reusing old
-            // fragment bits would mix the two offers and waste a complete fetch before failing hash.
+        if (g_tactical && full && in->force_size && in->force_hash && !g_force_applied &&
+            force_offer_changed(in->force_size, in->force_hash) && in->force_size <= (16u << 20)) {
+            // A changed hash or length is a different offer, even when the other field is identical.
+            // Reusing old fragment bits would mix offers and waste a complete fetch before failing hash.
             force_begin_offer(in->force_size, in->force_hash, name);
         }
         if (in->phase < 0xfe && in->ready != g_peer_ready) {
