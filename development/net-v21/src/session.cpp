@@ -790,7 +790,7 @@ void session_test_lobby_image()
 static bool open_socket(unsigned short port)
 {
 #ifdef NETV21_TEST_HOOKS
-    if (g_test_no_udp && g_tactical) { g_sock = INVALID_SOCKET; return false; }
+    if (g_test_no_udp) { g_sock = INVALID_SOCKET; return false; } // test both tactical and menu Steam without IP
 #endif
     WSADATA wsa;
     WSAStartup(MAKEWORD(2, 2), &wsa);

@@ -2,9 +2,10 @@
 """Two-process production session/Joiner tests with the Steam UDP stand-in and no game.
 
 The engine, shots and object-state code are mocked. Tactical peers test F9/end behaviour with no
-separate UDP socket. A menu Joiner also follows the real session-before-UI receive order and must
-reach the host's lobby without losing its WELCOME, for both fake Steam and real loopback UDP.
-The IP test suppresses UPnP only in the test build. This is not real Steam or game validation.
+separate UDP socket. A menu Joiner follows the real session-before-UI receive order for both fake
+Steam and loopback UDP: an operation-menu host must observe READY, and a tactical host must serve
+the complete synthetic image. The Steam menu case suppresses the independent UDP socket; the IP
+cases suppress UPnP only in the test build. This is not real Steam or game validation.
 """
 import argparse
 import socket
@@ -31,6 +32,8 @@ def run_pair(peer, mode):
         "tactical": ("", "SESSION_RESULT"),
         "steam-lobby": ("lobby-", "LOBBY_RESULT"),
         "ip-lobby": ("ip-lobby-", "IP_LOBBY_RESULT"),
+        "steam-menu": ("steam-menu-", "STEAM_MENU_RESULT"),
+        "ip-menu": ("ip-menu-", "IP_MENU_RESULT"),
     }[mode]
     processes = [
         subprocess.Popen([peer, prefix + "host", str(ports[0]), str(ports[1])], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True),
@@ -65,7 +68,9 @@ def main():
     tactical = run_pair(args.peer, "tactical")
     steam_lobby = run_pair(args.peer, "steam-lobby")
     ip_lobby = run_pair(args.peer, "ip-lobby")
-    return 0 if tactical and steam_lobby and ip_lobby else 1
+    steam_menu = run_pair(args.peer, "steam-menu")
+    ip_menu = run_pair(args.peer, "ip-menu")
+    return 0 if tactical and steam_lobby and ip_lobby and steam_menu and ip_menu else 1
 
 
 if __name__ == "__main__":

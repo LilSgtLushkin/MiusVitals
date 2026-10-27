@@ -107,8 +107,8 @@ static bool motion_test()
 }
 
 // Test the production frame order: session_frame() runs before Joiner::poll() in the real menu.
-// A tactical mock host speaks the same HELLO/WELCOME protocol, using only the Steam stand-in.
-static int lobby_test(bool host, bool steam, const char *own_port, const char *peer_port)
+// Exercise an operation-menu host and, separately, a tactical host serving a synthetic image.
+static int lobby_test(bool host, bool steam, bool menu_only, const char *own_port, const char *peer_port)
 {
     // The host signals only after its production session has sent WELCOME. This forces the reply
     // to be waiting before the joiner's next session_frame, making the old receive-order bug deterministic.
@@ -118,10 +118,13 @@ static int lobby_test(bool host, bool steam, const char *own_port, const char *p
     HANDLE download_done = CreateEventA(nullptr, TRUE, FALSE, event_name);
     sprintf_s(event_name, "Local\\netv21_%s_ready_%s", steam ? "steam" : "ip", host ? own_port : peer_port);
     HANDLE host_ready = CreateEventA(nullptr, TRUE, FALSE, event_name);
-    if (!welcome_sent || !download_done || !host_ready) return 2;
-    strcpy_s(g_program, host ? "tacgame" : "opgame");
+    sprintf_s(event_name, "Local\\netv21_%s_ready_seen_%s", steam ? "steam" : "ip", host ? own_port : peer_port);
+    HANDLE ready_seen = CreateEventA(nullptr, TRUE, FALSE, event_name);
+    if (!welcome_sent || !download_done || !host_ready || !ready_seen) return 2;
+    strcpy_s(g_program, host && !menu_only ? "tacgame" : "opgame");
     SetEnvironmentVariableA("MP_ROLE", host ? "host" : nullptr);
-    SetEnvironmentVariableA("MP_HOST_MODE", "skirmish");
+    SetEnvironmentVariableA("MP_HOST_MODE", menu_only ? "operation" : "skirmish");
+    SetEnvironmentVariableA("MP_MAP", nullptr); // menu only; never simulate the M5 map
     SetEnvironmentVariableA("MP_STEAM", steam ? nullptr : "0");
     SetEnvironmentVariableA("MP_STEAM_FAKE", steam ? own_port : nullptr);
     SetEnvironmentVariableA("MP_PORT", host && !steam ? own_port : nullptr);
@@ -133,10 +136,11 @@ static int lobby_test(bool host, bool steam, const char *own_port, const char *p
     vt[9] = (void *)find_nothing;
     ((ObjMan *)manager)->vtbl = vt;
     session_start((ObjMan *)manager);
-    if ((steam && !steam_ready()) || (!steam && host && !session_test_udp_open())) return 3;
+    if ((steam && (!steam_ready() || session_test_udp_open())) ||
+        (!steam && host && !session_test_udp_open())) return 3;
     if (host) {
-        session_test_lobby_image(); // synthetic payload; no game save or process launch
-        SetEvent(host_ready);       // the client must not send before the host has bound its socket
+        if (!menu_only) session_test_lobby_image(); // synthetic payload; no game save or process launch
+        SetEvent(host_ready);                     // the client must not send before the host has bound its socket
     } else if (WaitForSingleObject(host_ready, 5000) != WAIT_OBJECT_0) return 14;
     Joiner lobby;
     if (!host) {
@@ -170,7 +174,8 @@ static int lobby_test(bool host, bool steam, const char *own_port, const char *p
         }
         lobby.last_hello = GetTickCount() - 500; // initial HELLO immediately, even just after boot
     }
-    const char *result = steam ? "LOBBY_RESULT" : "IP_LOBBY_RESULT";
+    const char *result = menu_only ? (steam ? "STEAM_MENU_RESULT" : "IP_MENU_RESULT") :
+                                      (steam ? "LOBBY_RESULT" : "IP_LOBBY_RESULT");
     DWORD start = GetTickCount(), connected_at = 0;
     while (GetTickCount() - start < 8000) {
         session_frame((ObjMan *)manager);
@@ -179,8 +184,13 @@ static int lobby_test(bool host, bool steam, const char *own_port, const char *p
             SetEvent(welcome_sent);
         }
         if (host && connected_at && WaitForSingleObject(download_done, 0) == WAIT_OBJECT_0) {
-            printf("%s host ok=1\n", result); session_stop(); steam_shutdown();
-            CloseHandle(welcome_sent); CloseHandle(download_done); CloseHandle(host_ready); return 0;
+            bool ready = false;
+            char peer_name[24];
+            if (!menu_only || (session_peer(peer_name, sizeof peer_name, &ready) && ready)) {
+                SetEvent(ready_seen);
+                printf("%s host ok=1%s\n", result, menu_only ? " ready=1" : ""); session_stop(); steam_shutdown();
+                CloseHandle(welcome_sent); CloseHandle(download_done); CloseHandle(host_ready); CloseHandle(ready_seen); return 0;
+            }
         }
         if (!host) {
             lobby.poll(); // sends HELLO
@@ -197,6 +207,27 @@ static int lobby_test(bool host, bool steam, const char *own_port, const char *p
             lobby.poll();
             if (lobby.state == Joiner::WAITING_FOR_BATTLE && lobby.host_name[0]) {
                 bool reserved = steam_lobby_receiving() == steam;
+                if (menu_only) {
+                    bool waiting = !lobby.host_in_battle && lobby.image.empty() && lobby.host_mode == HOST_MODE_OPERATION;
+                    lobby.lobby_ready = true;
+                    lobby.last_hello = GetTickCount() - 500;
+                    SetEvent(download_done); // host must observe READY before acknowledging the test
+                    bool seen = false;
+                    while (GetTickCount() - start < 7000 && lobby.state == Joiner::WAITING_FOR_BATTLE) {
+                        session_frame((ObjMan *)manager);
+                        lobby.poll();
+                        if (WaitForSingleObject(ready_seen, 0) == WAIT_OBJECT_0) { seen = true; break; }
+                        Sleep(10);
+                    }
+                    lobby.cancel();
+                    bool released = !steam_lobby_receiving();
+                    bool ok = reserved && released && waiting && seen;
+                    printf("%s join ok=%d reserved=%d released=%d ordered=1 waiting=%d ready=%d\n",
+                           result, (int)ok, (int)reserved, (int)released, (int)waiting, (int)seen);
+                    session_stop(); steam_shutdown(); CloseHandle(welcome_sent); CloseHandle(download_done);
+                    CloseHandle(host_ready); CloseHandle(ready_seen);
+                    return ok ? 0 : 1;
+                }
                 lobby.lobby_ready = true;
                 while (lobby.state != Joiner::DONE && lobby.state != Joiner::FAILED && GetTickCount() - start < 7000) {
                     session_frame((ObjMan *)manager); // preserve the real ordering throughout download
@@ -210,7 +241,7 @@ static int lobby_test(bool host, bool steam, const char *own_port, const char *p
                 bool ok = reserved && released && image_ok;
                 if (ok) SetEvent(download_done);
                 printf("%s join ok=%d reserved=%d released=%d ordered=1 image=%d\n", result, (int)ok, (int)reserved, (int)released, (int)image_ok);
-                lobby.cancel(); session_stop(); steam_shutdown(); CloseHandle(welcome_sent); CloseHandle(download_done); CloseHandle(host_ready);
+                lobby.cancel(); session_stop(); steam_shutdown(); CloseHandle(welcome_sent); CloseHandle(download_done); CloseHandle(host_ready); CloseHandle(ready_seen);
                 return ok ? 0 : 1;
             }
             break; // fail immediately: do not allow a later retransmit to hide the ordering bug
@@ -218,7 +249,7 @@ static int lobby_test(bool host, bool steam, const char *own_port, const char *p
         Sleep(10);
     }
     printf("%s %s ok=0 state=%d error=%s\n", result, host ? "host" : "join", (int)lobby.state, lobby.error);
-    lobby.cancel(); session_stop(); steam_shutdown(); CloseHandle(welcome_sent); CloseHandle(download_done); CloseHandle(host_ready);
+    lobby.cancel(); session_stop(); steam_shutdown(); CloseHandle(welcome_sent); CloseHandle(download_done); CloseHandle(host_ready); CloseHandle(ready_seen);
     return 1;
 }
 
@@ -226,9 +257,13 @@ int main(int argc, char **argv)
 {
     if (argc != 4) return 2;
     if (!strcmp(argv[1], "lobby-host") || !strcmp(argv[1], "lobby-join"))
-        return lobby_test(!strcmp(argv[1], "lobby-host"), true, argv[2], argv[3]);
+        return lobby_test(!strcmp(argv[1], "lobby-host"), true, false, argv[2], argv[3]);
     if (!strcmp(argv[1], "ip-lobby-host") || !strcmp(argv[1], "ip-lobby-join"))
-        return lobby_test(!strcmp(argv[1], "ip-lobby-host"), false, argv[2], argv[3]);
+        return lobby_test(!strcmp(argv[1], "ip-lobby-host"), false, false, argv[2], argv[3]);
+    if (!strcmp(argv[1], "steam-menu-host") || !strcmp(argv[1], "steam-menu-join"))
+        return lobby_test(!strcmp(argv[1], "steam-menu-host"), true, true, argv[2], argv[3]);
+    if (!strcmp(argv[1], "ip-menu-host") || !strcmp(argv[1], "ip-menu-join"))
+        return lobby_test(!strcmp(argv[1], "ip-menu-host"), false, true, argv[2], argv[3]);
     if (strcmp(argv[1], "host") && strcmp(argv[1], "join")) return 2;
     // Exercise the actual session dispatch in both modes before starting the tactical pair.
     session_test_state_dispatch(false);
