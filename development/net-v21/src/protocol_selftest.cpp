@@ -2,14 +2,14 @@
 //
 // The protocol is a packed struct in protocol.h, read by casting a datagram.  A field added, a pack
 // pragma lost, a chunk size changed - none of that fails to compile, and all of it makes two games
-// that "run the same version" disagree about what a packet means.  The sizes below are not theory:
-// they are what the module and v20 put on the wire, as the battle logs read them back
-// (HELLO 72, WELCOME 180, IMAGE_REQ 12, STATE 28 + 14 x 80 = 1148, SHOT 12 + 5 x 220 = 1112).
+// that "run the same version" disagree about what a packet means. Protocol 14 intentionally
+// differs from v20: map fragments carry an epoch and revision; tactical record sizes are unchanged.
 //
 // Build: build.bat selftest   Run: build\selftest\protocol_selftest.exe
 #include <stdio.h>
 #include <string.h>
 #include "protocol.h"
+#include "image_chunks.h"
 
 static int g_failed, g_checks;
 
@@ -46,10 +46,10 @@ struct Assembly
 int main()
 {
     expect(sizeof(Head), 8, "Head");
-    expect(sizeof(Hello), 80, "Hello (the two players' forces travel in it)");
-    expect(sizeof(Welcome), 180, "Welcome");
-    expect(sizeof(ImageRequest), 12, "ImageRequest");
-    expect(sizeof(ImageData), 16 + k_chunk, "ImageData");
+    expect(sizeof(Hello), 84, "Hello (forces and map revision)");
+    expect(sizeof(Welcome), 192, "Welcome");
+    expect(sizeof(ImageRequest), 20, "ImageRequest");
+    expect(sizeof(ImageData), 24 + k_chunk, "ImageData");
     expect(sizeof(StateHead), 28, "StateHead");
     expect(sizeof(EndState), 16, "EndState");
     expect(sizeof(UnitRec), 80, "UnitRec");
@@ -95,6 +95,24 @@ int main()
     expect(a.complete(), 0, "not complete with holes");
     for (unsigned i = 1; i < a.pieces; i++) a.take(i, i + 1 == a.pieces ? 1115295 - i * k_chunk : k_chunk);
     expect(a.complete(), 1, "complete when every piece is in");
+
+    // Production fragment guard: a same-epoch revision matters even if the file hash is unchanged.
+    ImageData d = {};
+    d.h = make_head(PKT_IMAGE_DATA); d.h.flags = 1;
+    d.index = 1; d.size = 3; d.map_epoch = 123; d.map_revision = 2;
+    size_t header = sizeof(ImageData) - k_chunk;
+    expect(image_chunks::valid(&d, header + 3, k_chunk + 3, 1, 123, 2), 1, "matching final map fragment");
+    expect(image_chunks::valid(&d, header + 3, k_chunk + 3, 1, 123, 1), 0, "stale map revision rejected");
+    expect(image_chunks::valid(&d, header + 3, k_chunk + 3, 1, 122, 2), 0, "stale map epoch rejected");
+    expect(image_chunks::valid(&d, header + 2, k_chunk + 3, 1, 123, 2), 0, "truncated datagram rejected");
+    d.size = 2;
+    expect(image_chunks::valid(&d, header + 2, k_chunk + 3, 1, 123, 2), 0, "short last piece rejected");
+    d.index = 0; d.size = k_chunk - 1;
+    expect(image_chunks::valid(&d, header + d.size, k_chunk + 3, 1, 123, 2), 0, "short interior piece rejected");
+    d.size = k_chunk;
+    expect(image_chunks::valid(&d, header + d.size, k_chunk + 3, 1, 123, 2), 1, "full first piece accepted");
+    d.h.flags = 0; d.map_epoch = d.map_revision = 0;
+    expect(image_chunks::valid(&d, header + d.size, k_chunk + 3, 0), 1, "battle pieces still use zero identity");
 
     // The acknowledgement window: everything up to and including seq is gone from the queue.
     unsigned long long seq[] = { 1, 2, 3, 7, 8 };

@@ -64,7 +64,13 @@ int main()
     float vertices[12] = {};
     store(query, 0x70, (u64)(uintptr_t)indices); store(query, 0x78, (u64)(uintptr_t)vertices);
     store(query, 0x84, (u32)1); store(query, 0x88, (u32)16);
+    render_test_reset_page_queries();
     check(!render_test_triangle(query), "valid triangle passes preflight");
+    unsigned optimized_queries = render_test_page_queries();
+    render_test_reset_page_queries();
+    check(!render_test_triangle_reference(query), "reference accepts the same triangle");
+    unsigned reference_queries = render_test_page_queries();
+    check(optimized_queries == 4 && reference_queries == 12, "remove eight redundant field queries while retaining other checks");
     char *pages = (char *)VirtualAlloc(nullptr, page * 2, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     if (!pages) return 2;
     DWORD old = 0;
@@ -74,18 +80,47 @@ int main()
     store(query, 0x84, (u32)0);
     check(!render_test_triangle(query), "empty query takes native no-hit path");
     check(!render_test_triangle(nullptr), "unknown query left to engine");
+    // 512 stable synthetic inputs compare with the old field-by-field implementation, including
+    // modulo-32-bit offsets, unreadable vertices, flags/attributes, and a protected page boundary.
+    u32 rng = 0x13579bdf;
+    bool same = true;
+    for (int i = 0; i < 512; ++i) {
+        rng = rng * 1664525u + 1013904223u;
+        store(query, 0x78, (u64)(uintptr_t)((rng & 1) ? (void *)vertices : (void *)(pages + page - 16)));
+        store(query, 0x84, (u32)((rng >> 1) & 1));
+        store(query, 0x88, (u32)((rng & 4) ? 0xfffffff0u : 16u));
+        store(query, 0x94, (u32)((rng >> 3) & 3));
+        store(query, 0x80, (u32)((rng >> 5) & 3));
+        store(query, 0x8c, (u32)((rng & 128) ? 0xfffffff0u : 0u));
+        store(query, 0x90, (u32)((rng & 256) ? 16u : 0u));
+        if (render_test_triangle(query) != render_test_triangle_reference(query)) same = false;
+    }
+    check(same, "optimized and original preflight agree on 512 synthetic geometries");
+    void *boundary = pages + page - 0x98; // fields readable but no-hit output is not writable
+    check(!render_test_triangle(boundary) && !render_test_triangle_reference(boundary),
+          "unwritable output remains the engine's path");
     VirtualFree(pages, 0, MEM_RELEASE);
 
     alignas(8) unsigned char renderer[0x248] = {};
     u64 groups[8] = {};
-    void *pool = VirtualAlloc(nullptr, page, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    void *pool = VirtualAlloc(nullptr, page * 2, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     if (!pool) return 2;
     groups[0] = (u64)(uintptr_t)record;
     store(renderer, 0x240, (u64)(uintptr_t)groups); store(renderer, 0x168, (u64)(uintptr_t)pool);
     store(record, 0x34, (u32)1);
+    render_test_reset_page_queries();
     render_test_cache(renderer, 0);
     u32 value = 0; memcpy(&value, record + 0x34, 4);
     check(value == 1, "cache entry inside renderer allocation preserved");
+    check(render_test_page_queries() == 5, "cache target in already-checked writable region is not re-queried");
+    DWORD previous = 0;
+    if (!VirtualProtect((char *)pool + page, page, PAGE_EXECUTE_READWRITE, &previous)) return 2;
+    store(record, 0x34, (u32)(page / 64));
+    render_test_cache(renderer, 0); memcpy(&value, record + 0x34, 4);
+    check(value == (u32)(page / 64), "different writable region in same allocation is preserved");
+    if (!VirtualProtect((char *)pool + page, page, PAGE_READONLY, &previous)) return 2;
+    render_test_cache(renderer, 0); memcpy(&value, record + 0x34, 4);
+    check(value == 0xfffffffeu, "non-writable region in the same allocation is still rejected");
     store(record, 0x34, stale);
     render_test_cache(renderer, 0);
     memcpy(&value, record + 0x34, 4);

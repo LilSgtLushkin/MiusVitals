@@ -49,6 +49,12 @@ int main()
     check(temporary_count(name) == 0, "failed replacement removes temporary file");
     check(atomic_file::replace(name, newer, sizeof newer) && read_all(name) == new_bytes, "unlocked replacement is complete");
     check(temporary_count(name) == 0, "successful replacement leaves no temporary file");
+    check(!atomic_file::create_new(name, old, sizeof old) && read_all(name) == new_bytes,
+          "create-new never replaces an existing backup");
+    std::string fresh = std::string(name) + ".new";
+    check(atomic_file::create_new(fresh.c_str(), old, sizeof old) && read_all(fresh.c_str()) == old_bytes,
+          "create-new writes a complete new backup");
+    DeleteFileA(fresh.c_str());
     check(!atomic_file::replace("", newer, sizeof newer), "empty destination refused");
     DeleteFileA(name);
     printf("atomic file selftest: %d checks, %d failed\n", checks, failed);

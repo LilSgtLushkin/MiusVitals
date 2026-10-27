@@ -16,35 +16,31 @@
 
 Новый DLL допускает только KERNEL32 imports, включая `GetCommandLineA` и `SetEnvironmentVariableA`. Во время dependency attach (до кэширования state policy в `basic_network`) он устанавливает отсутствующий `MP_SYNC_STATE=0` исключительно для strict operation-tactical command line; explicit environment setting не меняется. Ни `g_host_mode`, ни map state, ни codelib не записываются.
 
-## Тестовый архив net_v21 (v1.0.3-test)
+## Единый тестовый архив net_v21 (v1.0.5-test)
 
-`MiusMultiplayer_v1.0.3_TEST_INSTALL.zip` — не стабильный выпуск: по умолчанию
-`Enable_Multiplayer.bat` ставит те же файлы, что v1.0.1, и они сверяются по хэшам при упаковке.
-Наш собственный экспериментальный модуль лежит рядом, в `MiusMultiplayer\net_v21\`, и
-включается только вручную:
+`MiusMultiplayer_v1.0.5_TEST_INSTALL.zip` — экспериментальная сборка, не стабильный выпуск.
+Вся папка `MiusMultiplayer` распаковывается рядом с `starter_x64.exe`; один
+`Enable_Multiplayer.bat` ставит мод целиком, включая **net_v21 и соответствующий launcher**.
+Отдельный switch не нужен и не входит в этот архив. `Disable_Multiplayer.bat` возвращает
+предыдущее состояние; `Check_Install.bat` и `Collect_Logs.bat` лежат рядом.
 
-```bat
-net_v21\Switch_To_NetV21.bat       переключить игру на наш модуль
-net_v21\Switch_Back_To_Proven.bat  вернуть проверенный (лежит в том же архиве)
-net_v21\Collect_Logs.bat           собрать out\net_v21_*.log в одну папку для отчёта
-```
-
-Зачем он нужен: наш модуль пишет подробный лог (`out\net_v21_<program>.log`) с паспортом сборки,
-счётчиками трафика и боевыми вехами — именно его не хватало, чтобы разбирать жалобы «разъехалось
-на десятой минуте». Новый модуль не импортирует `mp_vitals.dll`; репликация попаданий по частям и
-анимаций ещё не завершена, реальная игра и Steam не проверены. Для обычной установки остаётся
-прежний вариант; `README_TEST.txt` в архиве объясняет различия.
+Шесть устанавливаемых файлов проверяются по `FILES_SHA256.txt`. Перед записью создаются и
+проверяются backup и снимок транзакции; если откат не удался, требуется повторное восстановление.
+При сбое питания/диска или на сетевой ФС полная атомарность не гарантируется. Старые 1.0.3,
+1.0.4 и `_known_good` не перезаписываются и сохраняют свою историческую схему переключения.
 
 ```sh
 python3 scripts/package_net_v21_test.py \
     --codelib development/net-v21/build/module/basic_network.codelib \
-    --output /tmp/MiusMultiplayer_v1.0.3_TEST_LOCAL.zip
-python3 scripts/package_net_v21_test.py --verify /tmp/MiusMultiplayer_v1.0.3_TEST_LOCAL.zip
+    --launcher development/net-v21/build/join/mp_join.exe \
+    --output /tmp/MiusMultiplayer_v1.0.5_TEST_LOCAL.zip
+python3 scripts/package_net_v21_test.py --verify /tmp/MiusMultiplayer_v1.0.5_TEST_LOCAL.zip
 ```
 
-Архив детерминированный (фиксированные время и порядок записей), поэтому повторная сборка из того
-же дерева даёт те же байты; `TEST_BUILD.txt` внутри несёт SHA-256 нашего модуля и всех проверенных
-файлов.
+ZIP детерминированный: фиксируются время и порядок записей; `TEST_BUILD.txt` содержит SHA-256
+всех остальных файлов. Игра, настоящий Steam, совместный бой и реальные сохранения не проверены;
+полный порт `mp_vitals` не завершён, а причина падения FPS не доказана. Результаты и пределы
+тестов — в `NET_V21_M5_VALIDATION_2026-10-27.md`.
 
 ## Публичный исходный MiusPlayer и полная source workspace
 

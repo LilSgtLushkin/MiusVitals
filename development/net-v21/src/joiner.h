@@ -12,8 +12,12 @@
 #include <string.h>
 #include <vector>
 #include "protocol.h"
+#include "image_chunks.h"
+#include "operation_turn.h"
 #include "image.h"
 #include "opsave.h"
+#include "opsave_checked.h"
+#include "map_file_windows.h"
 
 struct Joiner {
     enum State { IDLE, CONNECTING, WAITING_FOR_BATTLE, RECEIVING, DONE, FAILED };
@@ -31,8 +35,10 @@ struct Joiner {
     DWORD last_welcome = 0;
     bool want_map = false;             // what is being received: the operational map instead of a battle
     char map_file[96] = "";
-    unsigned map_turns = 0, map_epoch = 0;
+    unsigned map_turns = 0, map_epoch = 0, map_revision = 0;
+    std::string map_backup; // retained when the profile already had a save
     SOCKET sock = INVALID_SOCKET;
+    bool winsock_started = false, owns_steam_inbox = false;
     sockaddr_in host = {};
     std::vector<unsigned char> image, have;
     std::vector<DWORD> asked;
@@ -49,8 +55,12 @@ struct Joiner {
 
     void close()
     {
+        if (owns_steam_inbox) steam_lobby_release();
+        owns_steam_inbox = false;
         if (sock != INVALID_SOCKET) closesocket(sock);
         sock = INVALID_SOCKET;
+        if (winsock_started) WSACleanup();
+        winsock_started = false;
     }
 
     void cancel()
@@ -59,7 +69,7 @@ struct Joiner {
         state = IDLE;
     }
 
-    bool start(const char *addr)
+    bool start(const char *addr, bool reserve_steam_inbox = true)
     {
         cancel();
         error[0] = 0;
@@ -67,15 +77,19 @@ struct Joiner {
         char name[128];
         strcpy_s(name, addr);
         WSADATA wsa;
-        WSAStartup(MAKEWORD(2, 2), &wsa);
+        if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return fail("Windows networking could not start.");
+        winsock_started = true;
         host = {};
         if (!name[0]) return fail("Enter the host's address first.");
         if (!_strnicmp(name, "steam:", 6)) {
             // A friend's game: the Steam ID is the whole address, and the bytes go through Steam's P2P
             // relay instead of the socket.  Checked before the host:port split, which would otherwise
             // read the ID as a port number.
-            if (!steam_peer_make(_strtoui64(name + 6, 0, 10), &host))
-                return fail("That Steam ID is not a number.");
+            uint64_t id = 0;
+            if (!steam_parse_id(name + 6, &id) || !steam_peer_make(id, &host))
+                return fail("That Steam ID is not a valid number.");
+            if (!steam_ready() && !steam_init())
+                return fail("Steam is not available. Start the game through Steam, or use the IP address.");
         } else {
             unsigned short port = k_default_port;
             if (char *colon = strchr(name, ':')) { *colon = 0; port = (unsigned short)atoi(colon + 1); }
@@ -90,10 +104,22 @@ struct Joiner {
             }
         }
         sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-        u_long nonblocking = 1;
-        ioctlsocket(sock, FIONBIO, &nonblocking);
-        DWORD off = 0, ret = 0;
-        WSAIoctl(sock, _WSAIOW(IOC_VENDOR, 12) /* SIO_UDP_CONNRESET */, &off, sizeof off, 0, 0, &ret, 0, 0);
+        if (sock != INVALID_SOCKET) {
+            u_long nonblocking = 1;
+            if (ioctlsocket(sock, FIONBIO, &nonblocking)) {
+                closesocket(sock);
+                sock = INVALID_SOCKET;
+            } else {
+                DWORD off = 0, ret = 0;
+                WSAIoctl(sock, _WSAIOW(IOC_VENDOR, 12) /* SIO_UDP_CONNRESET */, &off, sizeof off, 0, 0, &ret, 0, 0);
+            }
+        }
+        if (host.sin_family != STEAM_FAMILY && sock == INVALID_SOCKET)
+            return fail("Could not open a nonblocking UDP socket.");
+        if (host.sin_family == STEAM_FAMILY && reserve_steam_inbox) {
+            if (!steam_lobby_claim()) return fail("Another Steam lobby connection is already active.");
+            owns_steam_inbox = true;
+        }
         image.clear();
         have.clear();
         got = 0;
@@ -140,6 +166,7 @@ struct Joiner {
                 if (have[i] || now - asked[i] < 300) continue;
                 ImageRequest r = { make_head(PKT_IMAGE_REQUEST), i };
                 r.h.flags = want_map ? 1 : 0;
+                if (want_map) { r.map_epoch = map_epoch; r.map_revision = map_revision; }
                 send_host(&r, sizeof r);
                 asked[i] = now;
                 sent++;
@@ -186,7 +213,12 @@ struct Joiner {
                     memcpy(map_file, w->map_file, sizeof map_file);
                     map_file[sizeof map_file - 1] = 0;
                     map_turns = w->map_turns;
-                    map_epoch = w->map_flags >> 8;
+                    operation_turn::Phase phase;
+                    if (!operation_turn::decode(w->map_flags, &map_epoch, &phase) || !w->map_revision ||
+                        phase == operation_turn::Phase::collect || phase == operation_turn::Phase::resolve) {
+                        state = WAITING_FOR_BATTLE; continue;
+                    }
+                    map_revision = w->map_revision;
                     if (!opsave::safe_file_name(map_file)) { fail("The host sent an invalid operation save."); return; }
                 }
                 image.assign(size, 0);
@@ -197,9 +229,8 @@ struct Joiner {
                 state = RECEIVING;
             } else if (h->type == PKT_IMAGE_DATA && state == RECEIVING && n >= (int)(sizeof(ImageData) - k_chunk)) {
                 const ImageData *d = (const ImageData *)buf;
-                if (d->h.flags != (want_map ? 1 : 0)) continue;
-                if (d->index >= have.size() || have[d->index] || d->size > k_chunk) continue;
-                if ((size_t)d->index * k_chunk + d->size > image.size() || n < (int)(sizeof(ImageData) - k_chunk + d->size)) continue;
+                if (!image_chunks::valid(d, (size_t)n, image.size(), want_map ? 1 : 0, map_epoch, map_revision) ||
+                    have[d->index]) continue;
                 memcpy(image.data() + (size_t)d->index * k_chunk, d->data, d->size);
                 have[d->index] = 1;
                 got++;
@@ -247,7 +278,11 @@ struct Joiner {
     // put it in the profile as that operation's save and start the game straight on the operation's map.
     bool launch_map(const char *root)
     {
-        char path[MAX_PATH], keep[MAX_PATH], id[64] = "cloud", text[512] = "", cmd[1024];
+        char path[MAX_PATH], id[64] = "cloud", text[512] = "", cmd[1024], local_file[96];
+        std::string why;
+        if (!root || !*root || !opsave::safe_file_name(map_file) || !operation_turn::valid_epoch(map_epoch) ||
+            !map_revision || !opsave_checked::validate(image, &why))
+            return fail("The operational map or its snapshot identity is invalid.");
         sprintf_s(path, "%s\\users\\profiles\\cur_profile.engcfg", root);
         FILE *f = 0;
         if (!fopen_s(&f, path, "rb") && f) {
@@ -260,41 +295,44 @@ struct Joiner {
                 if (k && k < sizeof id) { memcpy(id, p, k); id[k] = 0; }
             }
         }
+        if (!opsave_checked::safe_profile_id(id)) return fail("The profile id is not a safe folder name.");
         std::string name = opsave::operation_name(image);
         std::string op = opsave::operation_id(map_file, name);
         if (op.empty()) return fail("The host's operation save could not be recognised.");
-        // The same operation from this player's side, if this game has it: own territory, fog of war over
-        // the host's forces. The host's state is then used as that operation's save.
+        std::vector<unsigned char> prepared = image;
+        strcpy_s(local_file, map_file);
+        // Use the matching counterpart operation when available; the network snapshot identity
+        // still describes the original bytes, not this local header change.
         std::string other = opsave::counterpart(name), campaign = op.substr(0, op.find(':'));
         if (!other.empty() && operation_exists(root, campaign.c_str(), other.c_str())) {
-            opsave::set_operation_name(image, other);
-            sprintf_s(map_file, "%s_%s.opsave", campaign.c_str(), other.c_str());
+            opsave::set_operation_name(prepared, other);
+            if (sprintf_s(local_file, "%s_%s.opsave", campaign.c_str(), other.c_str()) < 0 ||
+                !opsave::safe_file_name(local_file)) return fail("The counterpart save name is invalid.");
             op = campaign + ":" + other;
         }
-        sprintf_s(path, "%s\\users\\profiles\\%s\\%s", root, id, map_file);
-        // an own save of the same operation is kept
-        sprintf_s(keep, "%s\\users\\mp_saves", root);
-        CreateDirectoryA(keep, 0);
-        sprintf_s(keep, "%s\\users\\mp_saves\\_replaced", root);
-        CreateDirectoryA(keep, 0);
-        sprintf_s(keep, "%s\\users\\mp_saves\\_replaced\\%s", root, map_file);
-        if (GetFileAttributesA(keep) == INVALID_FILE_ATTRIBUTES) CopyFileA(path, keep, TRUE);
-        if (fopen_s(&f, path, "wb") || !f) return fail("Could not save the operation to the profile folder.");
-        fwrite(image.data(), 1, image.size(), f);
-        fclose(f);
-        SetEnvironmentVariableA("MP_ROLE", "join");
-        SetEnvironmentVariableA("MP_PEER", address);
-        SetEnvironmentVariableA("MP_MAP", "1");
-        SetEnvironmentVariableA("MP_HOST_MODE", "operation");
-        char epoch[16];
-        sprintf_s(epoch, "%u", map_epoch);
-        SetEnvironmentVariableA("MP_MAP_EPOCH", epoch);       // which state of the operation this copy is of
-        sprintf_s(cmd, "\"%s\\starter_x64.exe\" root\\programs\\opgame.progpack, %s, %s, 0, %u", root, id, op.c_str(), map_turns ? map_turns : opsave::turns(image));
-        STARTUPINFOA si = { sizeof si };
-        PROCESS_INFORMATION pi;
-        if (!CreateProcessA(0, cmd, 0, 0, FALSE, 0, 0, root, &si, &pi)) return fail("Could not start the operational map.");
-        CloseHandle(pi.hProcess);
-        CloseHandle(pi.hThread);
+        if (!opsave_checked::validate(prepared, &why)) return fail("The prepared operational map is invalid.");
+        if (sprintf_s(path, "%s\\users\\profiles\\%s\\%s", root, id, local_file) < 0)
+            return fail("The operational save path is too long.");
+        if (sprintf_s(cmd, "\"%s\\starter_x64.exe\" root\\programs\\opgame.progpack, %s, %s, 0, %u", root, id,
+                      op.c_str(), map_turns ? map_turns : opsave::turns(prepared)) < 0)
+            return fail("The operational launch command is too long.");
+        char epoch[16], revision[16];
+        sprintf_s(epoch, "%u", map_epoch); sprintf_s(revision, "%u", map_revision);
+        map_file_windows::Environment env;
+        if (!env.set("MP_ROLE", "join") || !env.set("MP_PEER", address) || !env.set("MP_MAP", "1") ||
+            !env.set("MP_HOST_MODE", "operation") || !env.set("MP_MAP_EPOCH", epoch) || !env.set("MP_MAP_REV", revision) ||
+            !env.set("MP_AUTOJOIN", nullptr) || !env.set("MP_ENDTURN", nullptr) || !env.set("MP_TURNDONE", nullptr))
+            return fail("Could not prepare the child game's environment; no save was replaced.");
+        DWORD launch_error = 0;
+        map_file::Result result = map_file_windows::replace_and_launch(root, cmd, path, prepared, &map_backup, &launch_error);
+        if (!map_file::started(result)) {
+            char message[160];
+            sprintf_s(message, "Could not open the operation: %.100s (Windows %lu).", map_file::reason(result), launch_error);
+            return fail(message);
+        }
+        if (!env.restore()) printf("Warning: could not fully restore the parent process environment.\n");
+        if (result == map_file::Result::ok_marker_retained)
+            printf("Operation started, but its recovery marker remains beside the save.\n");
         return true;
     }
 
@@ -315,24 +353,31 @@ struct Joiner {
                 if (k && k < sizeof id) { memcpy(id, p, k); id[k] = 0; }
             }
         }
+        if (!opsave_checked::safe_profile_id(id)) return fail("The profile id is not a safe folder name.");
+        std::string why;
+        if (!opsave_checked::validate(image, &why)) return fail("The received battle description is invalid.");
+        std::vector<unsigned char> prepared = image;
         // commanding the host's opponent: same battle, with the command of the two forces exchanged
-        if (versus && !image::mirror(image)) return fail("The host's battle could not be prepared for the other side.");
-        sprintf_s(path, "%s\\%s", root, k_image_path);
-        if (fopen_s(&f, path, "wb") || !f) return fail("Could not save the battle to the game folder.");
-        fwrite(image.data(), 1, image.size(), f);
-        fclose(f);
-        SetEnvironmentVariableA("MP_ROLE", "join");
-        SetEnvironmentVariableA("MP_PEER", address);
-        char code[8] = { 0 };
-        memcpy(code, &prefer_side, 4);
-        SetEnvironmentVariableA("MP_PREFER", prefer_side ? code : 0);
-        SetEnvironmentVariableA("MP_VERSUS", versus ? "1" : "0");
-        sprintf_s(cmd, "\"%s\\starter_x64.exe\" root\\programs\\tacgame.progpack, %s, users\\profiles, %s, *:*, 0, 1", root, k_image_path, id);
-        STARTUPINFOA si = { sizeof si };
-        PROCESS_INFORMATION pi;
-        if (!CreateProcessA(0, cmd, 0, 0, FALSE, 0, 0, root, &si, &pi)) return fail("Could not start the battle.");
-        CloseHandle(pi.hProcess);
-        CloseHandle(pi.hThread);
+        if (versus && !image::mirror(prepared)) return fail("The host's battle could not be prepared for the other side.");
+        if (!opsave_checked::validate(prepared, &why)) return fail("The prepared battle description is invalid.");
+        if (sprintf_s(path, "%s\\%s", root, k_image_path) < 0 ||
+            sprintf_s(cmd, "\"%s\\starter_x64.exe\" root\\programs\\tacgame.progpack, %s, users\\profiles, %s, *:*, 0, 1",
+                      root, k_image_path, id) < 0) return fail("The battle path or command is too long.");
+        char code[8] = { 0 }; memcpy(code, &prefer_side, 4);
+        map_file_windows::Environment env;
+        if (!env.set("MP_ROLE", "join") || !env.set("MP_PEER", address) ||
+            !env.set("MP_PREFER", prefer_side ? code : nullptr) || !env.set("MP_VERSUS", versus ? "1" : "0") ||
+            !env.set("MP_HOST_MODE", host_mode == HOST_MODE_OPERATION ? "operation" : host_mode == HOST_MODE_MISSION ? "mission" : "skirmish") ||
+            !env.set("MP_MAP", nullptr) || !env.set("MP_AUTOJOIN", host_mode == HOST_MODE_OPERATION ? address : nullptr))
+            return fail("Could not prepare the child game's environment; no battle file was replaced.");
+        DWORD launch_error = 0;
+        map_file::Result result = map_file_windows::replace_and_launch(root, cmd, path, prepared, &map_backup, &launch_error);
+        if (!map_file::started(result)) {
+            char message[160];
+            sprintf_s(message, "Could not start the battle: %.100s (Windows %lu).", map_file::reason(result), launch_error);
+            return fail(message);
+        }
+        if (!env.restore()) printf("Warning: could not fully restore the parent process environment.\n");
         return true;
     }
 };

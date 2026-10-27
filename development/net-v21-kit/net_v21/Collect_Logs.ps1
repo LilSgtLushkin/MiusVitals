@@ -61,15 +61,17 @@ try {
     [void]$manifest.Add('File identities (SHA-256; these are not copies):')
     $identities = @(
         @{ Label = 'active network module'; Path = (Join-Path $GameRoot 'bin\rel\x64\basic_network.codelib') },
+        @{ Label = 'active join launcher'; Path = (Join-Path $GameRoot 'mp_join.exe') },
         @{ Label = 'adv_physic'; Path = (Join-Path $GameRoot 'bin\rel\x64\adv_physic.codelib') },
         @{ Label = 'basic_physic'; Path = (Join-Path $GameRoot 'bin\rel\x64\basic_physic.codelib') },
         @{ Label = 'base_shell'; Path = (Join-Path $GameRoot 'bin\rel\x64\base_shell.codelib') },
         @{ Label = 'mp_vitals'; Path = (Join-Path $GameRoot 'mp_vitals.dll') },
         @{ Label = 'steam_api64 (game root)'; Path = (Join-Path $GameRoot 'steam_api64.dll') },
         @{ Label = 'steam_api64 (x64)'; Path = (Join-Path $GameRoot 'bin\rel\x64\steam_api64.dll') },
-        @{ Label = 'net_v21 candidate'; Path = (Join-Path $kit 'basic_network.netv21.codelib') },
-        @{ Label = 'proven rollback'; Path = (Join-Path $kit 'basic_network.proven.codelib') },
-        @{ Label = 'module before switch'; Path = (Join-Path $kit 'state\basic_network.before_netv21.codelib') }
+        @{ Label = 'archive network module'; Path = (Join-Path $kit 'files\bin\rel\x64\basic_network.codelib') },
+        @{ Label = 'archive launcher'; Path = (Join-Path $kit 'files\mp_join.exe') },
+        @{ Label = 'module before install'; Path = (Join-Path $kit 'state\unified_test_v105\baseline\files\bin\rel\x64\basic_network.codelib') },
+        @{ Label = 'launcher before install'; Path = (Join-Path $kit 'state\unified_test_v105\baseline\files\mp_join.exe') }
     )
     foreach ($item in $identities) {
         if (-not (Test-Path -LiteralPath $item.Path -PathType Leaf)) {

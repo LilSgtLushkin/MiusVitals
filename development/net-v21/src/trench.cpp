@@ -89,8 +89,9 @@ static u64 dig_hook(char *trencher, int squad, float *pos)
     }
     u64 result = g_dig(trencher, squad, pos);
     g_stat_own++;
-    if (g_trace) mp_log("trench: squad %08x dug in (kind %u, settings %x, %s), sent", r.squad, r.type, r.flags, pos ? "at a given place" : "where it stands");
-    netlog_count("trench_sent");
+    if (g_trace) mp_log("trench: squad %08x dug in (kind %u, settings %x, %s), %s", r.squad, r.type, r.flags,
+                        pos ? "at a given place" : "where it stands", connected ? "queued for peer" : "local only");
+    netlog_count("trench_dug");
     s.kind = 2;
     memcpy(s.launch, &r, sizeof r);
     // What is kept for a player who connects later: the squads this player has placed himself. The digging
@@ -98,7 +99,7 @@ static u64 dig_hook(char *trencher, int squad, float *pos)
     // moved anything yet) - sent again it would be dug twice there.
     if (r.has_pos && g_mine.size() < 4096) g_mine.push_back(s);
     if (g_all.size() < 4096) g_all.push_back(s);
-    if (connected) shots_queue(s);
+    if (connected) { shots_queue(s); netlog_count("trench_queued"); }
     return result;
 }
 
@@ -109,7 +110,7 @@ void trench_resend(void)
     for (ShotRec s : g_mine) {
         TrenchRec r;
         memcpy(&r, s.launch, sizeof r);
-        if (session_owns_squad(r.squad)) shots_queue(s);
+        if (session_owns_squad(r.squad)) { shots_queue(s); netlog_count("trench_queued"); }
     }
 }
 

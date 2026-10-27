@@ -23,7 +23,8 @@
 | Архив | SHA-256 архива | Существенное отличие |
 |---|---|---|
 | `MiusMultiplayer_v1.0.1_INSTALL.zip` | `13dd5b317f05ee9f6852cb75671af0f3c847b040e622799b7afb19efe07479b6` | Самостоятельный основной установщик, модуль `7b42a69abe58deb1…` |
-| `MiusMultiplayer_v1.0.3_TEST_INSTALL.zip` | `d709f427027ef6e19776f39041ef5ffe72061c3338e4ea80fc6b32fe31d66e81` | Текущий тестовый архив, собственный `net_v21` `87e47c6c4e84fa8e…` включается вручную |
+| `MiusMultiplayer_v1.0.4_TEST_INSTALL.zip` | `5d9ee0747fbc32788c4eff2a02660c2a7e0915c629982d10966b4a45e2fd0a36` | Новый тестовый архив, собственный `net_v21` `29e37ee6ff6c569e…` включается вручную |
+| `MiusMultiplayer_v1.0.3_TEST_INSTALL.zip` | `d709f427027ef6e19776f39041ef5ffe72061c3338e4ea80fc6b32fe31d66e81` | Предыдущий тестовый архив, собственный `net_v21` `87e47c6c4e84fa8e…` включается вручную |
 | `MiusMultiplayer_v1.0.0_TEST_INSTALL_known_good.zip` | `d857eaaeab4084c8500768b634729ae6963a4ac9a28b8d5857ef3a04c1a058f5` | Отдельная сохранённая копия для отката, `net_v21` `fb2661488d1dd8a2…` |
 | `MiusMultiplayer_v1.0.0_TEST_INSTALL.zip` | `769fcca9c6e5f8cd4248dccd53463e7b3e68073ae53bb16dc9cf934fac420e99` | Другая прежняя тестовая сборка, `net_v21` `15c0cdf4dcfa1284…` |
 | `MiusMultiplayer_v1.0.2_TEST_INSTALL.zip` | `4e274deef4ba82aa6f68cc7789de57f1f03d35c229b455d7a73926553ac53741` | Другая прежняя тестовая сборка, `net_v21` `6aa5662fae5de1b4…` |

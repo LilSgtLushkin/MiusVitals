@@ -69,9 +69,19 @@ exit /b %errorlevel%
 if not exist build\selftest mkdir build\selftest
 cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\steam.cpp src\steam_logger.cpp src\steam_selftest.cpp /link ws2_32.lib /OUT:build\selftest\steam_selftest.exe
 if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\steam_friends_test.cpp /link /OUT:build\selftest\steam_friends_test.exe
+if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\netlog.cpp src\netlog_selftest.cpp /link /OUT:build\selftest\netlog_selftest.exe
 if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\protocol_selftest.cpp /link /OUT:build\selftest\protocol_selftest.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\operation_turn_test.cpp /link /OUT:build\selftest\operation_turn_test.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\opsave_checked_test.cpp /link /OUT:build\selftest\opsave_checked_test.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\map_file_test.cpp /link /OUT:build\selftest\map_file_test.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\map_file_windows_test.cpp /link /OUT:build\selftest\map_file_windows_test.exe
 if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\force_test.cpp /link /OUT:build\selftest\force_test.exe
 if errorlevel 1 exit /b %errorlevel%
@@ -112,6 +122,12 @@ if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\xlate.cpp src\hooks.cpp src\xlate_selftest.cpp /link /OUT:build\selftest\xlate_selftest.exe
 if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\render_guard.cpp src\hooks.cpp src\render_guard_test.cpp /link /OUT:build\selftest\render_guard_test.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /LD /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\late_input_fixture.cpp /link user32.lib /OUT:build\selftest\late_input_fixture.dll /IMPLIB:build\selftest\late_input_fixture.lib
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\late_input_test.cpp /link user32.lib /OUT:build\selftest\late_input_test.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\starter_fixture.cpp /link /OUT:build\selftest\starter_fixture.exe
 if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\loopback_peer.cpp /link ws2_32.lib /OUT:build\selftest\loopback_peer.exe
 if errorlevel 1 exit /b %errorlevel%

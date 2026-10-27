@@ -7,6 +7,9 @@ python3 "$ROOT/development/merged-source/verify_workspace.py"
 python3 "$ROOT/scripts/check_artifacts.py"
 python3 "$ROOT/scripts/check_artifacts_selftest.py"
 python3 "$ROOT/scripts/package_net_v21_test_selftest.py"
+if [ -f "$ROOT/MiusMultiplayer_v1.0.5_TEST_INSTALL.zip" ]; then
+    python3 "$ROOT/scripts/package_net_v21_test.py" --verify "$ROOT/MiusMultiplayer_v1.0.5_TEST_INSTALL.zip"
+fi
 python3 "$ROOT/scripts/archive_audit_selftest.py"
 python3 "$ROOT/scripts/archive_audit.py" --check
 python3 "$ROOT/development/merged-source/tests/test_ordered_operation_patch.py"

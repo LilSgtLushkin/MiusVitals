@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #include <algorithm>
 #include <map>
 #include <set>
@@ -148,7 +149,8 @@ inline bool mirror(std::vector<byte> &b, Sidecar *side, unsigned *changed)
             vis = 0;
             if (t.px && t.pz)
                 for (auto &sq : theirs)
-                    if (abs(sq.first - (int)u32_at(b, t.px)) <= 1 && abs(sq.second - (int)u32_at(b, t.pz)) <= 1) { vis = 1; break; }
+                    if (llabs((int64_t)sq.first - (int32_t)u32_at(b, t.px)) <= 1 &&
+                        llabs((int64_t)sq.second - (int32_t)u32_at(b, t.pz)) <= 1) { vis = 1; break; }
         } else {
             to = k_user;
             vis = 3;
@@ -300,7 +302,8 @@ inline unsigned restore_tags(std::vector<byte> &b, const Sidecar &side)
             vis = 0;
             if (t.px && t.pz)
                 for (auto &sq : mine)
-                    if (abs(sq.first - (int)u32_at(b, t.px)) <= 1 && abs(sq.second - (int)u32_at(b, t.pz)) <= 1) { vis = 1; break; }
+                    if (llabs((int64_t)sq.first - (int32_t)u32_at(b, t.px)) <= 1 &&
+                        llabs((int64_t)sq.second - (int32_t)u32_at(b, t.pz)) <= 1) { vis = 1; break; }
         }
         if (u32_at(b, t.ai) != was->second) n++;
         memcpy(b.data() + t.ai, &was->second, 4);
@@ -441,7 +444,8 @@ inline int turn_phase(const std::vector<byte> &b)
     if (it == all.end()) return -1;
     for (unsigned r = 0; r < it->second.rows; r++) {
         size_t c = it->second.data + (size_t)r * 0x40;
-        if (!strncmp((const char *)b.data() + c + 0x20, "turn_phase", 0x20)) return (int)u32_at(b, c);
+        if (!strncmp((const char *)b.data() + c + 0x20, "turn_phase", 0x20))
+            return u32_at(b, c + 16) == 4 ? (int)u32_at(b, c) : -1;
     }
     return -1;
 }
