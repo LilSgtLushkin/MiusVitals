@@ -57,9 +57,9 @@ class UnifiedInstaller(unittest.TestCase):
 
     def bat(self, name, extra=None):
         env = os.environ.copy()
-        for name in ("MIUS_CI_FAIL_AT", "MIUS_CI_FAIL_ROLLBACK", "MIUS_CI_CRASH_AT",
-                     "MIUS_CI_CRASH_BACKUP", "MIUS_CI_CRASH_RESTORE_AT"):
-            env.pop(name, None)
+        for env_name in ("MIUS_CI_FAIL_AT", "MIUS_CI_FAIL_ROLLBACK", "MIUS_CI_CRASH_AT",
+                         "MIUS_CI_CRASH_BACKUP", "MIUS_CI_CRASH_RESTORE_AT"):
+            env.pop(env_name, None)
         if extra:
             env.update(extra)
         # cmd.exe parses quoted batch paths differently from list2cmdline's C-runtime escaping.
