@@ -278,6 +278,8 @@ void statesync_on_packet(const unsigned char *data, int size, void (*send)(const
         if (f->frag == 0) { ack.version = in.base_ver; send(&ack, sizeof ack); }
         return;
     }
+    if (in.part_ver && f->version != in.part_ver && !state_fragments::newer(f->version, in.part_ver))
+        return; // a delayed older version must not displace a newer partial assembly
     if (in.part_ver != f->version || in.part_frags != f->nfrags || in.part_base != f->base_version ||
         in.part_raw != f->raw_size || in.part_size != f->delta_size) {
         in.part_ver = f->version;

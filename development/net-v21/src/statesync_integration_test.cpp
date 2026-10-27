@@ -76,17 +76,20 @@ int main() {
 
     std::vector<unsigned char> large(1103, 9); large[0] = 0; large[1] = 0xcc; large[2] = 0x08; // 1100 bytes
     std::vector<unsigned char> first(large.begin(), large.begin() + 1100), last(large.begin() + 1100, large.end());
-    ObjectFrag part = fragment(key, 4, 1100, 1103, 0, 2, 1100);
+    ObjectFrag part = fragment(key, 5, 1100, 1103, 0, 2, 1100);
     before = ack_count; receive(part, first);
-    ObjectFrag inconsistent = fragment(key, 4, 1100, 1104, 1, 2, 4);
+    ObjectFrag late = fragment(key, 4, 4, (unsigned)b.size(), 0, 1, (unsigned)b.size());
+    receive(late, b);
+    check(ack_count == before, "older state cannot displace a newer partial assembly");
+    ObjectFrag inconsistent = fragment(key, 5, 1100, 1104, 1, 2, 4);
     receive(inconsistent, std::vector<unsigned char>(4, 9));
     part.frag = 1; part.h.count = 3; receive(part, last);
     check(ack_count == before, "different fragment metadata cannot mix into one assembly");
     part.frag = 0; part.h.count = 1100; receive(part, first); statesync_apply(manager);
-    check(ack_count == before + 1 && last_ack.version == 4 && loads == 4 && loaded.size() == 1100,
+    check(ack_count == before + 1 && last_ack.version == 5 && loads == 4 && loaded.size() == 1100,
           "reordered matching fragments assemble after retry");
     std::vector<unsigned char> overflow_varint = {0xff, 0xff, 0xff, 0xff, 0x10, 0};
-    f = fragment(key, 5, 4, (unsigned)overflow_varint.size(), 0, 1, (unsigned)overflow_varint.size());
+    f = fragment(key, 6, 4, (unsigned)overflow_varint.size(), 0, 1, (unsigned)overflow_varint.size());
     before = ack_count; receive(f, overflow_varint);
     check(ack_count == before, "overflowing u32 varint is rejected without an ACK");
     f.delta_size = f.h.count = (unsigned short)a.size(); receive(f, a); statesync_apply(manager);
