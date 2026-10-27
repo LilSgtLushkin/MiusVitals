@@ -10,8 +10,8 @@ static bool equals(const char *name, const char *expected) {
 int main() {
     char autojoin[4];
     bool ok = equals("MP_ROLE", "join") && equals("MP_MAP", "1") &&
-              equals("MP_HOST_MODE", "operation") && equals("MP_MAP_EPOCH", "101") &&
-              equals("MP_MAP_REV", "1") && GetEnvironmentVariableA("MP_PEER", nullptr, 0) > 0 &&
+              equals("MP_HOST_MODE", "operation") && equals("MP_MAP_EPOCH", "102") &&
+              equals("MP_MAP_REV", "2") && GetEnvironmentVariableA("MP_PEER", nullptr, 0) > 0 &&
               !GetEnvironmentVariableA("MP_AUTOJOIN", autojoin, sizeof autojoin) &&
               strstr(GetCommandLineA(), "opgame.progpack");
     FILE *f = nullptr;
