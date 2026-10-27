@@ -70,8 +70,8 @@ try {
         @{ Label = 'steam_api64 (x64)'; Path = (Join-Path $GameRoot 'bin\rel\x64\steam_api64.dll') },
         @{ Label = 'archive network module'; Path = (Join-Path $kit 'files\bin\rel\x64\basic_network.codelib') },
         @{ Label = 'archive launcher'; Path = (Join-Path $kit 'files\mp_join.exe') },
-        @{ Label = 'module before install'; Path = (Join-Path $kit 'state\unified_test_v105\baseline\files\bin\rel\x64\basic_network.codelib') },
-        @{ Label = 'launcher before install'; Path = (Join-Path $kit 'state\unified_test_v105\baseline\files\mp_join.exe') }
+        @{ Label = 'module before install'; Path = (Join-Path $kit 'state\unified_test_v106\baseline\files\bin\rel\x64\basic_network.codelib') },
+        @{ Label = 'launcher before install'; Path = (Join-Path $kit 'state\unified_test_v106\baseline\files\mp_join.exe') }
     )
     foreach ($item in $identities) {
         if (-not (Test-Path -LiteralPath $item.Path -PathType Leaf)) {

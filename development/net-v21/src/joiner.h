@@ -143,7 +143,7 @@ struct Joiner {
     {
         if (state != CONNECTING && state != WAITING_FOR_BATTLE && state != RECEIVING) return;
         DWORD now = GetTickCount();
-        if (state != RECEIVING && now - last_hello >= 500) {
+        if (now - last_hello >= 500) {
             Hello hello = { make_head(PKT_HELLO) };
             memcpy(hello.proto, k_protocol, sizeof k_protocol);
             hello.version = k_version;
@@ -191,42 +191,53 @@ struct Joiner {
             if (n < (int)sizeof(Head)) continue;
             const Head *h = (const Head *)buf;
             if (h->magic != k_magic) continue;
-            if (h->type == PKT_WELCOME && n >= 24 && state != RECEIVING) {
+            if (h->type == PKT_WELCOME && n >= 24) {
                 if (!valid_welcome(buf, (size_t)n)) { fail("The host runs a different version of the multiplayer files."); return; }
                 const Welcome *w = (const Welcome *)buf;
                 last_welcome = now;
-                swap = w->swap != 0;
-                host_in_battle = w->in_battle != 0;
-                memcpy(host_name, w->name, sizeof host_name);
-                host_name[sizeof host_name - 1] = 0;
-                host_mode = w->host_mode;
-                host_side = w->user_side;
-                other_side = w->enemy_side;
+                swap = w->swap != 0; host_in_battle = w->in_battle != 0;
+                memcpy(host_name, w->name, sizeof host_name); host_name[sizeof host_name - 1] = 0;
+                host_mode = w->host_mode; host_side = w->user_side; other_side = w->enemy_side;
                 versus = w->versus != 0;
-                // the host hands over the operational map, or is in a battle
                 bool map = !w->in_battle && w->map_size != 0;
                 unsigned size = map ? w->map_size : w->image_size;
-                if ((!map && !w->in_battle) || !size || !lobby_ready) { state = WAITING_FOR_BATTLE; continue; }
-                if (size > (64u << 20)) { fail("The host sent an invalid battle."); return; }
-                want_map = map;
-                if (map) {
-                    memcpy(map_file, w->map_file, sizeof map_file);
-                    map_file[sizeof map_file - 1] = 0;
-                    map_turns = w->map_turns;
-                    operation_turn::Phase phase;
-                    if (!operation_turn::decode(w->map_flags, &map_epoch, &phase) || !w->map_revision ||
-                        phase == operation_turn::Phase::collect || phase == operation_turn::Phase::resolve) {
-                        state = WAITING_FOR_BATTLE; continue;
-                    }
-                    map_revision = w->map_revision;
-                    if (!opsave::safe_file_name(map_file)) { fail("The host sent an invalid operation save."); return; }
+                unsigned offered_epoch = 0;
+                operation_turn::Phase phase;
+                bool identity_ok = operation_turn::decode(w->map_flags, &offered_epoch, &phase) && w->map_revision &&
+                                   phase == operation_turn::Phase::host;
+                if (state == RECEIVING && want_map && identity_ok) {
+                    bool same = offered_epoch == map_epoch && w->map_revision == map_revision;
+                    bool newer = (offered_epoch == map_epoch && operation_turn::newer_revision(w->map_revision, map_revision)) ||
+                                 operation_turn::newer_epoch(offered_epoch, map_epoch);
+                    if (!same && !newer) continue; // delayed old welcome
+                    if (same && map && size == image.size() && w->map_hash == image_hash) continue;
+                    if (same && map && (size != image.size() || w->map_hash != image_hash)) continue; // identity collision
+                } else if (state == RECEIVING && !want_map && !w->in_battle) {
+                    continue; // an old map welcome must not replace an in-flight battle
+                } else if (state == RECEIVING && !want_map && w->in_battle &&
+                           size == image.size() && w->image_hash == image_hash) {
+                    continue;
                 }
-                image.assign(size, 0);
-                image_hash = map ? w->map_hash : w->image_hash;
-                have.assign((size + k_chunk - 1) / k_chunk, 0);
-                asked.assign(have.size(), 0);
-                got = 0;
-                state = RECEIVING;
+                if ((!map && !w->in_battle) || !size || !lobby_ready) {
+                    image.clear(); have.clear(); asked.clear(); got = 0;
+                    state = WAITING_FOR_BATTLE; continue;
+                }
+                if (size > (64u << 20)) { fail("The host sent an invalid battle or map."); return; }
+                if (map) {
+                    if (!identity_ok) { state = WAITING_FOR_BATTLE; continue; }
+                    char offered_file[sizeof map_file];
+                    memcpy(offered_file, w->map_file, sizeof offered_file);
+                    if (offered_file[sizeof offered_file - 1] != 0 || !opsave::safe_file_name(offered_file)) {
+                        fail("The host sent an invalid operation save."); return;
+                    }
+                    strcpy_s(map_file, offered_file);
+                    map_turns = w->map_turns; map_epoch = offered_epoch; map_revision = w->map_revision;
+                }
+                // A newer offer supersedes an incomplete download; old fragments carry the old
+                // identity and image_chunks::valid rejects them. Continue HELLOs while receiving.
+                want_map = map; image.assign(size, 0); image_hash = map ? w->map_hash : w->image_hash;
+                have.assign((size + k_chunk - 1) / k_chunk, 0); asked.assign(have.size(), 0);
+                got = 0; last_ask = 0; state = RECEIVING;
             } else if (h->type == PKT_IMAGE_DATA && state == RECEIVING && n >= (int)(sizeof(ImageData) - k_chunk)) {
                 const ImageData *d = (const ImageData *)buf;
                 if (!image_chunks::valid(d, (size_t)n, image.size(), want_map ? 1 : 0, map_epoch, map_revision) ||
@@ -235,6 +246,11 @@ struct Joiner {
                 have[d->index] = 1;
                 got++;
             }
+        }
+        // A dead host must not leave an obsolete incomplete download alive forever.
+        if (state == RECEIVING && now - last_welcome > 20000) {
+            image.clear(); have.clear(); asked.clear(); got = 0;
+            state = CONNECTING; started = now; host_name[0] = 0;
         }
         // a host that stops answering is looked for again
         if (state == WAITING_FOR_BATTLE && now - last_welcome > 6000) { state = CONNECTING; started = now; host_name[0] = 0; }
@@ -274,8 +290,8 @@ struct Joiner {
         return operation_in(data, campaign, name, 2);
     }
 
-    // The operational map has arrived (the host's operation save, with the command tags turned round):
-    // put it in the profile as that operation's save and start the game straight on the operation's map.
+    // Load the exact host operation as a spectator copy, retaining a transactional backup.
+    // Do not mirror sides or switch to a counterpart: the host is the only operational authority.
     bool launch_map(const char *root)
     {
         char path[MAX_PATH], id[64] = "cloud", text[512] = "", cmd[1024], local_file[96];
@@ -301,15 +317,6 @@ struct Joiner {
         if (op.empty()) return fail("The host's operation save could not be recognised.");
         std::vector<unsigned char> prepared = image;
         strcpy_s(local_file, map_file);
-        // Use the matching counterpart operation when available; the network snapshot identity
-        // still describes the original bytes, not this local header change.
-        std::string other = opsave::counterpart(name), campaign = op.substr(0, op.find(':'));
-        if (!other.empty() && operation_exists(root, campaign.c_str(), other.c_str())) {
-            opsave::set_operation_name(prepared, other);
-            if (sprintf_s(local_file, "%s_%s.opsave", campaign.c_str(), other.c_str()) < 0 ||
-                !opsave::safe_file_name(local_file)) return fail("The counterpart save name is invalid.");
-            op = campaign + ":" + other;
-        }
         if (!opsave_checked::validate(prepared, &why)) return fail("The prepared operational map is invalid.");
         if (sprintf_s(path, "%s\\users\\profiles\\%s\\%s", root, id, local_file) < 0)
             return fail("The operational save path is too long.");

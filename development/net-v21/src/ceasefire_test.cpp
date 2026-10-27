@@ -13,34 +13,35 @@ int main()
     check(s.observe(true, false, 0, true, 10) & changed, "peer proposal observed");
     check(s.advance(100, true, 2) & agreed, "both proposals start five-second wait");
     check(s.deadline == 5100 && !s.left && !s.pending, "no premature end announcement");
-    check(!(s.advance(5099, true, 2) & exit_requested), "not before five seconds");
-    check(s.advance(5100, true, 2) & exit_requested, "request exit when due");
-    check(s.pending && !s.left, "unavailable engine does not claim battle ended");
-    check(s.confirm_exit() && s.left && !s.pending, "confirm only when invoking engine exit");
-    check(!s.confirm_exit() && !s.toggle(true, 2), "completed end cannot repeat or be revoked");
+    check(!(s.advance(5099, true, 2) & finish_notice), "not before five seconds");
+    check(s.advance(5100, true, 2) & finish_notice, "notify that agreement is due");
+    check(s.pending && !s.left, "agreement does not claim battle ended");
+    check(!(s.advance(6000, true, 2) & natural_end) && !s.left, "agreement cannot claim an engine result or exit");
+    check((s.advance(6001, true, 3) & natural_end) && s.left && !s.pending, "only engine phase three ends the battle");
+    check(!s.toggle(true, 2), "completed end cannot repeat or be revoked");
 
     s = State{};
     check(s.toggle(true, 2), "new local proposal");
     s.observe(true, false, 0, true, 1);
     s.advance(100, true, 2);
     check(s.toggle(true, 2) && !s.proposed && !s.deadline, "local withdrawal cancels countdown");
-    check(!(s.advance(6000, true, 2) & exit_requested), "local withdrawal does not end battle");
+    check(!(s.advance(6000, true, 2) & finish_notice), "local withdrawal does not end battle");
     check(s.toggle(true, 2), "local re-proposal");
     s.advance(7000, true, 2);
     check(s.observe(false, false, 0, true, 2) & cancelled, "peer withdrawal cancels countdown");
-    check(!s.deadline && !(s.advance(13000, true, 2) & exit_requested), "peer withdrawal prevents exit");
+    check(!s.deadline && !(s.advance(13000, true, 2) & finish_notice), "peer withdrawal prevents exit");
     s.observe(true, false, 0, true, 3);
     s.advance(14000, true, 2);
     s.advance(19000, true, 2);
     check(s.pending && (s.observe(false, false, 0, true, 4) & cancelled) && !s.pending,
-          "peer withdrawal cancels an exit waiting for UI");
+          "peer withdrawal cancels the finish notice");
 
     s = State{};
     s.observe(false, true, 7, true, 4);
     check(s.peer_over && s.peer_result == 7, "peer's actual end recorded");
     check(s.advance(100, true, 2) & peer_end_wait, "peer end starts three-second wait");
-    check(!(s.advance(3099, false, 2) & exit_requested), "peer end survives disconnection without early exit");
-    check(s.advance(3100, false, 2) & exit_requested, "exit requested after peer end wait");
+    check(!(s.advance(3099, false, 2) & finish_notice), "peer end survives disconnection without early exit");
+    check(s.advance(3100, false, 2) & finish_notice, "finish notice after peer end wait");
     check(s.pending && !s.toggle(true, 2), "peer's completed battle cannot be withdrawn");
 
     s = State{};
@@ -56,13 +57,13 @@ int main()
     s.advance(101, false, 2);
     check(!s.proposed && !s.peer_proposed && !s.deadline && !s.have_peer_seq,
           "disconnect clears stale proposals and ordering");
-    check(!(s.advance(6000, true, 2) & exit_requested), "reconnect cannot reuse stale agreement");
+    check(!(s.advance(6000, true, 2) & finish_notice), "reconnect cannot reuse stale agreement");
 
     s = State{};
     s.toggle(true, 2); s.observe(true, false, 0, true, 65535);
     s.advance(0xffffff00u, true, 2);
-    check(!(s.advance(0xfffffffeu, true, 2) & exit_requested), "wraparound before deadline");
-    check(s.advance(0x00001288u, true, 2) & exit_requested, "wraparound deadline due");
+    check(!(s.advance(0xfffffffeu, true, 2) & finish_notice), "wraparound before deadline");
+    check(s.advance(0x00001288u, true, 2) & finish_notice, "wraparound deadline due");
     check(s.observe(false, false, 0, true, 0) & cancelled, "16-bit sequence wraps forward");
     check(s.observe(true, false, 0, true, 65535) & stale_packet, "reordered old packet ignored");
     check(!s.peer_proposed, "old packet cannot resurrect proposal");

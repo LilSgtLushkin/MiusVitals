@@ -48,12 +48,8 @@ bool session_peer(char *name, size_t size, bool *ready);     // the other player
 bool session_swap(void);                 // lobby: the players have exchanged forces (skirmish)
 void session_toggle_swap(void);
 bool session_on_op_map(ObjMan *om);      // an operation's map is on screen
-void session_map_give(ObjMan *om);       // hand the operational map to the other player (host) / back (joining game)
-void session_map_take_back(void);
-bool session_map_given(void);
-bool session_map_mode(void);             // this program is the joining player's turn on the map
-bool session_map_arriving(void);         // host: the map is coming back
-bool session_map_blocking(void);         // the operational map takes no clicks for a moment
+bool session_map_mode(void);             // this program is the spectator's operational copy
+bool session_map_blocking(void);         // false: never globally block the stock map/menu input
 void session_test_next_turn(void);
 void session_test_new_map(void);
 void session_test_save(void);

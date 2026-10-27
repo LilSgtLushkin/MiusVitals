@@ -7,8 +7,8 @@
 enum { PKT_HELLO = 1, PKT_WELCOME, PKT_KEEPALIVE, PKT_IMAGE_REQUEST, PKT_IMAGE_DATA, PKT_STATE, PKT_BYE, PKT_OBJECT, PKT_OBJECT_ACK, PKT_SHOT, PKT_SHOT_ACK, PKT_END };
 enum { HOST_MODE_SKIRMISH = 1, HOST_MODE_OPERATION = 2, HOST_MODE_MISSION = 3 };       // mission: made in the battle editor
 static const unsigned k_magic = 0x504d5447;          // "GTMP"
-static const unsigned k_version = 14;      // 14: ordered M5 map phases and snapshot-identified fragments
-static const char k_wire_tag[] = "NETV21_WIRE_PROTOCOL_14"; // embedded in both binaries and checked by the packager
+static const unsigned k_version = 15;      // 15: host-authoritative spectator snapshots, no guest orders
+static const char k_wire_tag[] = "NETV21_WIRE_PROTOCOL_15"; // embedded in both binaries and checked by the packager
 static const char k_protocol[12] = "GTMF_TA_A1";     // the engine's own protocol id for this game
 static const unsigned k_chunk = 1000;
 static const unsigned short k_default_port = 1943;   // the port the engine's own network settings name
@@ -22,17 +22,15 @@ struct Head { unsigned magic; unsigned char type, flags; unsigned short count; }
 // lobby_ready: the joining player pressed READY in the lobby; swap_req: counts that player's SWAP SIDES presses
 // name: the player's profile name
 // phase: 0xff in the menus, 0xfe on the operational map with the map in hand, otherwise the battle phase.
-// map_size / map_hash: the joining player offers the operational map back (his moves are in it).
-// turn_done: on the operational map, this player has pressed "next turn". map_epoch: which state of the
-// operation his copy of the map is of (see Welcome.map_flags); with another number he is not counted as
-// being on the map - his copy is of a turn that is over.
+// map_size/map_hash/turn_done are reserved and ignored: a spectator never uploads orders.
+// map_epoch/map_revision identify the host snapshot loaded by the spectator.
 // force_size / force_hash: this player's own force is offered - his battle description, from which the
 // other game takes his squads and units (force.h). 0: nothing to offer.
 struct Hello {
     Head h; char proto[12]; unsigned version, prefer_side; unsigned char ready, phase, lobby_ready, swap_req; char name[24];
     unsigned map_size, map_hash, turn_done, map_epoch;
     unsigned force_size, force_hash;
-    unsigned map_revision; // exact snapshot loaded by the map process, including same-turn handoffs
+    unsigned map_revision; // exact snapshot loaded by the map process, including same-turn refreshes
 };
 // battle description = the file the operational phase hands to the tactical phase (units, map, sides, seed).
 // in_battle 0: the host is still in its menus or on the operational map; the joining game waits.
@@ -41,17 +39,16 @@ struct Welcome {
     Head h; char proto[12]; unsigned version, image_size, image_hash, user_side, enemy_side;
     unsigned char in_battle, host_mode, versus, swap;      // swap: the players have exchanged forces (skirmish)
     char name[24];                                          // the host's profile name
-    // Operation: a checked snapshot goes host -> guest; the host acts before the guest.
-    // With map_size 0, map_hash is the hash of the guest save durably taken back.
+    // Operation: the unmodified checked host snapshot goes host -> spectator only.
     unsigned map_size, map_hash, map_turns;
     char map_file[96];
-    // bit 0 collecting, bit 1 host done, bits 2..4 ordered phase, bits 8..31 epoch.
+    // bits 2..4 host snapshot phase, bits 8..31 epoch; other bits reserved.
     unsigned map_flags;
     unsigned map_revision; // changes on each snapshot, even if its bytes have not changed
-    unsigned map_ack_epoch, map_ack_revision; // identity of guest save durably committed, if any
+    unsigned map_ack_epoch, map_ack_revision; // reserved; always zero for spectator mode
 };
 // Head.flags: 0 = battle description, 1 = operation map, 2 = tactical force. Map fragments
-// carry the epoch/revision in both directions; other image transfers set both fields to zero.
+// carry the host epoch/revision; other image transfers set both fields to zero.
 struct ImageRequest { Head h; unsigned index, map_epoch, map_revision; };
 struct ImageData { Head h; unsigned index, size, map_epoch, map_revision; unsigned char data[k_chunk]; };
 // Unit transforms from the game that owns those units, plus (host only) the battle clock.

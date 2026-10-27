@@ -20,7 +20,7 @@
 #include <unordered_map>
 #include <vector>
 
-enum Screen { SCR_NONE, SCR_MAIN, SCR_JOIN, SCR_LOBBY, SCR_STARTING, SCR_MAPWAIT };
+enum Screen { SCR_NONE, SCR_MAIN, SCR_JOIN, SCR_LOBBY, SCR_STARTING };
 static Screen g_screen = SCR_NONE;
 static bool g_tactical, g_lobby_host, g_button_hot, g_on_main_menu, g_on_op_map, g_map_button_hot, g_map_busy;
 static char g_autojoin[128];     // back from the operational map: rejoin this host's lobby, ready
@@ -32,7 +32,7 @@ static size_t g_join_friend_count, g_join_friend_total, g_join_friend_page;
 static DWORD g_join_friends_at;
 static uint64_t g_chosen_friend;
 enum Action { ACT_NONE, ACT_OPEN, ACT_HOST_SKIRMISH, ACT_HOST_MISSION, ACT_HOST_OPERATION, ACT_CONNECT, ACT_CONNECT_STEAM, ACT_LEAVE, ACT_SETUP, ACT_SWAP,
-              ACT_READY, ACT_BACK, ACT_RESTORE, ACT_MAP_GIVE, ACT_MAP_CANCEL };
+              ACT_READY, ACT_BACK, ACT_RESTORE };
 static Action g_action;      // chosen while drawing, carried out in the next logic pass (never inside the render pipeline)
 static int g_action_arg;
 
@@ -531,8 +531,7 @@ void ui_frame(ObjMan *om)
         // Do not take the existing operation-map session's queue: M5 keeps its previous ownership.
         if (g_joiner.start(g_address, !session_map_mode())) { g_lobby_host = false; g_screen = SCR_LOBBY; }
     }
-    // Keep the map visible while turns and transfers progress. Session state blocks input whenever
-    // it is not this player's phase, including while the other player is giving orders.
+    // Do not swallow normal map/menu input; spectator actions affect only the local copy.
     g_map_busy = g_on_op_map && session_map_blocking();
     bool hosting = session_role() == ROLE_HOST;
     Action act = g_action;
@@ -645,26 +644,6 @@ static void draw_main_menu_button(void)
     if (hot && g_clicked) g_action = ACT_OPEN;
 }
 
-// Shown while the turn is being ended: on the host while the other player's moves are fetched and merged,
-// on the joining game while its moves are sent.
-static void draw_map_wait(float cx, float py, float bw, float bh)
-{
-    float s = g_s;
-    char peer[24] = "the other player", line[160];
-    session_peer(peer, sizeof peer, 0);
-    (void)bw; (void)bh;
-    text("OPERATIONAL MAP", cx, py + 34 * s, 40, k_ink, 1, true);
-    if (session_map_mode()) {
-        text("Both players have ended the turn.", cx, py + 180 * s, 26, k_ink);
-        text("Your moves go to the host's game, which carries the turn out. The map reloads with the result -", cx, py + 236 * s, 17, k_edge);
-        text("or, if the host starts a battle of this turn, your game enters that battle.", cx, py + 262 * s, 17, k_edge);
-    } else {
-        sprintf_s(line, "Ending the turn with %s's moves...", peer);
-        text(line, cx, py + 180 * s, 26, k_ink);
-        text("His moves are fetched and put into your operation; the map reloads and the turn ends.", cx, py + 236 * s, 17, k_edge);
-    }
-}
-
 static void draw_lobby(float cx, float px, float py, float pw, float ph)
 {
     float s = g_s, bw = 560 * s, bh = 76 * s, hw = 272 * s;
@@ -724,7 +703,7 @@ static void draw_lobby(float cx, float px, float py, float pw, float ph)
     float y = py + 266 * s;
     if (operation) {
         text("The host opens the operation from the side he wants to play; modifiers are set on the Operations screen.", cx, y, 15, k_edge);
-        text("Orders: host first, then guest; the host resolves the turn after both have finished.", cx, y + 24 * s, 15, k_edge);
+        text("The host alone controls turns. The guest follows snapshots; local orders are not sent.", cx, y + 24 * s, 15, k_edge);
     } else if (mission) {
         text("The host picks a mission on the Missions screen: the prepared ones and those made in the battle editor.", cx, y, 15, k_edge);
         text("The mission travels to the other player with the battle. SWAP SIDES exchanges who commands which force.", cx, y + 24 * s, 15, k_edge);
@@ -841,8 +820,6 @@ static void draw_menu(void)
         text("Choose a friend to connect through Steam.", cx, py + 535 * s, 16, k_edge);
         if (button("BACK", cx, py + 570 * s, bw, 56 * s, 21)) g_action = ACT_BACK;
         text(g_message, cx, py + ph - 55 * s, 15, 0xff8a1c10);
-    } else if (g_screen == SCR_MAPWAIT) {
-        draw_map_wait(cx, py, bw, bh);
     } else {
         draw_lobby(cx, px, py, pw, ph);
     }

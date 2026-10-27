@@ -1,3 +1,5 @@
+// Protocol 15 spectator mode uses validation/identity helpers only; ordered guest-turn
+// routines below are retained for historical tests and are NOT connected to the session.
 // Conservative checks for the ordered operation handoff. The guest receives the host's *updated*
 // save, so a checked guest save can be kept whole: no foreign absolute pointers are copied into a
 // different file. Unknown structures are rejected rather than silently losing either player's moves.

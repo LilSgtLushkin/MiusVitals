@@ -13,6 +13,7 @@ bool render_test_triangle_reference(void *p);
 void render_test_reset_page_queries();
 unsigned render_test_page_queries();
 void render_test_cache(void *p, unsigned node);
+void render_test_cache_reference(void *p, unsigned node);
 bool render_test_install(void *target, void *hook);
 int render_test_original();
 #endif

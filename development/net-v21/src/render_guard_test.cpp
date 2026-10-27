@@ -112,7 +112,11 @@ int main()
     render_test_cache(renderer, 0);
     u32 value = 0; memcpy(&value, record + 0x34, 4);
     check(value == 1, "cache entry inside renderer allocation preserved");
-    check(render_test_page_queries() == 5, "cache target in already-checked writable region is not re-queried");
+    unsigned cached_queries = render_test_page_queries();
+    render_test_reset_page_queries();
+    render_test_cache_reference(renderer, 0);
+    unsigned original_queries = render_test_page_queries();
+    check(cached_queries < original_queries && original_queries == 5, "per-call region cache avoids redundant VirtualQuery calls");
     DWORD previous = 0;
     if (!VirtualProtect((char *)pool + page, page, PAGE_EXECUTE_READWRITE, &previous)) return 2;
     store(record, 0x34, (u32)(page / 64));
@@ -125,6 +129,17 @@ int main()
     render_test_cache(renderer, 0);
     memcpy(&value, record + 0x34, 4);
     check(value == 0xfffffffeu, "out-of-pool cache entry set to native missing sentinel");
+    bool cache_same = true;
+    for (unsigned i = 0; i < 512; ++i) {
+        u32 input = (i % 5 == 0) ? stale : (i % 5 == 1) ? 0xfffffffeu :
+                    (i % 5 == 2) ? (u32)(page / 64) : (i % 5 == 3) ? 1u : 0u;
+        store(record, 0x34, input); render_test_cache(renderer, 0);
+        u32 fast = 0; memcpy(&fast, record + 0x34, 4);
+        store(record, 0x34, input); render_test_cache_reference(renderer, 0);
+        u32 reference = 0; memcpy(&reference, record + 0x34, 4);
+        if (fast != reference) cache_same = false;
+    }
+    check(cache_same, "cached and original preflights agree for 512 valid, protected and stale entries");
     VirtualFree(pool, 0, MEM_RELEASE);
     VirtualFree(code, 0, MEM_RELEASE);
 

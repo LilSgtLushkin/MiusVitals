@@ -44,6 +44,8 @@ class TacticalSignatures(unittest.TestCase):
             ("basic_physic.codelib", "shots.cpp", "explode_sig", "", 0x19260),
             ("adv_game.codelib", "trench.cpp", "sig", "void trench_install", 0xDBC20),
             ("adv_game.codelib", "session.cpp", "sig", "static void update_ai_commander", 0xBEC30),
+            ("adv_opgame.codelib", "session.cpp", "next_sig", "static void install_map_detours", 0x369E0),
+            ("adv_opgame.codelib", "session.cpp", "worker_sig", "static void install_map_detours", 0x76510),
             ("adv_physic.codelib", "state.cpp", "sig", "static void install_part_guard", 0x82020),
             ("basic_render.codelib", "state.cpp", "lookup_sig", "", 0x13AB0),
             ("basic_render.codelib", "render_guard.cpp", "sig_walk_node", "", 0x12FD0),

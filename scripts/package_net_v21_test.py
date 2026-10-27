@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the single MiusMultiplayer 1.0.5 TEST archive.
+"""Build the single MiusMultiplayer 1.0.6 TEST archive.
 
 The matched net_v21 module and launcher are the actual files installed by Enable_Multiplayer.bat;
 there is no separate patch switch. The archive is experimental and does not claim real-game or
@@ -17,8 +17,8 @@ import struct
 import tempfile
 import zipfile
 
-VERSION = "1.0.5"
-WIRE_TAG = b"NETV21_WIRE_PROTOCOL_14"
+VERSION = "1.0.6"
+WIRE_TAG = b"NETV21_WIRE_PROTOCOL_15"
 ROOT = "MiusMultiplayer"
 PROVEN = Path("development/unified-fps-kit-source")
 KIT = Path("development/net-v21-kit")
@@ -342,11 +342,16 @@ def verify(archive_path: Path) -> None:
         if any(entry.date_time != ZIP_TIME for entry in archive.infolist()):
             raise SystemExit("ZIP timestamp is not reproducible")
         stamp = archive.read(f"{ROOT}/{PASSPORT}").decode("utf-8")
-        if f"MiusMultiplayer {VERSION} - test archive" not in stamp or f"wire protocol: {WIRE_TAG.decode('ascii')}" not in stamp:
+        # Preserve the independently verifiable historical unified 1.0.5 archive.
+        match = re.search(r"^MiusMultiplayer (\d+\.\d+\.\d+) - test archive\r?$", stamp, re.M)
+        tags = {"1.0.5": b"NETV21_WIRE_PROTOCOL_14", VERSION: WIRE_TAG}
+        version = match.group(1) if match else ""
+        tag = tags.get(version)
+        if not tag or f"wire protocol: {tag.decode('ascii')}" not in stamp:
             raise SystemExit("build passport version or wire protocol mismatch")
         module, launcher = archive.read(f"{ROOT}/{MODULE_PATH}"), archive.read(f"{ROOT}/{LAUNCHER_PATH}")
         validate_module(module); validate_launcher(launcher)
-        if WIRE_TAG not in module or WIRE_TAG not in launcher:
+        if tag not in module or tag not in launcher:
             raise SystemExit("module/launcher wire protocol tag mismatch")
         if f"net_v21 sha256: {sha256(module)}" not in stamp or f"launcher sha256: {sha256(launcher)}" not in stamp:
             raise SystemExit("build passport does not identify the installed module and launcher")
@@ -383,7 +388,7 @@ def verify(archive_path: Path) -> None:
 
 
 def verify_source(repo: Path, archive_path: Path) -> None:
-    """Check that a committed 1.0.5 archive still contains this tree's kit scripts/payloads.
+    """Check that the current committed archive still contains this tree's kit scripts/payloads.
 
     The archive's own compiled module/launcher are used as inputs; this check does not prove how
     those binaries were compiled. Windows CI independently builds and exercises them.
@@ -396,7 +401,7 @@ def verify_source(repo: Path, archive_path: Path) -> None:
             module.write_bytes(archive.read(f"{ROOT}/{MODULE_PATH}"))
             launcher.write_bytes(archive.read(f"{ROOT}/{LAUNCHER_PATH}"))
         except KeyError:
-            raise SystemExit("source comparison requires the unified 1.0.5 layout")
+            raise SystemExit("source comparison requires the current unified layout")
         expected = collect(repo, module, launcher)
         for relative, data in expected.items():
             if archive.read(f"{ROOT}/{relative}") != with_crlf(relative, data):
@@ -409,7 +414,8 @@ def build(repo: Path, codelib: Path, archive_path: Path, launcher: Path) -> None
     protected = ("MiusMultiplayer_v1.0.0_TEST_INSTALL_known_good.zip",
                  "MiusMultiplayer_v1.0.0_TEST_INSTALL.zip", "MiusMultiplayer_v1.0.0_M3M4_INSTALL.zip",
                  "MiusMultiplayer_v1.0.1_INSTALL.zip", "MiusMultiplayer_v1.0.2_TEST_INSTALL.zip",
-                 "MiusMultiplayer_v1.0.3_TEST_INSTALL.zip", "MiusMultiplayer_v1.0.4_TEST_INSTALL.zip")
+                 "MiusMultiplayer_v1.0.3_TEST_INSTALL.zip", "MiusMultiplayer_v1.0.4_TEST_INSTALL.zip",
+                 "MiusMultiplayer_v1.0.5_TEST_INSTALL.zip")
     if archive_path.resolve() in {(repo / name).resolve() for name in protected}:
         raise SystemExit("refusing to overwrite a preserved archive")
     if not codelib.is_file():

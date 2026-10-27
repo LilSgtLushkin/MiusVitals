@@ -1,3 +1,5 @@
+// Protocol 15 spectator mode uses validation/identity helpers only; ordered guest-turn
+// routines below are retained for historical tests and are NOT connected to the session.
 // Ordered M5 operation-map ownership. The host owns input first; after a checked handoff, the
 // client owns it; the host may resolve only after collecting the client's matching snapshot.
 // This is transport-independent and deliberately fails closed on stale/invalid identities.

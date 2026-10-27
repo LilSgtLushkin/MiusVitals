@@ -2,7 +2,7 @@
 //
 // The protocol is a packed struct in protocol.h, read by casting a datagram.  A field added, a pack
 // pragma lost, a chunk size changed - none of that fails to compile, and all of it makes two games
-// that "run the same version" disagree about what a packet means. Protocol 14 intentionally
+// that "run the same version" disagree about what a packet means. Protocol 15 intentionally
 // differs from v20: map fragments carry an epoch and revision; tactical record sizes are unchanged.
 //
 // Build: build.bat selftest   Run: build\selftest\protocol_selftest.exe
@@ -10,6 +10,7 @@
 #include <string.h>
 #include "protocol.h"
 #include "image_chunks.h"
+#include "spectator_policy.h"
 
 static int g_failed, g_checks;
 
@@ -113,6 +114,19 @@ int main()
     expect(image_chunks::valid(&d, header + d.size, k_chunk + 3, 1, 123, 2), 1, "full first piece accepted");
     d.h.flags = 0; d.map_epoch = d.map_revision = 0;
     expect(image_chunks::valid(&d, header + d.size, k_chunk + 3, 0), 1, "battle pieces still use zero identity");
+
+    expect(spectator_policy::local_battle_offline(true, true, true), 1, "inherited spectator battle stays offline");
+    expect(spectator_policy::local_battle_offline(true, true, false), 0, "authorized battle without spectator marker allowed");
+    expect(spectator_policy::incoming(true, false, PKT_STATE, 0), 0, "operation host ignores guest tactical state");
+    expect(spectator_policy::incoming(true, false, PKT_SHOT, 0), 0, "operation host ignores guest tactical shots");
+    expect(spectator_policy::incoming(true, false, PKT_IMAGE_DATA, 1), 0, "operation host never accepts guest map upload");
+    expect(spectator_policy::incoming(true, false, PKT_IMAGE_REQUEST, 1), 1, "operation host serves its map");
+    expect(spectator_policy::incoming(false, true, PKT_IMAGE_DATA, 1), 1, "spectator receives host map");
+    expect(spectator_policy::incoming(false, true, PKT_SHOT, 0), 0, "spectator ignores tactical packets");
+    expect(spectator_policy::incoming(false, false, PKT_SHOT, 0), 1, "tactical/other modes retain their packet path");
+    expect(spectator_policy::accept_hello(true, 2), 0, "host map rejects local tactical hello");
+    expect(spectator_policy::accept_hello(true, 0xfe), 1, "host map accepts a map observer");
+    expect(spectator_policy::accept_hello(false, 2), 1, "tactical host accepts battle hello");
 
     // The acknowledgement window: everything up to and including seq is gone from the queue.
     unsigned long long seq[] = { 1, 2, 3, 7, 8 };

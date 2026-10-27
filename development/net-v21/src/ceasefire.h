@@ -1,11 +1,11 @@
-// Tactical battle end state, independent of the engine and transport. A request to exit is not
-// reported as an actual end until the engine's exit path is available and invoked.
+// Tactical ceasefire agreement, independent of the engine and transport. Agreement is NOT an
+// engine battle result: only an actual phase-3 announcement sets the end flag.
 #pragma once
 #include <stdint.h>
 
 namespace ceasefire {
 enum Event {
-    changed = 1, cancelled = 2, agreed = 4, exit_requested = 8,
+    changed = 1, cancelled = 2, agreed = 4, finish_notice = 8,
     peer_end_wait = 16, natural_end = 32, stale_packet = 64
 };
 
@@ -44,7 +44,7 @@ struct State {
         unsigned events = peer_wants != peer_proposed ? changed : 0;
         peer_proposed = peer_wants;
         if (over && !peer_over) { peer_over = true; peer_result = result; }
-        // The other player's withdrawal cancels even an exit which is waiting for the engine UI.
+        // A withdrawal cancels the notification while both players are still fighting.
         if (!peer_wants && !peer_over && !left && (deadline || pending)) {
             deadline = 0;
             pending = false;
@@ -53,8 +53,8 @@ struct State {
         return events;
     }
 
-    // Called on the session thread. The end flag is only set when the engine itself announces phase
-    // 3, or confirm_exit() is called immediately before invoking the game's verified exit path.
+    // Called on the session thread. Only the engine announcing phase 3 sets the end flag.
+    // pending is a notice to use the game's own finish controls, NEVER a request to abandon the battle.
     unsigned advance(uint32_t now, bool connected, uint32_t phase) {
         unsigned events = 0;
         if (phase == 3 && !left) {
@@ -72,7 +72,7 @@ struct State {
         }
         if (!left && deadline && due(now, deadline)) {
             deadline = 0; pending = true;
-            events |= exit_requested;
+            events |= finish_notice;
         }
         if (peer_over && !left) {
             if (!peer_deadline) {
@@ -80,16 +80,10 @@ struct State {
                 events |= peer_end_wait;
             } else if (!pending && due(now, peer_deadline)) {
                 pending = true;
-                events |= exit_requested;
+                events |= finish_notice;
             }
         }
         return events;
-    }
-
-    bool confirm_exit() {
-        if (!pending || left) return false;
-        pending = false; left = true; deadline = 0;
-        return true;
     }
 
     void new_peer() {
