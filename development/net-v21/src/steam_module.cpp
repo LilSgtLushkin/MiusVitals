@@ -49,16 +49,9 @@ void steam_tick()
     steam_frame();
 }
 
-// Nothing in the module calls the layer yet: the session code that will (it is part of M3) is not
-// written, and /O1 puts every function in its own COMDAT, so /OPT:REF drops unreachable code.  The
-// whole layer would silently vanish from basic_network.codelib - and then "M2 is in the build"
-// would be a claim nobody could check, and the CI comparison would be comparing the baseline to
-// v20 while calling it M2.
-//
-// This exported table is the anchor: the loader references it, so everything it points at stays in
-// the image and shows up in the .map and in the comparison.  It doubles as a manifest - `dumpbin
-// /exports basic_network.codelib` lists it, which is how a build can be asked whether the Steam
-// layer is really there.
+// The session and UI now call this layer. Keep the exported table as an anchor for its public
+// entry points as well: /OPT:REF must not silently remove an API that is currently reached only by
+// a different launcher or test. It also acts as a manifest in the DLL's exports and link map.
 extern "C" __declspec(dllexport) const void *const gtmf_steam_layer[] = {
     reinterpret_cast<const void *>(&steam_init),
     reinterpret_cast<const void *>(&steam_shutdown),
