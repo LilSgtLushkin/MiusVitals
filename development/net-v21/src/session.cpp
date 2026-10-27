@@ -145,7 +145,7 @@ static DWORD g_restart_until;
 static std::vector<unsigned char> g_force_out, g_force_in, g_force_have;
 static std::vector<DWORD> g_force_asked;
 static u32 g_force_out_hash, g_force_in_hash, g_force_got;
-static bool g_force_published, g_force_applied, g_force_noted;
+static bool g_force_published, g_force_applied, g_force_noted, g_force_recovery_blocked;
 static DWORD g_force_last_ask;
 static RetryGate g_force_retry; // do not reparse and log a permanently invalid offer every rendered frame
 // The joining game downloading a description the host has started its battle with.
@@ -463,6 +463,10 @@ static bool battle_remove(void *context, const char *path)
 static bool battle_install(const char *path, const std::vector<unsigned char> &current,
                            const std::vector<unsigned char> &replacement)
 {
+    if (g_force_recovery_blocked) {
+        mp_log("lobby: an earlier battle backup needs recovery; no new description will be installed");
+        return false;
+    }
     std::vector<unsigned char> on_disk;
     if (!read_file(path, on_disk) || on_disk != current) {
         mp_log("lobby: battle description changed on disk or cannot be read; it was not overwritten");
@@ -502,32 +506,78 @@ static bool battle_restore_backup(const char *path, std::vector<unsigned char> *
 // so what went in last time is remembered beside the file, and the copy taken before it is put back when the
 // file has not been set up again since. (A new Skirmish setup by the player changes the file, and then the
 // remembered hash no longer matches: nothing is restored.)
-static void force_restore_leftover(char *path)
+static bool force_restore_leftover(char *path, bool honor_applied = true)
 {
     int value;
     // The battle that was just started again on purpose carries both forces: it is no leftover.
-    if (env_integer("MP_FORCE_APPLIED", &value) && value) return;
+    if (honor_applied && env_integer("MP_FORCE_APPLIED", &value) && value) return true;
     const std::string sidecar = std::string(path) + ".mp_combined";
     const std::string backup = std::string(path) + ".before_mp";
+    if (GetFileAttributesA(sidecar.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        DWORD error = GetLastError();
+        if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) return true;
+        mp_log("lobby: cannot inspect recovery marker %s (Windows error %lu)", sidecar.c_str(), error);
+        return false;
+    }
     FILE *f = 0;
-    if (fopen_s(&f, sidecar.c_str(), "rb") || !f) return;
+    if (fopen_s(&f, sidecar.c_str(), "rb") || !f) {
+        mp_log("lobby: cannot read recovery marker %s", sidecar.c_str());
+        return false;
+    }
     unsigned was = 0;
     size_t got = fread(&was, 1, sizeof was, f);
     fclose(f);
     std::vector<unsigned char> now;
-    if (got != sizeof was || !read_file(path, now)) return;
+    if (got != sizeof was || !read_file(path, now)) {
+        mp_log("lobby: recovery marker or battle description could not be read; backup retained at %s", backup.c_str());
+        return false;
+    }
     if (fnv(now.data(), now.size()) != was) {
-        // the player has set a battle up since: the remembered pair is stale
-        DeleteFileA(sidecar.c_str());
+        // The player has set a battle up since: the remembered pair is stale. Do not replace the
+        // backup while a failed marker deletion would make the old transaction ambiguous.
+        if (!DeleteFileA(sidecar.c_str())) {
+            mp_log("lobby: cannot remove stale recovery marker (Windows error %lu); backup retained", GetLastError());
+            return false;
+        }
         DeleteFileA(backup.c_str());
-        return;
+        return true;
     }
     if (!battle_restore_backup(path)) {
         mp_log("lobby: the description still carries the last battle's other force; the previous one could not be restored");
-        return;
+        return false;
     }
     mp_log("lobby: the battle description still carried the last two-player battle's other force - the previous one is back");
+    return true;
 }
+#ifdef NETV21_TEST_HOOKS
+bool session_test_force_recovery()
+{
+    char dir[MAX_PATH] = {}, path[MAX_PATH] = {};
+    DWORD n = GetTempPathA(MAX_PATH, dir);
+    if (!n || n >= MAX_PATH || !GetTempFileNameA(dir, "mfr", 0, path)) return false;
+    const std::string backup = std::string(path) + ".before_mp", marker = std::string(path) + ".mp_combined";
+    const unsigned char original[] = {1, 2, 3}, combined[] = {4, 5, 6};
+    u32 hash = fnv(combined, sizeof combined);
+    bool ok = atomic_file::replace(path, combined, sizeof combined) &&
+              atomic_file::replace(backup.c_str(), original, sizeof original) &&
+              atomic_file::replace(marker.c_str(), &hash, sizeof hash);
+    HANDLE locked = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (locked == INVALID_HANDLE_VALUE) ok = false;
+    else {
+        ok = !force_restore_leftover(path, false) && ok;
+        std::vector<unsigned char> saved;
+        ok = read_file(backup.c_str(), saved) && saved == std::vector<unsigned char>(original, original + sizeof original) && ok;
+        CloseHandle(locked);
+    }
+    ok = force_restore_leftover(path, false) && ok;
+    std::vector<unsigned char> restored;
+    ok = read_file(path, restored) && restored == std::vector<unsigned char>(original, original + sizeof original) &&
+         GetFileAttributesA(marker.c_str()) == INVALID_FILE_ATTRIBUTES && ok;
+    ok = atomic_file::replace(marker.c_str(), original, 1) && !force_restore_leftover(path, false) && ok;
+    DeleteFileA(path); DeleteFileA(backup.c_str()); DeleteFileA(marker.c_str());
+    return ok;
+}
+#endif
 
 static void load_battle_description(void)
 {
@@ -542,7 +592,8 @@ static void load_battle_description(void)
     }
     sprintf_s(path, "%s\\%s", g_root, rel);
     strcpy_s(g_image_file, path);
-    force_restore_leftover(path);
+    g_force_recovery_blocked = !force_restore_leftover(path);
+    if (g_force_recovery_blocked) mp_log("lobby: force exchange and side swap are disabled until the previous backup is recovered");
     if (!read_file(path, g_image)) { mp_log("net: cannot read the battle description %s", path); return; }
     g_image_hash = fnv(g_image.data(), g_image.size());
     // The host serves its description as it is; a joining game mirrors the copy it was given, so the hash of
@@ -834,7 +885,7 @@ static void read_profile_name(void)
 static void host_swap_sides_if_asked(void)
 {
     char v[8];
-    if (g_host_mode == HOST_MODE_OPERATION || !g_swap || g_image.empty()) return;      // skirmishes and missions
+    if (g_host_mode == HOST_MODE_OPERATION || !g_swap || g_image.empty() || g_force_recovery_blocked) return; // skirmishes and missions
     if (GetEnvironmentVariableA("MP_SWAPPED", v, sizeof v)) return;         // this is the restarted battle
     std::vector<unsigned char> turned = g_image;
     if (!image::mirror(turned)) { mp_log("lobby: this battle cannot be swapped, playing it as set up"); return; }
@@ -2208,7 +2259,7 @@ bool session_test_legacy_end()
 
 static bool force_here(void)
 {
-    return g_tactical && g_role != ROLE_NONE && g_host_mode != HOST_MODE_OPERATION && !g_image.empty();
+    return g_tactical && g_role != ROLE_NONE && g_host_mode != HOST_MODE_OPERATION && !g_image.empty() && !g_force_recovery_blocked;
 }
 
 static void force_publish(void)
@@ -2630,7 +2681,7 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
         }
         // The joining player's own force: his battle description, from which this game takes his squads and
         // units (force.h). Fetched on the image channel; the host puts it into its own description.
-        if (g_tactical && full && in->force_size && in->force_hash && !g_force_applied &&
+        if (g_tactical && full && in->force_size && in->force_hash && !g_force_applied && !g_force_recovery_blocked &&
             force_offer_changed(in->force_size, in->force_hash) && in->force_size <= (16u << 20)) {
             // A changed hash or length is a different offer, even when the other field is identical.
             // Reusing old fragment bits would mix offers and waste a complete fetch before failing hash.
@@ -2739,7 +2790,7 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
             // forces and this game has to take it over. Without the exchange (an operation, MP_FORCE_EXCHANGE=0,
             // a force that could not be put in) nothing restarts, and each game keeps the battle it started with.
             if (g_tactical && g_role == ROLE_JOIN && g_restart_coming && w->image_size && w->image_hash &&
-                w->image_hash != g_source_hash && !g_force_applied && !g_desc_dead && g_desc_have.empty() &&
+                w->image_hash != g_source_hash && !g_force_applied && !g_force_recovery_blocked && !g_desc_dead && g_desc_have.empty() &&
                 g_host_mode != HOST_MODE_OPERATION && w->image_size <= (16u << 20))
                 desc_begin(w->image_size, w->image_hash, now);     // it carries both forces: take it
             if (g_tactical && !g_image.empty() && w->image_size &&
