@@ -46,6 +46,9 @@ static u64 g_stat_own, g_stat_dropped, g_stat_injected, g_stat_refused, g_stat_f
 struct Pending { ShotRec rec; DWORD sent; unsigned char tries; };
 static std::deque<Pending> g_out;               // launched here, not yet acknowledged by the other game
 static reliable::Inbox<ShotRec> g_in;           // receipt is separate from completion / acknowledgement
+// Non-tactical processes never run shots_sim_step, but preserve their old receive/ACK semantics.
+static std::vector<ShotRec> g_in_legacy;
+static u32 g_epoch_in_legacy, g_last_seq_in_legacy;
 static void (*g_ack_send)(const void *, int);
 
 // launch record: pointers at +0x38 (ammunition), +0x40 (weapon), +0x48 (firing object), +0x50 (object),
@@ -296,10 +299,39 @@ void shots_on_packet(const unsigned char *data, int size, void (*send)(const voi
     shots_ack(send);
 }
 
+// Receive and acknowledge exactly as before the tactical reliability changes when in a non-tactical
+// process. That mode does not run the shot producer or consumer; keep its historical packet behavior.
+void shots_on_packet_legacy(const unsigned char *data, int size, void (*send)(const void *, int))
+{
+    const Head *head = (const Head *)data;
+    if (head->type == PKT_SHOT_ACK) {
+        if (size < (int)sizeof(ShotAck)) return;
+        const ShotAck *a = (const ShotAck *)data;
+        if (a->epoch != g_epoch) return;
+        while (!g_out.empty() && g_out.front().rec.seq <= a->seq) g_out.pop_front();
+        return;
+    }
+    if (size < (int)sizeof(ShotHead) || size < (int)(sizeof(ShotHead) + head->count * sizeof(ShotRec))) return;
+    const ShotHead *h = (const ShotHead *)data;
+    const ShotRec *recs = (const ShotRec *)(h + 1);
+    if (h->epoch != g_epoch_in_legacy) { g_epoch_in_legacy = h->epoch; g_last_seq_in_legacy = 0; }
+    unsigned long long fresh = 0;
+    for (unsigned i = 0; i < head->count; i++) {
+        if (recs[i].seq != g_last_seq_in_legacy + 1) continue;
+        g_last_seq_in_legacy = recs[i].seq;
+        g_in_legacy.push_back(recs[i]);
+        fresh++;
+    }
+    netlog_count("shots_in", (long long)fresh);
+    ShotAck ack = { make_head(PKT_SHOT_ACK), g_epoch_in_legacy, g_last_seq_in_legacy };
+    send(&ack, sizeof ack);
+}
+
 // A new connection: both directions start again.
 void shots_reset(void)
 {
     g_in.reset();
+    g_in_legacy.clear();
     g_ack_send = 0;
     g_out.clear();
     g_seq = 0;
@@ -390,6 +422,7 @@ void shots_test_engine(ObjMan *om, char *shell, Launch launch)
     g_install_done = true;
 }
 size_t shots_test_outstanding() { return g_out.size(); }
+size_t shots_test_legacy_pending() { return g_in_legacy.size(); }
 u32 shots_test_epoch() { return g_epoch; }
 #endif
 

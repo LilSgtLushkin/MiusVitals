@@ -4,14 +4,17 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include <vector>
 
 u32 xlate_test_fingerprint(const void *p);
 bool xlate_test_tables_complete();
+void xlate_test_send_changed(ObjMan *);
 void mp_log(const char *, ...) {}
 bool session_connected() { return true; }
 int session_role() { return ROLE_JOIN; }
 bool state_remote_loading() { return false; }
-void shots_queue(ShotRec &) {}
+static std::vector<unsigned char> queued_kinds;
+void shots_queue(ShotRec &r) { queued_kinds.push_back(r.kind); }
 bool readable(const void *p, size_t n)
 {
     MEMORY_BASIC_INFORMATION m = {};
@@ -62,7 +65,7 @@ int main()
     if (!manager) return 2;
     Object object = {};
     strcpy_s(object.full, "i_human:test");
-    Object *objects[] = { &object };
+    Object *objects[] = { &object, nullptr };
     *(Object ***)(manager + 0x150) = objects;
     *(u32 *)(manager + 0x15c) = 1;
     ShotRec empty_desc = {};
@@ -83,6 +86,34 @@ int main()
     check(!xlate_test_tables_complete() && !xlate_ready(), "oversized remote table invalidates stale mappings");
     xlate_resend();
     check(!xlate_ready() && !xlate_test_tables_complete(), "new table disables stale mappings");
+
+    // Drive the real sender without waiting for the three-second clock or installing game hooks.
+    xlate_test_send_changed((ObjMan *)manager);
+    check(queued_kinds.size() == 2 && queued_kinds[0] == 3 && queued_kinds[1] == 4,
+          "a fresh peer receives both tables");
+    queued_kinds.clear();
+    xlate_test_send_changed((ObjMan *)manager);
+    check(queued_kinds.empty(), "unchanged counters send nothing");
+    *(u32 *)(manager + 0x15c) = 2; // an unreadable slot changes the count, not the transferable table
+    xlate_test_send_changed((ObjMan *)manager);
+    check(queued_kinds.empty(), "changed counter alone does not resend an unchanged table");
+    objects[1] = &object;
+    *(u32 *)(manager + 0x15c) = 1; // force another scan without changing the table yet
+    xlate_test_send_changed((ObjMan *)manager);
+    *(u32 *)(manager + 0x15c) = 2;
+    xlate_test_send_changed((ObjMan *)manager);
+    check(queued_kinds.size() == 1 && queued_kinds[0] == 4, "only changed object table is queued");
+    queued_kinds.clear();
+    alignas(8) unsigned char raw_desc[0x60] = {}, row[0x10] = {};
+    *(u32 *)row = 7; *(void **)(row + 8) = raw_desc;
+    *(void **)(manager + 0x1748) = row; *(u32 *)(manager + 0x1754) = 1;
+    xlate_test_send_changed((ObjMan *)manager);
+    check(queued_kinds.size() == 1 && queued_kinds[0] == 3, "only changed description table is queued");
+    queued_kinds.clear();
+    xlate_resend();
+    xlate_test_send_changed((ObjMan *)manager);
+    check(queued_kinds.size() == 2 && queued_kinds[0] == 3 && queued_kinds[1] == 4,
+          "peer reset sends both tables even if contents match");
     VirtualFree(manager, 0, MEM_RELEASE);
 
     printf("translation selftest: %d checks, %d failed\n", checks, failed);

@@ -98,6 +98,18 @@ int main()
     expect(path, "net_v21: our own network module", "and says which module wrote it");
     expect(path, "build: compiled", "with the build stamp");
     expect(path, "fnv1a64", "and the hash of the image it runs from");
+    // Independently hash the running EXE and compare to the log, not just to the label.
+    char image_path[MAX_PATH] = {}, expected[64] = {};
+    GetModuleFileNameA(nullptr, image_path, MAX_PATH);
+    FILE *image = nullptr;
+    unsigned long long image_hash = 14695981039346656037ULL;
+    if (fopen_s(&image, image_path, "rb") == 0 && image) {
+        int c;
+        while ((c = fgetc(image)) != EOF) image_hash = (image_hash ^ (unsigned char)c) * 1099511628211ULL;
+        fclose(image);
+        sprintf_s(expected, "fnv1a64 %016llx", image_hash);
+        check(file_contains(path, expected), "image identity is the standard FNV-1a-64 hash");
+    } else check(false, "the running selftest image can be read for identity verification");
     expect(path, "a line from mp_log", "module lines are mirrored into it");
     expect(path, "-> STATE", "an outgoing datagram is written with its type");
     expect(path, "10.0.0.2:1943", "and an incoming one with its peer");

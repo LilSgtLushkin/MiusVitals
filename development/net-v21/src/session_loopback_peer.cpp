@@ -19,8 +19,16 @@ bool session_test_end_left();
 bool session_test_udp_open();
 unsigned session_test_hello_rejected();
 void session_test_state_dispatch(bool tactical);
+void session_test_shot_dispatch(bool tactical);
 bool session_test_transform_dispatch();
 bool session_test_new_force_offer();
+bool session_test_legacy_end();
+void session_test_motion_begin();
+void session_test_motion_push(const UnitRec &);
+u32 session_test_motion_updates();
+u32 session_test_motion_skipped();
+size_t session_test_motion_cached();
+void session_test_motion_end();
 
 char g_program[32] = "tacgame";
 char g_out_dir[MAX_PATH] = "C:\\mius-no-game\\out";
@@ -50,16 +58,48 @@ void statesync_legacy_on_packet(const unsigned char *, int, void (*)(const void 
 void statesync_report() {}
 bool xlate_ready() { return false; }
 void xlate_frame(ObjMan *) {}
+static unsigned shot_steps, trench_steps, tactical_shot_packets, legacy_shot_packets;
 void shots_install(ObjMan *) {}
-void shots_sim_step(ObjMan *) {}
+void shots_sim_step(ObjMan *) { ++shot_steps; }
 void shots_frame(void (*)(const void *, int)) {}
-void shots_on_packet(const unsigned char *, int, void (*)(const void *, int)) {}
+void shots_on_packet(const unsigned char *, int, void (*)(const void *, int)) { ++tactical_shot_packets; }
+void shots_on_packet_legacy(const unsigned char *, int, void (*)(const void *, int)) { ++legacy_shot_packets; }
 void shots_reset() {}
 void shots_report() {}
 void trench_install() {}
-void trench_sim_step(ObjMan *) {}
+void trench_sim_step(ObjMan *) { ++trench_steps; }
 void trench_report() {}
 static Object *find_nothing(ObjMan *, Dep *) { return nullptr; }
+
+static bool motion_test()
+{
+    alignas(8) unsigned char memory[0x300] = {}, manager_bytes[0x110] = {};
+    Object *unit = (Object *)memory;
+    unit->iface = "i_techn"; strcpy_s(unit->full, "i_techn:unit_7b");
+    Object *units[] = { unit };
+    *(Object ***)(manager_bytes + 0xf0) = units; *(u32 *)(manager_bytes + 0xfc) = 1;
+    ObjMan *manager = (ObjMan *)manager_bytes;
+    UnitRec r = {}; r.id = 0x7b; r.kind = 1; r.pos[0] = 10; r.lin[0] = 1;
+    r.rot[0] = r.rot[4] = r.rot[8] = 1;
+    session_test_motion_begin();
+    session_test_motion_push(r);
+    session_sim_step(manager, 0);
+    bool ok = *(float *)(memory + UNIT_POS) == 10 && session_test_motion_updates() == 1 &&
+              shot_steps == 1 && trench_steps == 1;
+    for (int i = 0; i < 20; i++) session_sim_step(manager, 0);
+    ok = ok && *(float *)(memory + UNIT_POS) == 10 && session_test_motion_updates() == 1 &&
+         session_test_motion_skipped() == 20 && shot_steps == 21 && trench_steps == 21;
+    r.pos[0] = 20; session_test_motion_push(r); session_sim_step(manager, 0);
+    ok = ok && *(float *)(memory + UNIT_POS) == 20 && session_test_motion_updates() == 2;
+    session_sim_step(manager, 16);
+    ok = ok && session_test_motion_updates() == 3 && shot_steps == 23 && trench_steps == 23;
+    *(u32 *)(manager_bytes + 0xfc) = 0;
+    session_sim_step(manager, 0);
+    ok = ok && session_test_motion_cached() == 0 && shot_steps == 24 && trench_steps == 24;
+    session_test_motion_end();
+    shot_steps = trench_steps = 0;
+    return ok;
+}
 
 int main(int argc, char **argv)
 {
@@ -73,9 +113,14 @@ int main(int argc, char **argv)
     if (legacy_resets != 1 || legacy_packets != 1 || tactical_resets != 1 || tactical_forgets != 1 || tactical_packets != 1) {
         puts("FAIL: tactical state dispatch"); return 1;
     }
+    session_test_shot_dispatch(false);
+    session_test_shot_dispatch(true);
+    if (legacy_shot_packets != 1 || tactical_shot_packets != 1) { puts("FAIL: shot dispatch by mode"); return 1; }
+    if (!session_test_legacy_end()) { puts("FAIL: non-tactical end packet behavior"); return 1; }
     if (!session_test_transform_dispatch()) { puts("FAIL: transform dispatch by mode"); return 1; }
     if (!session_test_new_force_offer()) { puts("FAIL: new force with the same size"); return 1; }
-    puts("state, transform dispatch and changed-force tests passed");
+    if (!motion_test()) { puts("FAIL: zero-ms simulation and remote transform processing"); return 1; }
+    puts("state, force, zero-ms motion and cache tests passed");
     bool host = !strcmp(argv[1], "host");
     SetEnvironmentVariableA("MP_ROLE", argv[1]);
     SetEnvironmentVariableA("MP_HOST_MODE", "skirmish");

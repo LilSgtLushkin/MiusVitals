@@ -26,6 +26,7 @@ typedef void *(*Lookup)(ObjMan *, u32);
 static Lookup g_obj_by_place, g_desc_by_num;
 static std::unordered_map<u32, u32> g_desc, g_obj;          // the other game's number -> this game's
 static std::vector<std::pair<u32, u32>> g_their_desc, g_their_obj;      // (number, fingerprint) as received
+static std::vector<std::pair<u32, u32>> g_last_desc, g_last_obj;        // last tables actually queued
 static u32 g_expect_desc, g_expect_obj, g_sent_desc, g_sent_obj;
 static bool g_ready, g_hooked, g_hook_tried, g_send_due;
 static void *g_vtbl_copy[97];
@@ -214,6 +215,26 @@ static void *desc_by_num_hook(ObjMan *om, u32 num)
 
 void xlate_resend(void) { g_send_due = true; g_ready = false; g_their_desc.clear(); g_their_obj.clear(); g_expect_desc = g_expect_obj = 0; }
 
+static void send_changed_tables(ObjMan *om)
+{
+    u32 nd = *(u32 *)((char *)om + 0x1754), no = *(u32 *)((char *)om + 0x15c);
+    if (!g_send_due && nd == g_sent_desc && no == g_sent_obj) return;
+    std::vector<std::pair<u32, u32>> desc, obj;
+    local_tables(om, desc, obj);
+    // Counts can change as temporary objects come and go even when the transferable table did
+    // not. Queue only tables whose actual contents changed, but always send both after a reset.
+    if (g_send_due || desc != g_last_desc) send_table(desc, 3);
+    if (g_send_due || obj != g_last_obj) send_table(obj, 4);
+    g_last_desc.swap(desc);
+    g_last_obj.swap(obj);
+    g_sent_desc = nd;
+    g_sent_obj = no;
+    g_send_due = false;
+}
+#ifdef NETV21_TEST_HOOKS
+void xlate_test_send_changed(ObjMan *om) { send_changed_tables(om); }
+#endif
+
 // Every frame of a connected battle: this game's tables go out once the battle stands, and again when
 // something new has been registered.
 void xlate_frame(ObjMan *om)
@@ -257,13 +278,5 @@ void xlate_frame(ObjMan *om)
     DWORD now = GetTickCount();
     if (now - last < 3000) return;
     last = now;
-    u32 nd = *(u32 *)((char *)om + 0x1754), no = *(u32 *)((char *)om + 0x15c);
-    if (!g_send_due && nd == g_sent_desc && no == g_sent_obj) return;
-    std::vector<std::pair<u32, u32>> desc, obj;
-    local_tables(om, desc, obj);
-    send_table(desc, 3);
-    send_table(obj, 4);
-    g_sent_desc = nd;
-    g_sent_obj = no;
-    g_send_due = false;
+    send_changed_tables(om);
 }

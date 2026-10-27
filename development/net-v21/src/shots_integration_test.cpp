@@ -11,6 +11,7 @@
 using TestLaunch = void (*)(char *, char *, u64, float *, void *, u32);
 void shots_test_engine(ObjMan *, char *, TestLaunch);
 size_t shots_test_outstanding();
+size_t shots_test_legacy_pending();
 u32 shots_test_epoch();
 
 char g_out_dir[MAX_PATH] = ".";
@@ -63,13 +64,14 @@ static ShotRec make_record(u32 seq, unsigned char kind = 0)
     memcpy(&r.ammo_code, ammo + 0xc4, 4);
     return r;
 }
-static void incoming(u32 epoch, const ShotRec *records, unsigned count)
+static void incoming(u32 epoch, const ShotRec *records, unsigned count, bool legacy = false)
 {
     unsigned char packet[sizeof(ShotHead) + 5 * sizeof(ShotRec)] = {};
     ShotHead h = { make_head(PKT_SHOT, count), epoch };
     memcpy(packet, &h, sizeof h);
     memcpy(packet + sizeof h, records, count * sizeof(ShotRec));
-    shots_on_packet(packet, (int)(sizeof h + count * sizeof(ShotRec)), capture);
+    if (legacy) shots_on_packet_legacy(packet, (int)(sizeof h + count * sizeof(ShotRec)), capture);
+    else shots_on_packet(packet, (int)(sizeof h + count * sizeof(ShotRec)), capture);
 }
 static u32 latest_ack() { return acks.empty() ? 0xffffffffu : acks.back().seq; }
 
@@ -141,6 +143,17 @@ int main()
     ack.seq = 1;
     shots_on_packet((const unsigned char *)&ack, sizeof ack, capture);
     check(shots_test_outstanding() == 0, "a valid ACK retires the sent event");
+
+    shots_reset(); acks.clear();
+    incoming(7001, &one, 1, true);
+    check(latest_ack() == 1 && shots_test_legacy_pending() == 1, "non-tactical receipt keeps the old immediate ACK");
+    incoming(7001, &one, 1, true);
+    incoming(7001, &three, 1, true);
+    check(latest_ack() == 1 && shots_test_legacy_pending() == 1, "non-tactical duplicate and gap behavior stays unchanged");
+    incoming(7001, &two, 1, true);
+    check(latest_ack() == 2 && shots_test_legacy_pending() == 2, "non-tactical stream accepts the next sequence");
+    shots_reset();
+    check(shots_test_legacy_pending() == 0, "non-tactical reset clears its old queue");
 
     printf("shots integration selftest: %d checks, %d failed\n", checks, failures);
     return failures ? 1 : 0;

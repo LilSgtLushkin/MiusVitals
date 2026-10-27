@@ -121,7 +121,7 @@ static void write_line(const char *channel, const char *fmt, ...)
 // --------------------------------------------------------------------------- identity helpers
 static unsigned long long fnv1a(FILE *file, unsigned long long *size)
 {
-    unsigned long long hash = 1469598103934665603ULL;
+    unsigned long long hash = 14695981039346656037ULL; // standard FNV-1a 64-bit offset basis
     unsigned char buffer[65536];
     size_t got;
     *size = 0;

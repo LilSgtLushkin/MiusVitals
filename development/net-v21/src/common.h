@@ -28,7 +28,7 @@ inline Object **all_objects(ObjMan *om, u32 *count)
 enum { ROLE_NONE, ROLE_HOST, ROLE_JOIN };
 void session_start(ObjMan *om);          // once, when the engine starts ticking; reads the environment
 void session_frame(ObjMan *om);          // every rendered frame
-void session_sim_step(ObjMan *om);       // before every simulation step (tactical only)
+void session_sim_step(ObjMan *om, u32 sim_ms); // before each tactical ctrl_tick, including zero-ms ticks
 void session_stop(void);
 void session_host(int host_mode);        // menu: become host now
 void session_single_player(void);        // menu: leave multiplayer
@@ -93,6 +93,7 @@ void statesync_legacy_reset(void);
 void shots_install(ObjMan *om);
 void shots_frame(void (*send)(const void *, int));
 void shots_on_packet(const unsigned char *data, int size, void (*send)(const void *, int));
+void shots_on_packet_legacy(const unsigned char *data, int size, void (*send)(const void *, int));
 void shots_sim_step(ObjMan *om);
 void shots_reset(void);
 void shots_report(void);

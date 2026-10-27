@@ -17,6 +17,7 @@
 #include "transform_write.h"
 #include "transform_inbox.h"
 #include "transform_send.h"
+#include "transform_gc.h"
 #include "peer_guard.h"
 #include "transport_policy.h"
 #include "render_guard.h"
@@ -106,7 +107,7 @@ static std::vector<UnitRec> g_pending_legacy;           // non-tactical: preserv
 // The last two transforms received per followed unit, with the time each arrived: the unit is shown
 // between them, a little in the past (see session_sim_step).
 struct Snap { UnitRec rec; double at; };
-struct Held { Snap a, b; int have; };
+struct Held { Snap a, b; int have = 0; bool dirty = false; };
 static std::unordered_map<u64, Held> g_held;
 static float g_host_speed = 1, g_host_cur_speed = 1;
 static u32 g_host_sim_ms;
@@ -117,6 +118,7 @@ static u32 g_peer_sim_ms, g_peer_phase;    // host: the joining game's battle cl
 static DWORD g_peer_clock_at, g_waiting_since;
 static bool g_clock_adopted;
 static u32 g_snapshot, g_stat_sent, g_stat_applied, g_stat_elided, g_stat_coalesced, g_stat_bad_transforms;
+static u32 g_stat_zero_steps, g_stat_zero_skipped, g_stat_cache_pruned;
 static u32 g_stat_packets, g_stat_rx_bytes, g_stat_tx_bytes, g_stat_snaps;
 #ifdef NETV21_TEST_HOOKS
 static unsigned g_test_hello_rejected;
@@ -605,6 +607,11 @@ static void state_packet_for_mode(const unsigned char *data, int size, void (*se
     if (g_tactical) statesync_on_packet(data, size, send, versus);
     else statesync_legacy_on_packet(data, size, send, versus);
 }
+static void shot_packet_for_mode(const unsigned char *data, int size, void (*send)(const void *, int))
+{
+    if (g_tactical) shots_on_packet(data, size, send);
+    else shots_on_packet_legacy(data, size, send);
+}
 static void queue_transforms_for_mode(const UnitRec *records, unsigned count)
 {
     if (!g_tactical) {
@@ -624,6 +631,13 @@ void session_test_state_dispatch(bool tactical)
     g_tactical = tactical;
     reset_state_for_mode();
     state_packet_for_mode(nullptr, 0, nullptr, false); // the test substitutes both receivers
+    g_tactical = previous;
+}
+void session_test_shot_dispatch(bool tactical)
+{
+    bool previous = g_tactical;
+    g_tactical = tactical;
+    shot_packet_for_mode(nullptr, 0, nullptr); // the test substitutes both receivers
     g_tactical = previous;
 }
 bool session_test_transform_dispatch()
@@ -1575,6 +1589,9 @@ static void rebuild_units(ObjMan *om)
         u64 key;
         if (unit_key(all[i], &key, 0)) g_units[key] = all[i];
     }
+    // Both caches otherwise retain destroyed units forever, and g_held is walked on every
+    // simulation step. Do not touch surviving entries or the transform send cadence.
+    g_stat_cache_pruned += (u32)(prune_absent(g_held, g_units) + prune_absent(g_sent, g_units));
     g_units_count_seen = count;
 }
 
@@ -1584,9 +1601,10 @@ Object *session_unit(u64 key)
     return it == g_units.end() ? 0 : it->second;
 }
 
-void session_sim_step(ObjMan *om)
+void session_sim_step(ObjMan *om, u32 sim_ms)
 {
     if (!g_connected || !g_tactical) return;
+    if (!sim_ms) ++g_stat_zero_steps;
     render_guard_install();                 // before state.cpp can detour the same renderer function
     // Received states wait until this game has been simulating for a while: a battle that has only just
     // appeared is still setting its units up, and a vehicle that gets a state loaded into it at that point
@@ -1621,6 +1639,7 @@ void session_sim_step(ObjMan *om)
     //     quarter of a second, then stands - which also keeps a unit its owner has parked from driving off
     //     under this game's own simulation and being pulled back.
     double now_s = seconds_now();
+    bool new_remote = false;
     for (const UnitRec &r : g_pending.records()) {
         u64 key = ((u64)r.kind << 32) | r.id;
         auto it = g_units.find(key);
@@ -1628,20 +1647,32 @@ void session_sim_step(ObjMan *om)
         Held &h = g_held[key];
         if (h.have && now_s - h.b.at > 0.004) { h.a = h.b; h.have = 2; }       // (same step: just the newer one)
         h.b = { r, now_s };
+        h.dirty = true;
+        new_remote = true;
         if (!h.have) h.have = 1;
     }
     g_pending.clear();
+    // A zero-ms ctrl_tick does not advance physics. Drain incoming shots, control events, state,
+    // and freshly received transforms above, but don't re-interpolate every held object on every
+    // render-only tick. A fresh deployment/paused update is still applied immediately.
+    if (!sim_ms && !new_remote) { ++g_stat_zero_skipped; return; }
 
     const double k_delay = 0.10, k_run_on = 0.25;
     for (auto &kv : g_held) {
         Held &h = kv.second;
+        if (!sim_ms && !h.dirty) continue;
         auto it = g_units.find(kv.first);
         if (it == g_units.end() || owns_object(it->second)) continue;
+        h.dirty = false;
         double t = now_s - k_delay;
         float pos[3], rot[9];
         const UnitRec &B = h.b.rec;
         bool moving = true;
-        if (h.have == 2 && t < h.b.at && h.b.at - h.a.at > 0.001 && h.b.at - h.a.at < 0.6) {
+        if (!sim_ms) {
+            // No wall-clock extrapolation through a pause or render-only tick.
+            memcpy(pos, B.pos, sizeof pos);
+            memcpy(rot, B.rot, sizeof rot);
+        } else if (h.have == 2 && t < h.b.at && h.b.at - h.a.at > 0.001 && h.b.at - h.a.at < 0.6) {
             const UnitRec &A = h.a.rec;
             float k = t <= h.a.at ? 0.0f : (float)((t - h.a.at) / (h.b.at - h.a.at));
             for (int i = 0; i < 3; i++) pos[i] = A.pos[i] + (B.pos[i] - A.pos[i]) * k;
@@ -1680,6 +1711,27 @@ void session_sim_step(ObjMan *om)
                                     pos, rot, B.lin, B.ang, moving)) g_stat_elided++;
     }
 }
+#ifdef NETV21_TEST_HOOKS
+// Windows no-game fixture drives the real step with a mock manager and remote unit.
+void session_test_motion_begin()
+{
+    g_tactical = g_connected = true; g_role = ROLE_JOIN; g_versus = false;
+    g_units.clear(); g_sent.clear(); g_held.clear(); g_pending.clear();
+    g_units_count_seen = 0xffffffffu;
+    g_stat_applied = g_stat_zero_steps = g_stat_zero_skipped = g_stat_cache_pruned = 0;
+}
+void session_test_motion_push(const UnitRec &r) { (void)g_pending.put(r); }
+u32 session_test_motion_updates() { return g_stat_applied; }
+u32 session_test_motion_skipped() { return g_stat_zero_skipped; }
+size_t session_test_motion_cached() { return g_held.size(); }
+void session_test_motion_end()
+{
+    g_units.clear(); g_sent.clear(); g_held.clear(); g_pending.clear();
+    g_units_count_seen = 0;
+    g_stat_applied = g_stat_zero_steps = g_stat_zero_skipped = g_stat_cache_pruned = 0;
+    g_tactical = g_connected = false; g_role = ROLE_NONE;
+}
+#endif
 
 // ---------------------------------------------------------------- detours: Start button, battle clock
 // Leaving deployment and leaving the initial orders is the player's decision in the stock game. With another
@@ -2081,6 +2133,17 @@ static void end_on_packet(const unsigned char *data, int size, DWORD now)
     if (size < (int)sizeof(EndState)) return;
     const EndState *e = (const EndState *)data;
     bool proposed = (e->h.flags & END_PROPOSE) != 0, over = (e->h.flags & END_OVER) != 0;
+    if (!g_tactical) {
+        // The earlier non-tactical receiver did not interpret the new sequence flag. Preserve its
+        // simple state updates and restart timeout instead of changing an M5 packet path.
+        if (proposed != g_end.peer_proposed) {
+            g_end.peer_proposed = proposed;
+            mp_log(proposed ? "end: the other player proposes a ceasefire" : "end: the other player takes the ceasefire proposal back");
+        }
+        if (over && !g_end.peer_over) { g_end.peer_over = true; g_end.peer_result = e->result; }
+        if (e->h.flags & END_RESTART) { g_restart_coming = true; g_restart_until = now + 90000; }
+        return;
+    }
     unsigned events = g_end.observe(proposed, over, e->result, (e->h.flags & END_SEQUENCED) != 0, e->h.count);
     if (events & ceasefire::stale_packet) return;
     if (events & ceasefire::changed) {
@@ -2096,6 +2159,24 @@ static void end_on_packet(const unsigned char *data, int size, DWORD now)
         g_restart_until = now + 90000;
     }
 }
+#ifdef NETV21_TEST_HOOKS
+bool session_test_legacy_end()
+{
+    bool old_tactical = g_tactical, old_restart = g_restart_coming;
+    DWORD old_until = g_restart_until;
+    ceasefire::State old = g_end;
+    g_tactical = false; g_end = ceasefire::State{};
+    EndState e = { make_head(PKT_END) };
+    e.h.flags = END_PROPOSE | END_SEQUENCED; e.h.count = 9;
+    end_on_packet((const unsigned char *)&e, sizeof e, 100);
+    bool ok = g_end.peer_proposed;
+    e.h.flags = END_SEQUENCED | END_RESTART; e.h.count = 8; // older sequence is still accepted in old path
+    end_on_packet((const unsigned char *)&e, sizeof e, 200);
+    ok = ok && !g_end.peer_proposed && g_restart_coming && g_restart_until == 90200;
+    g_tactical = old_tactical; g_end = old; g_restart_coming = old_restart; g_restart_until = old_until;
+    return ok;
+}
+#endif
 
 // ---------------------------------------------------------------- the two players' forces (M4)
 // Each game's battle description is its own player's Skirmish setup: his own force on his side and, on the
@@ -2696,7 +2777,7 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
         break;
     case PKT_SHOT:
     case PKT_SHOT_ACK:
-        shots_on_packet(data, size, send_peer);
+        shot_packet_for_mode(data, size, send_peer);
         break;
     case PKT_END:
         end_on_packet(data, size, now);
@@ -2830,11 +2911,11 @@ void session_frame(ObjMan *om)
     }
     if (g_host_lost && now - g_host_lost > 4000 && !g_restart_coming) leave_battle_for_menu();
     if (now - g_last_report >= 5000) {
-        if (g_connected && g_tactical && (g_stat_sent || g_stat_applied)) {
-            mp_log("net: 5 s: sent %u and applied %u unit transforms (%u coalesced, %u identical writes elided, %u invalid/full), mean correction %.2f m, largest %.2f m, %u jumps, rx %.1f / tx %.1f KB/s",
+        if (g_connected && g_tactical && (g_stat_sent || g_stat_applied || g_stat_zero_skipped || g_stat_cache_pruned)) {
+            mp_log("net: 5 s: sent %u and applied %u unit transforms (%u coalesced, %u identical writes elided, %u invalid/full), mean correction %.2f m, largest %.2f m, %u jumps, rx %.1f / tx %.1f KB/s; zero-ms %u (%u idle skipped), cache pruned %u",
                    g_stat_sent, g_stat_applied, g_stat_coalesced, g_stat_elided, g_stat_bad_transforms,
                    g_stat_applied ? g_stat_err_sum / g_stat_applied : 0.0, g_stat_err_max, g_stat_snaps,
-                   g_stat_rx_bytes / 5120.0, g_stat_tx_bytes / 5120.0);
+                   g_stat_rx_bytes / 5120.0, g_stat_tx_bytes / 5120.0, g_stat_zero_steps, g_stat_zero_skipped, g_stat_cache_pruned);
             statesync_report();
             shots_report();
             trench_report();
@@ -2852,6 +2933,7 @@ void session_frame(ObjMan *om)
         g_prof_save = g_prof_load = 0;
         g_last_report = now;
         g_stat_sent = g_stat_applied = g_stat_elided = g_stat_coalesced = g_stat_bad_transforms = 0;
+        g_stat_zero_steps = g_stat_zero_skipped = g_stat_cache_pruned = 0;
         g_stat_packets = g_stat_rx_bytes = g_stat_tx_bytes = g_stat_snaps = 0;
         g_stat_err_sum = 0;
         g_stat_err_max = 0;
