@@ -5,6 +5,7 @@
 #include "netlog.h"
 #include "render_guard.h"
 #include "protocol.h"
+#include "joiner.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -12,6 +13,8 @@
 #include <string.h>
 
 void session_test_disable_udp(bool);
+void session_test_disable_upnp(bool);
+void session_test_lobby_image();
 bool session_test_peer_proposed();
 bool session_test_peer_over();
 bool session_test_end_pending();
@@ -103,9 +106,125 @@ static bool motion_test()
     return ok;
 }
 
+// Test the production frame order: session_frame() runs before Joiner::poll() in the real menu.
+// A tactical mock host speaks the same HELLO/WELCOME protocol, using only the Steam stand-in.
+static int lobby_test(bool host, bool steam, const char *own_port, const char *peer_port)
+{
+    // The host signals only after its production session has sent WELCOME. This forces the reply
+    // to be waiting before the joiner's next session_frame, making the old receive-order bug deterministic.
+    char event_name[96]; sprintf_s(event_name, "Local\\netv21_%s_welcome_%s", steam ? "steam" : "ip", host ? own_port : peer_port);
+    HANDLE welcome_sent = CreateEventA(nullptr, TRUE, FALSE, event_name);
+    sprintf_s(event_name, "Local\\netv21_%s_download_%s", steam ? "steam" : "ip", host ? own_port : peer_port);
+    HANDLE download_done = CreateEventA(nullptr, TRUE, FALSE, event_name);
+    if (!welcome_sent || !download_done) return 2;
+    strcpy_s(g_program, host ? "tacgame" : "opgame");
+    SetEnvironmentVariableA("MP_ROLE", host ? "host" : nullptr);
+    SetEnvironmentVariableA("MP_HOST_MODE", "skirmish");
+    SetEnvironmentVariableA("MP_STEAM", steam ? nullptr : "0");
+    SetEnvironmentVariableA("MP_STEAM_FAKE", steam ? own_port : nullptr);
+    SetEnvironmentVariableA("MP_PORT", host && !steam ? own_port : nullptr);
+    SetEnvironmentVariableA("MP_TEST_MAXTIME", nullptr);
+    session_test_disable_udp(steam); // fake Steam only; IP uses the production UDP socket
+    session_test_disable_upnp(true); // do not touch a real router in the IP test
+    alignas(8) unsigned char manager[0x1800] = {};
+    void *vt[16] = {};
+    vt[9] = (void *)find_nothing;
+    ((ObjMan *)manager)->vtbl = vt;
+    session_start((ObjMan *)manager);
+    if ((steam && !steam_ready()) || (!steam && host && !session_test_udp_open())) return 3;
+    if (host) session_test_lobby_image(); // synthetic payload; no game save or process launch
+    Joiner lobby;
+    if (!host) {
+        if (steam) {
+            if (lobby.start("steam:42garbage") || steam_lobby_receiving()) return 4;
+            if (!lobby.start("127.0.0.1:1943") || steam_lobby_receiving()) return 5;
+            lobby.cancel();
+        }
+        char address[80];
+        if (steam) sprintf_s(address, "steam:%s", peer_port);
+        else sprintf_s(address, "127.0.0.1:%s", peer_port);
+        if (steam) {
+            Joiner map_compatible;
+            if (!map_compatible.start(address, false) || steam_lobby_receiving()) return 9;
+            map_compatible.cancel();
+            Joiner cancelled;
+            if (!cancelled.start(address) || !steam_lobby_receiving()) return 10;
+            cancelled.cancel();
+            if (steam_lobby_receiving()) return 11;
+            Joiner failed;
+            if (!failed.start(address) || !steam_lobby_receiving()) return 12;
+            failed.fail("synthetic failure");
+            if (steam_lobby_receiving()) return 13;
+        }
+        if (!lobby.start(address) || steam_lobby_receiving() != steam) return 6;
+        if (steam) {
+            Joiner competing;
+            if (competing.start(address) || !steam_lobby_receiving()) return 7;
+            competing.cancel();
+            if (!steam_lobby_receiving()) return 8; // failed competitor cannot release our claim
+        }
+        lobby.last_hello = GetTickCount() - 500; // initial HELLO immediately, even just after boot
+    }
+    const char *result = steam ? "LOBBY_RESULT" : "IP_LOBBY_RESULT";
+    DWORD start = GetTickCount(), connected_at = 0;
+    while (GetTickCount() - start < 8000) {
+        session_frame((ObjMan *)manager);
+        if (host && session_connected() && !connected_at) {
+            connected_at = GetTickCount();
+            SetEvent(welcome_sent);
+        }
+        if (host && connected_at && WaitForSingleObject(download_done, 0) == WAIT_OBJECT_0) {
+            printf("%s host ok=1\n", result); session_stop(); steam_shutdown();
+            CloseHandle(welcome_sent); CloseHandle(download_done); return 0;
+        }
+        if (!host) {
+            lobby.poll(); // sends HELLO
+            if (WaitForSingleObject(welcome_sent, 5000) != WAIT_OBJECT_0) break;
+            bool packet_waiting;
+            if (steam) packet_waiting = steam_test_wait_packet(2000);
+            else {
+                fd_set ready; FD_ZERO(&ready); FD_SET(lobby.sock, &ready);
+                timeval timeout = { 2, 0 };
+                packet_waiting = select(0, &ready, nullptr, nullptr, &timeout) > 0;
+            }
+            if (!packet_waiting) break;
+            session_frame((ObjMan *)manager); // WELCOME is already waiting: this must not consume it
+            lobby.poll();
+            if (lobby.state == Joiner::WAITING_FOR_BATTLE && lobby.host_name[0]) {
+                bool reserved = steam_lobby_receiving() == steam;
+                lobby.lobby_ready = true;
+                while (lobby.state != Joiner::DONE && lobby.state != Joiner::FAILED && GetTickCount() - start < 7000) {
+                    session_frame((ObjMan *)manager); // preserve the real ordering throughout download
+                    lobby.poll();
+                    Sleep(10);
+                }
+                bool image_ok = lobby.state == Joiner::DONE && lobby.image.size() == k_chunk * 2 + 117;
+                for (size_t i = 0; image_ok && i < lobby.image.size(); ++i)
+                    image_ok = lobby.image[i] == (unsigned char)((i * 37u + 11u) & 255u);
+                bool released = !steam_lobby_receiving(); // DONE closes the Joiner and releases its queue
+                bool ok = reserved && released && image_ok;
+                if (ok) SetEvent(download_done);
+                printf("%s join ok=%d reserved=%d released=%d ordered=1 image=%d\n", result, (int)ok, (int)reserved, (int)released, (int)image_ok);
+                lobby.cancel(); session_stop(); steam_shutdown(); CloseHandle(welcome_sent); CloseHandle(download_done);
+                return ok ? 0 : 1;
+            }
+            break; // fail immediately: do not allow a later retransmit to hide the ordering bug
+        }
+        Sleep(10);
+    }
+    printf("%s %s ok=0 state=%d error=%s\n", result, host ? "host" : "join", (int)lobby.state, lobby.error);
+    lobby.cancel(); session_stop(); steam_shutdown(); CloseHandle(welcome_sent); CloseHandle(download_done);
+    return 1;
+}
+
 int main(int argc, char **argv)
 {
-    if (argc != 4 || (strcmp(argv[1], "host") && strcmp(argv[1], "join"))) return 2;
+    if (argc != 4) return 2;
+    if (!strcmp(argv[1], "lobby-host") || !strcmp(argv[1], "lobby-join"))
+        return lobby_test(!strcmp(argv[1], "lobby-host"), true, argv[2], argv[3]);
+    if (!strcmp(argv[1], "ip-lobby-host") || !strcmp(argv[1], "ip-lobby-join"))
+        return lobby_test(!strcmp(argv[1], "ip-lobby-host"), false, argv[2], argv[3]);
+    if (strcmp(argv[1], "host") && strcmp(argv[1], "join")) return 2;
     // Exercise the actual session dispatch in both modes before starting the tactical pair.
     session_test_state_dispatch(false);
     if (legacy_resets != 1 || legacy_packets != 1 || tactical_resets || tactical_forgets || tactical_packets) {

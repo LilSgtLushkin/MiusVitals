@@ -74,6 +74,23 @@ static u8 *g_walk, *g_node, *g_cache, *g_triangle;
 static PVOID g_handler;
 static std::atomic<bool> g_attempted(false);
 static std::atomic<u32> g_node_repairs(0), g_cache_repairs(0), g_geometry_skips(0), g_preflight_faults(0);
+// One timing sample per 128 calls per renderer thread, excluding the native function. This reports
+// guard cost without two high-resolution clock calls and contended atomics on every geometry call.
+struct GuardSamples { std::atomic<u64> count{0}, ticks{0}; };
+static GuardSamples g_cache_samples, g_triangle_samples;
+static thread_local unsigned g_cache_sample_seq, g_triangle_sample_seq;
+static bool sample_start(unsigned &sequence, LARGE_INTEGER *at)
+{
+    return (++sequence & 127u) == 0 && QueryPerformanceCounter(at) != 0;
+}
+static void sample_end(GuardSamples &samples, LARGE_INTEGER start)
+{
+    LARGE_INTEGER end;
+    if (QueryPerformanceCounter(&end) && end.QuadPart >= start.QuadPart) {
+        samples.ticks.fetch_add((u64)(end.QuadPart - start.QuadPart), std::memory_order_relaxed);
+        samples.count.fetch_add(1, std::memory_order_relaxed);
+    }
+}
 using CacheFn = void (*)(void *, u32, const void *);
 using TriangleFn = int (*)(void *);
 static std::atomic<CacheFn> g_original_cache(nullptr);
@@ -87,9 +104,15 @@ static bool add_u64(u64 base, u64 off, u64 *out)
     *out = base + off;
     return true;
 }
+#ifdef NETV21_TEST_HOOKS
+static unsigned g_test_page_queries;
+#endif
 static bool page_has(const void *p, size_t n, bool write, MEMORY_BASIC_INFORMATION *out = nullptr)
 {
     MEMORY_BASIC_INFORMATION mbi = {};
+#ifdef NETV21_TEST_HOOKS
+    if (p && n) ++g_test_page_queries;
+#endif
     if (!p || !n || !VirtualQuery(p, &mbi, sizeof mbi) || mbi.State != MEM_COMMIT ||
         (mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD))) return false;
     DWORD flags = mbi.Protect & 0xff;
@@ -133,8 +156,13 @@ static u32 *render_cache_slot(void *renderer, u32 node)
 static bool same_writable_allocation(u64 base, u64 target, size_t n)
 {
     MEMORY_BASIC_INFORMATION a = {}, b = {};
-    return page_has((const void *)(uintptr_t)base, 1, true, &a) &&
-           page_has((const void *)(uintptr_t)target, n, true, &b) && a.AllocationBase == b.AllocationBase;
+    if (!page_has((const void *)(uintptr_t)base, 1, true, &a)) return false;
+    // If the target is already covered by the same writable VirtualQuery region, querying it again
+    // cannot add protection or allocation information. Do not cache this across renderer calls.
+    uintptr_t at = (uintptr_t)target, start = (uintptr_t)a.BaseAddress;
+    if ((u64)at == target && at >= start && at - start <= a.RegionSize &&
+        n && n <= a.RegionSize - (at - start)) return true;
+    return page_has((const void *)at, n, true, &b) && a.AllocationBase == b.AllocationBase;
 }
 static void render_cache_preflight(void *renderer, u32 node)
 {
@@ -179,9 +207,14 @@ static bool render_triangle_bad_input(void *query)
     u32 count, stride, base, flags, attr0_offset, attr1_offset;
     if (!query || !page_has(query, 0x98, false) || !add_u64(q, 0xa4, &output) ||
         !page_has((void *)(uintptr_t)output, 1, true)) return false; // unknown input stays the engine's fault
-    if (!load_at(q, 0x78, &vertices) || !load_at(q, 0x70, &indices) || !load_at(q, 0x84, &count) ||
-        !load_at(q, 0x88, &stride) || !load_at(q, 0x94, &base) || !load_at(q, 0x80, &flags) ||
-        !load_at(q, 0x8c, &attr0_offset) || !load_at(q, 0x90, &attr1_offset)) return false;
+    // page_has(query, 0x98) already covered all these fields in one readable region. Re-querying
+    // each one issued eight redundant VirtualQuery calls per triangle, without eliminating the
+    // unmap race; the enclosing SEH still handles a region changed by another thread.
+    const u8 *fields = (const u8 *)query;
+    memcpy(&vertices, fields + 0x78, sizeof vertices); memcpy(&indices, fields + 0x70, sizeof indices);
+    memcpy(&count, fields + 0x84, sizeof count); memcpy(&stride, fields + 0x88, sizeof stride);
+    memcpy(&base, fields + 0x94, sizeof base); memcpy(&flags, fields + 0x80, sizeof flags);
+    memcpy(&attr0_offset, fields + 0x8c, sizeof attr0_offset); memcpy(&attr1_offset, fields + 0x90, sizeof attr1_offset);
     if (!count) return false;                   // native no-hit path never touches indices
     if (count > 0xffffffffu / 12u || !page_has((const void *)(uintptr_t)indices, (size_t)count * 12u, false)) return true;
     if ((flags & 1u) && !add_u64(vertices, attr0_offset, &attr0)) return true;
@@ -202,22 +235,28 @@ static bool render_triangle_bad_input(void *query)
 }
 static void hook_render_cache(void *renderer, u32 node, const void *matrix)
 {
+    LARGE_INTEGER started = {};
+    bool sampled = sample_start(g_cache_sample_seq, &started);
     // A page can be unmapped between VirtualQuery and a preflight load. Do not let a guard-created
     // read crash the game; the original code and narrowly scoped exception handler still get control.
     __try { render_cache_preflight(renderer, node); }
     __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {
         g_preflight_faults.fetch_add(1, std::memory_order_relaxed);
     }
+    if (sampled) sample_end(g_cache_samples, started);
     CacheFn original = g_original_cache.load(std::memory_order_acquire);
     if (original) original(renderer, node, matrix);
 }
 static int hook_render_triangle(void *query)
 {
     bool bad = false;
+    LARGE_INTEGER started = {};
+    bool sampled = sample_start(g_triangle_sample_seq, &started);
     __try { bad = render_triangle_bad_input(query); }
     __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {
         g_preflight_faults.fetch_add(1, std::memory_order_relaxed);
     }
+    if (sampled) sample_end(g_triangle_samples, started);
     if (bad) {
         __try {
             *(u8 *)((u8 *)query + 0xa4) = 0;    // engine's own no-hit result field
@@ -375,8 +414,20 @@ void render_guard_report(DWORD now)
 {
     static DWORD last;
     static u32 node, cache, triangle, preflight;
+    static u64 cache_count, cache_ticks, triangle_count, triangle_ticks;
     if (!g_handler || now - last < 5000) return;
     last = now;
+    u64 cc = g_cache_samples.count.load(std::memory_order_relaxed), ct = g_cache_samples.ticks.load(std::memory_order_relaxed);
+    u64 tc = g_triangle_samples.count.load(std::memory_order_relaxed), tt = g_triangle_samples.ticks.load(std::memory_order_relaxed);
+    LARGE_INTEGER freq = {};
+    if ((cc != cache_count || tc != triangle_count) && QueryPerformanceFrequency(&freq) && freq.QuadPart > 0) {
+        u64 dc = cc - cache_count, dt = tc - triangle_count;
+        double cache_us = dc ? (double)(ct - cache_ticks) * 1000000.0 / (double)freq.QuadPart / (double)dc : 0.0;
+        double tri_us = dt ? (double)(tt - triangle_ticks) * 1000000.0 / (double)freq.QuadPart / (double)dt : 0.0;
+        mp_log("render guard: 1/128 preflight samples: cache %llu avg %.2f us, geometry %llu avg %.2f us (wall time, excludes engine)",
+               (unsigned long long)dc, cache_us, (unsigned long long)dt, tri_us);
+    }
+    cache_count = cc; cache_ticks = ct; triangle_count = tc; triangle_ticks = tt;
     u32 n = g_node_repairs.load(std::memory_order_relaxed), c = g_cache_repairs.load(std::memory_order_relaxed);
     u32 t = g_geometry_skips.load(std::memory_order_relaxed), p = g_preflight_faults.load(std::memory_order_relaxed);
     if (n != node || c != cache || t != triangle || p != preflight) {
@@ -386,6 +437,37 @@ void render_guard_report(DWORD now)
 }
 
 #ifdef NETV21_TEST_HOOKS
+// The previous field-by-field implementation, kept only as a semantic reference for synthetic
+// valid, invalid, protected-boundary and overflow cases; never shipped in the game module.
+static bool triangle_reference(void *query)
+{
+    u64 q = (u64)(uintptr_t)query, output, vertices, indices, attr0 = 0, attr1 = 0;
+    u32 count, stride, base, flags, attr0_offset, attr1_offset;
+    if (!query || !page_has(query, 0x98, false) || !add_u64(q, 0xa4, &output) ||
+        !page_has((void *)(uintptr_t)output, 1, true)) return false;
+    if (!load_at(q, 0x78, &vertices) || !load_at(q, 0x70, &indices) || !load_at(q, 0x84, &count) ||
+        !load_at(q, 0x88, &stride) || !load_at(q, 0x94, &base) || !load_at(q, 0x80, &flags) ||
+        !load_at(q, 0x8c, &attr0_offset) || !load_at(q, 0x90, &attr1_offset)) return false;
+    if (!count) return false;
+    if (count > 0xffffffffu / 12u || !page_has((const void *)(uintptr_t)indices, (size_t)count * 12u, false)) return true;
+    if ((flags & 1u) && !add_u64(vertices, attr0_offset, &attr0)) return true;
+    if ((flags & 2u) && !add_u64(vertices, attr1_offset, &attr1)) return true;
+    ReadCache cache;
+    for (u32 n = 0; n < count; n++) {
+        u32 tri[3]; memcpy(tri, (const void *)(uintptr_t)(indices + (u64)n * 12u), sizeof tri);
+        u32 a = tri[0] + base, b = tri[1] + base, c = tri[2] + base;
+        if (!triangle_vertex_readable(cache, vertices, a, stride) || !triangle_vertex_readable(cache, vertices, b, stride) ||
+            !triangle_vertex_readable(cache, vertices, c, stride)) return true;
+        if ((flags & 1u) && (!triangle_vertex_readable(cache, attr0, a, stride) ||
+                            !triangle_vertex_readable(cache, attr0, b, stride) || !triangle_vertex_readable(cache, attr0, c, stride))) return true;
+        if ((flags & 2u) && (!triangle_vertex_readable(cache, attr1, a, stride) ||
+                            !triangle_vertex_readable(cache, attr1, b, stride) || !triangle_vertex_readable(cache, attr1, c, stride))) return true;
+    }
+    return false;
+}
+void render_test_reset_page_queries() { g_test_page_queries = 0; }
+unsigned render_test_page_queries() { return g_test_page_queries; }
+bool render_test_triangle_reference(void *p) { return triangle_reference(p); }
 // Real guard logic with a synthetic layout. Never compiled into the game module.
 void render_test_layout(void *base) {
     g_walk = (u8 *)base + 0x12fd0; g_node = (u8 *)base + 0x13ab0;

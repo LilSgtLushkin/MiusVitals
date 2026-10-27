@@ -21,6 +21,7 @@
 #include <windows.h>
 #include <stdint.h>
 #include <string.h>
+#include "steam_friends.h"
 
 // A peer that lives inside Steam: sa_family is STEAM_FAMILY, the Steam ID sits at +8, the name
 // at +32.  Same encoding as v20, so a packet can be addressed the same way for both transports.
@@ -55,6 +56,15 @@ uint64_t steam_user_id();
 const char *steam_user_name();   // "" until ready
 uint32_t steam_app_id();
 int steam_friend_count();
+// Friends playing this application (including those whose hosting presence has not arrived yet).
+// Returns the total matching friends; writes at most capacity records. Never connects by itself.
+size_t steam_friends_playing(lobby_friends::Friend *out, size_t capacity, bool request_presence);
+
+// The lobby Joiner and the game session share Steam's one P2P receive queue. The Joiner reserves it
+// while connecting/downloading, so session_frame cannot consume and discard the lobby's replies.
+bool steam_lobby_claim();
+void steam_lobby_release();
+bool steam_lobby_receiving();
 
 // Pump: delivers callbacks and drains P2P packets.  Call once per frame.
 void steam_frame();
@@ -70,6 +80,23 @@ inline bool steam_peer_make(uint64_t id, sockaddr_in *out)
     *out = sockaddr_in();
     out->sin_family = STEAM_FAMILY;
     memcpy(out->sin_zero, &id, sizeof id);
+    return true;
+}
+
+// Strict decimal parsing: reject zero, suffixes, signs and uint64 overflow rather than joining a
+// different peer than the user selected. The stand-in's small numeric IDs remain valid in tests.
+inline bool steam_parse_id(const char *text, uint64_t *id)
+{
+    if (!text || !*text || !id) return false;
+    uint64_t value = 0;
+    for (const char *p = text; *p; ++p) {
+        if (*p < '0' || *p > '9') return false;
+        unsigned digit = (unsigned)(*p - '0');
+        if (value > (UINT64_MAX - digit) / 10) return false;
+        value = value * 10 + digit;
+    }
+    if (!value) return false;
+    *id = value;
     return true;
 }
 
@@ -121,3 +148,6 @@ void steam_test_set_command_line(const char *text);
 void steam_test_join_callback(const char *text, size_t size);
 bool steam_test_callback_abi();
 void steam_test_reset();
+#ifdef NETV21_TEST_HOOKS
+bool steam_test_wait_packet(unsigned timeout_ms); // fake transport only; does not consume the packet
+#endif

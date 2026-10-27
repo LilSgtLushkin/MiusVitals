@@ -33,6 +33,7 @@ struct Joiner {
     char map_file[96] = "";
     unsigned map_turns = 0, map_epoch = 0;
     SOCKET sock = INVALID_SOCKET;
+    bool winsock_started = false, owns_steam_inbox = false;
     sockaddr_in host = {};
     std::vector<unsigned char> image, have;
     std::vector<DWORD> asked;
@@ -49,8 +50,12 @@ struct Joiner {
 
     void close()
     {
+        if (owns_steam_inbox) steam_lobby_release();
+        owns_steam_inbox = false;
         if (sock != INVALID_SOCKET) closesocket(sock);
         sock = INVALID_SOCKET;
+        if (winsock_started) WSACleanup();
+        winsock_started = false;
     }
 
     void cancel()
@@ -59,7 +64,7 @@ struct Joiner {
         state = IDLE;
     }
 
-    bool start(const char *addr)
+    bool start(const char *addr, bool reserve_steam_inbox = true)
     {
         cancel();
         error[0] = 0;
@@ -67,15 +72,19 @@ struct Joiner {
         char name[128];
         strcpy_s(name, addr);
         WSADATA wsa;
-        WSAStartup(MAKEWORD(2, 2), &wsa);
+        if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return fail("Windows networking could not start.");
+        winsock_started = true;
         host = {};
         if (!name[0]) return fail("Enter the host's address first.");
         if (!_strnicmp(name, "steam:", 6)) {
             // A friend's game: the Steam ID is the whole address, and the bytes go through Steam's P2P
             // relay instead of the socket.  Checked before the host:port split, which would otherwise
             // read the ID as a port number.
-            if (!steam_peer_make(_strtoui64(name + 6, 0, 10), &host))
-                return fail("That Steam ID is not a number.");
+            uint64_t id = 0;
+            if (!steam_parse_id(name + 6, &id) || !steam_peer_make(id, &host))
+                return fail("That Steam ID is not a valid number.");
+            if (!steam_ready() && !steam_init())
+                return fail("Steam is not available. Start the game through Steam, or use the IP address.");
         } else {
             unsigned short port = k_default_port;
             if (char *colon = strchr(name, ':')) { *colon = 0; port = (unsigned short)atoi(colon + 1); }
@@ -90,10 +99,22 @@ struct Joiner {
             }
         }
         sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-        u_long nonblocking = 1;
-        ioctlsocket(sock, FIONBIO, &nonblocking);
-        DWORD off = 0, ret = 0;
-        WSAIoctl(sock, _WSAIOW(IOC_VENDOR, 12) /* SIO_UDP_CONNRESET */, &off, sizeof off, 0, 0, &ret, 0, 0);
+        if (sock != INVALID_SOCKET) {
+            u_long nonblocking = 1;
+            if (ioctlsocket(sock, FIONBIO, &nonblocking)) {
+                closesocket(sock);
+                sock = INVALID_SOCKET;
+            } else {
+                DWORD off = 0, ret = 0;
+                WSAIoctl(sock, _WSAIOW(IOC_VENDOR, 12) /* SIO_UDP_CONNRESET */, &off, sizeof off, 0, 0, &ret, 0, 0);
+            }
+        }
+        if (host.sin_family != STEAM_FAMILY && sock == INVALID_SOCKET)
+            return fail("Could not open a nonblocking UDP socket.");
+        if (host.sin_family == STEAM_FAMILY && reserve_steam_inbox) {
+            if (!steam_lobby_claim()) return fail("Another Steam lobby connection is already active.");
+            owns_steam_inbox = true;
+        }
         image.clear();
         have.clear();
         got = 0;

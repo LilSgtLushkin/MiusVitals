@@ -111,6 +111,10 @@ jobs:
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log
           if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\steam_friends_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
           development\net-v21\build\selftest\netlog_selftest.exe >> development\net-v21\build\selftest.log 2>&1
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log
@@ -268,7 +272,7 @@ jobs:
         run: |
           python scripts/package_net_v21_test.py \
             --codelib development/net-v21/build/module/basic_network.codelib \
-            --output MiusMultiplayer_v1.0.3_TEST_INSTALL.zip \
+            --output MiusMultiplayer_v1.0.4_TEST_INSTALL.zip \
             2>&1 | tee development/net-v21/build/package.log
           exit ${PIPESTATUS[0]}
 
@@ -281,7 +285,7 @@ jobs:
           # The archive has to be reachable without the Actions API (artifact downloads are blocked
           # where this build is checked), so it is committed into the branch it was built from and
           # travels to main with the pull request.
-          archive=MiusMultiplayer_v1.0.3_TEST_INSTALL.zip
+          archive=MiusMultiplayer_v1.0.4_TEST_INSTALL.zip
           if [ ! -f "$archive" ]; then echo "no archive was built; nothing to publish"; exit 0; fi
           git config user.name "net-v21 build"
           git config user.email "net-v21-build@users.noreply.github.com"
@@ -339,8 +343,8 @@ jobs:
               echo '</details>'
             fi
             echo
-            if [ -f MiusMultiplayer_v1.0.3_TEST_INSTALL.zip ]; then
-              echo "test installer: MiusMultiplayer_v1.0.3_TEST_INSTALL.zip, sha256 $(sha256sum MiusMultiplayer_v1.0.3_TEST_INSTALL.zip | cut -d' ' -f1)"
+            if [ -f MiusMultiplayer_v1.0.4_TEST_INSTALL.zip ]; then
+              echo "test installer: MiusMultiplayer_v1.0.4_TEST_INSTALL.zip, sha256 $(sha256sum MiusMultiplayer_v1.0.4_TEST_INSTALL.zip | cut -d' ' -f1)"
             else
               echo "test installer: not built"
             fi
@@ -365,6 +369,6 @@ jobs:
           name: network-module
           path: |
             development/net-v21/build/**
-            MiusMultiplayer_v1.0.3_TEST_INSTALL.zip
+            MiusMultiplayer_v1.0.4_TEST_INSTALL.zip
           if-no-files-found: warn
           retention-days: 14

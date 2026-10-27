@@ -7,6 +7,8 @@
 // tested like any other file in the tree.
 #include "steam.h"
 
+#include <atomic>
+#include <stddef.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,7 +34,15 @@ typedef void (*fn_friends_request_presence)(void *friends, csteamid friend_id);
 typedef int (*fn_friends_count)(void *friends, int flags);
 typedef csteamid (*fn_friends_by_index)(void *friends, int index, int flags);
 typedef const char *(*fn_friends_persona_name)(void *friends, csteamid friend_id);
-typedef bool (*fn_friends_game_played)(void *friends, csteamid friend_id, void *info);
+// FriendGameInfo_t from Steamworks is 24 bytes with the lobby ID at +16 on Windows x64.
+struct FriendGameInfo {
+    uint64_t game_id;
+    uint32_t ip;
+    uint16_t game_port, query_port;
+    uint64_t lobby_id;
+};
+static_assert(sizeof(FriendGameInfo) == 24 && offsetof(FriendGameInfo, lobby_id) == 16, "Steam FriendGameInfo ABI");
+typedef bool (*fn_friends_game_played)(void *friends, csteamid friend_id, FriendGameInfo *info);
 
 typedef bool (*fn_net_send)(void *net, csteamid peer, const void *data, uint32_t len,
                             int send_type, int channel);
@@ -146,6 +156,7 @@ static bool g_ready;            // a transport is usable
 static bool g_fake;             // MP_STEAM_FAKE stand-in instead of real Steam
 static bool g_fake_requested;   // do not silently fall back to real Steam after a stand-in error
 static bool g_off;              // MP_STEAM=0: explicitly no Steam
+static std::atomic<bool> g_lobby_inbox(false); // one owner for the menu's Steam receive queue
 static DWORD g_retry_at;         // the game may load/initialise Steam after the network module
 static steam_api g_api;
 static void *g_friends;
@@ -451,8 +462,41 @@ const char *steam_user_name() { return g_ready ? g_persona : ""; }
 uint32_t steam_app_id() { return g_app_id; }
 int steam_friend_count() { return g_friend_count; }
 
+namespace {
+struct SteamFriendsSource {
+    int count() { return g_api.friends_count(g_friends, 4); } // k_EFriendFlagImmediate
+    uint64_t id(int index) { return g_api.friend_by_index(g_friends, index, 4); }
+    bool game(uint64_t id, uint64_t *game_id) {
+        FriendGameInfo info = {};
+        if (!g_api.friend_game_played(g_friends, id, &info)) return false;
+        *game_id = info.game_id;
+        return true;
+    }
+    const char *name(uint64_t id) { return g_api.friend_persona(g_friends, id); }
+    const char *note(uint64_t id) { return g_api.get_presence(g_friends, id, "gtmf"); }
+    void request(uint64_t id) { g_api.request_presence(g_friends, id); }
+};
+}
+size_t steam_friends_playing(lobby_friends::Friend *out, size_t capacity, bool request_presence)
+{
+    if (!g_ready || g_fake || !g_friends || !g_api.friends_count || !g_api.friend_by_index ||
+        !g_api.friend_game_played || !g_api.friend_persona || !g_api.get_presence || !g_api.request_presence)
+        return 0;
+    SteamFriendsSource source;
+    return lobby_friends::collect(source, g_app_id, g_user_id, out, capacity, request_presence);
+}
+
+bool steam_lobby_claim()
+{
+    bool expected = false;
+    return g_lobby_inbox.compare_exchange_strong(expected, true, std::memory_order_acq_rel);
+}
+void steam_lobby_release() { g_lobby_inbox.store(false, std::memory_order_release); }
+bool steam_lobby_receiving() { return g_lobby_inbox.load(std::memory_order_acquire); }
+
 void steam_shutdown()
 {
+    steam_lobby_release();
     if (g_fake_socket != INVALID_SOCKET) {
         closesocket(g_fake_socket);
         g_fake_socket = INVALID_SOCKET;
@@ -687,6 +731,17 @@ bool steam_join_take(uint64_t *id)
 
 const char *steam_join_source() { return g_join_source; }
 
+#ifdef NETV21_TEST_HOOKS
+bool steam_test_wait_packet(unsigned timeout_ms)
+{
+    if (!g_fake || g_fake_socket == INVALID_SOCKET) return false;
+    fd_set readable;
+    FD_ZERO(&readable); FD_SET(g_fake_socket, &readable);
+    timeval timeout = { (long)(timeout_ms / 1000), (long)((timeout_ms % 1000) * 1000) };
+    return select(0, &readable, nullptr, nullptr, &timeout) > 0;
+}
+#endif
+
 void steam_test_set_command_line(const char *text) { steam_note_command_line(text); }
 
 void steam_test_join_callback(const char *text, size_t size)
@@ -739,6 +794,7 @@ bool steam_test_callback_abi()
 
 void steam_test_reset()
 {
+    steam_lobby_release();
     g_initialised = false;
     g_ready = false;
     g_fake = false;

@@ -27,7 +27,11 @@ static char g_autojoin[128];     // back from the operational map: rejoin this h
 static DWORD g_block_until, g_exit_at, g_frames;
 static Joiner g_joiner;
 static char g_address[64], g_root[MAX_PATH], g_message[200];
-enum Action { ACT_NONE, ACT_OPEN, ACT_HOST_SKIRMISH, ACT_HOST_MISSION, ACT_HOST_OPERATION, ACT_CONNECT, ACT_LEAVE, ACT_SETUP, ACT_SWAP,
+static lobby_friends::Friend g_join_friends[256];
+static size_t g_join_friend_count, g_join_friend_total, g_join_friend_page;
+static DWORD g_join_friends_at;
+static uint64_t g_chosen_friend;
+enum Action { ACT_NONE, ACT_OPEN, ACT_HOST_SKIRMISH, ACT_HOST_MISSION, ACT_HOST_OPERATION, ACT_CONNECT, ACT_CONNECT_STEAM, ACT_LEAVE, ACT_SETUP, ACT_SWAP,
               ACT_READY, ACT_BACK, ACT_RESTORE, ACT_MAP_GIVE, ACT_MAP_CANCEL };
 static Action g_action;      // chosen while drawing, carried out in the next logic pass (never inside the render pipeline)
 static int g_action_arg;
@@ -179,12 +183,16 @@ static TextTex *text_tex(IDirect3DDevice9 *dev, const char *s, int px, bool bold
 
     TextTex t = { 0, 0, 0 };
     HDC dc = CreateCompatibleDC(0);
-    HFONT font = CreateFontA(-px, 0, 0, 0, bold ? FW_BOLD : FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, OUT_TT_PRECIS,
-                             CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, "Segoe Print");
+    HFONT font = CreateFontW(-px, 0, 0, 0, bold ? FW_BOLD : FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, OUT_TT_PRECIS,
+                             CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, L"Segoe Print");
     HGDIOBJ old_font = SelectObject(dc, font);
+    // Steam persona names are UTF-8; using the Windows ANSI code page garbles Cyrillic names.
+    wchar_t wide[512] = {};
+    int chars = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, s, -1, wide, (int)(sizeof wide / sizeof wide[0]));
+    if (!chars) chars = MultiByteToWideChar(CP_ACP, 0, s, -1, wide, (int)(sizeof wide / sizeof wide[0]));
+    int len = chars > 0 ? chars - 1 : 0;
     SIZE sz = { 0, 0 };
-    int len = (int)strlen(s);
-    GetTextExtentPoint32A(dc, s, len, &sz);
+    GetTextExtentPoint32W(dc, wide, len, &sz);
     int w = sz.cx + 4, h = sz.cy + 2;
     if (w > 0 && h > 0 && w <= 4096) {
         BITMAPINFO bi = {};
@@ -200,7 +208,7 @@ static TextTex *text_tex(IDirect3DDevice9 *dev, const char *s, int px, bool bold
             memset(bits, 0, (size_t)w * h * 4);
             SetTextColor(dc, RGB(255, 255, 255));
             SetBkMode(dc, TRANSPARENT);
-            TextOutA(dc, 2, 1, s, len);
+            TextOutW(dc, 2, 1, wide, len);
             GdiFlush();
             if (SUCCEEDED(dev->CreateTexture(w, h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &t.tex, 0))) {
                 D3DLOCKED_RECT lr;
@@ -445,6 +453,26 @@ void ui_start(ObjMan *)
     else g_autojoin[0] = 0;
 }
 
+static void refresh_join_friends(DWORD now)
+{
+    if (!steam_ready()) {
+        g_join_friend_count = g_join_friend_total = g_join_friend_page = 0;
+        g_join_friends_at = 0;
+        return;
+    }
+    if (g_join_friends_at && now - g_join_friends_at < 5000) return;
+    g_join_friends_at = now ? now : 1;
+    size_t old_total = g_join_friend_total;
+    const size_t capacity = sizeof g_join_friends / sizeof g_join_friends[0];
+    g_join_friend_total = steam_friends_playing(g_join_friends, capacity, true);
+    g_join_friend_count = g_join_friend_total < capacity ? g_join_friend_total : capacity;
+    const size_t per_page = 3;
+    size_t pages = (g_join_friend_count + per_page - 1) / per_page;
+    if (!pages || g_join_friend_page >= pages) g_join_friend_page = pages ? pages - 1 : 0;
+    if (g_join_friend_total != old_total)
+        mp_log("ui: Steam friends playing this game: %zu (%zu shown)", g_join_friend_total, g_join_friend_count);
+}
+
 void ui_frame(ObjMan *om)
 {
     g_frames++;
@@ -475,7 +503,7 @@ void ui_frame(ObjMan *om)
     // A friend pressed Join Game in Steam (or the game was started with +gtmf_join=steam:<id>): v20
     // goes into that lobby from the main menu, and so does this.  Only from the main menu - a game
     // that is already in a battle or on the map must not be dragged out of it.
-    if (g_on_main_menu && g_screen == SCR_NONE && g_frames > 45) {
+    if (g_on_main_menu && g_screen == SCR_NONE && g_frames > 45 && session_role() == ROLE_NONE) {
         uint64_t steam_join = 0;
         if (steam_join_take(&steam_join)) {
             sprintf_s(g_address, "steam:%llu", (unsigned long long)steam_join);
@@ -487,7 +515,7 @@ void ui_frame(ObjMan *om)
             g_joiner.swap_req = 0;
             strcpy_s(g_joiner.my_name, session_my_name());
             if (g_joiner.start(g_address)) { g_lobby_host = false; g_screen = SCR_LOBBY; }
-            else strcpy_s(g_message, g_joiner.error);
+            else { strcpy_s(g_message, g_joiner.error); g_screen = SCR_JOIN; }
         }
     }
     // back from a turn on the operational map: into the host's lobby again, ready for the battles
@@ -500,7 +528,8 @@ void ui_frame(ObjMan *om)
         g_joiner.lobby_ready = true;
         g_joiner.swap_req = 0;
         strcpy_s(g_joiner.my_name, session_my_name());
-        if (g_joiner.start(g_address)) { g_lobby_host = false; g_screen = SCR_LOBBY; }
+        // Do not take the existing operation-map session's queue: M5 keeps its previous ownership.
+        if (g_joiner.start(g_address, !session_map_mode())) { g_lobby_host = false; g_screen = SCR_LOBBY; }
     }
     // While a turn is being ended nothing is drawn over the map - the players want to see the moves being
     // made; the line at the top says what is going on. The map only takes no clicks for the moment in
@@ -509,6 +538,13 @@ void ui_frame(ObjMan *om)
     bool hosting = session_role() == ROLE_HOST;
     Action act = g_action;
     g_action = ACT_NONE;
+    if (act == ACT_CONNECT_STEAM) {
+        if (g_chosen_friend) {
+            sprintf_s(g_address, "steam:%llu", (unsigned long long)g_chosen_friend);
+            g_chosen_friend = 0;
+            act = ACT_CONNECT;
+        } else act = ACT_NONE;
+    }
     if (act == ACT_OPEN) {
         g_message[0] = 0;
         g_lobby_host = hosting;
@@ -563,6 +599,7 @@ void ui_frame(ObjMan *om)
 
     bool escape = focused && key_pressed(VK_ESCAPE);
     if (g_screen == SCR_JOIN) {
+        refresh_join_friends(GetTickCount());
         if (focused) type_address();
         if (focused && key_pressed(VK_RETURN)) g_action = ACT_CONNECT;
         if (escape) g_action = ACT_BACK;
@@ -728,7 +765,9 @@ static void draw_lobby(float cx, float px, float py, float pw, float ph)
                 if (button(g_joiner.lobby_ready ? "NOT READY" : "READY", left, r1, hw, bh)) g_action = ACT_READY;
                 if (button("SWAP SIDES", right, r1, hw, bh)) g_action = ACT_SWAP;
             }
-            const char *hint = !peer_here ? (g_joiner.waited_seconds() >= 8 ? "No answer yet. Check the address and that UDP port 1943 reaches the host." : "")
+            const char *hint = !peer_here ? (g_joiner.waited_seconds() >= 8 ?
+                                 (g_joiner.host.sin_family == STEAM_FAMILY ? "No answer yet. Check that your friend is hosting and Steam is online." :
+                                  "No answer yet. Check the address and that UDP port 1943 reaches the host.") : "")
                              : !g_joiner.lobby_ready ? (g_joiner.host_in_battle ? "The host is in the battle. Press READY to enter it." : "Press READY when you are; the battle starts when the host starts it.")
                              : "Ready. Waiting for the host to start the battle...";
             text(hint, cx, r2 + 22 * s, 17, g_joiner.lobby_ready ? good : wait);
@@ -753,20 +792,54 @@ static void draw_menu(void)
         if (button("HOST A SKIRMISH", cx, y, bw, bh)) g_action = ACT_HOST_SKIRMISH;
         if (button("HOST A CUSTOM MISSION", cx, y + gap, bw, bh)) g_action = ACT_HOST_MISSION;
         if (button("HOST AN OPERATION", cx, y + 2 * gap, bw, bh)) g_action = ACT_HOST_OPERATION;
-        if (button("JOIN A GAME", cx, y + 3 * gap, bw, bh)) { g_message[0] = 0; g_screen = SCR_JOIN; }
+        if (button("JOIN A GAME", cx, y + 3 * gap, bw, bh)) {
+            g_message[0] = 0; g_join_friends_at = 0; g_join_friend_page = 0; g_screen = SCR_JOIN;
+        }
         if (button("BACK", cx, y + 4 * gap, bw, bh)) g_action = ACT_BACK;
     } else if (g_screen == SCR_JOIN) {
-        text("JOIN A GAME", cx, py + 34 * s, 40, k_ink, 1, true);
-        text("Host address (type it, or Ctrl+V to paste)", cx, py + 104 * s, 20, k_edge);
-        float fw = 560 * s, fh = 70 * s, fx = cx - fw / 2, fy = y + 6 * s;
+        text("JOIN A GAME", cx, py + 28 * s, 40, k_ink, 1, true);
+        text("Host address (type it, or Ctrl+V to paste)", cx, py + 88 * s, 19, k_edge);
+        float fw = 560 * s, fh = 56 * s, fx = cx - fw / 2, fy = py + 120 * s;
         quad(fx, fy, fw, fh, 0xfffffbf0);
         frame(fx, fy, fw, fh, 2 * s, k_edge);
         char shown[80];
         sprintf_s(shown, "%s%s", g_address, (GetTickCount() / 500) % 2 ? "_" : " ");
-        text(shown, fx + 18 * s, fy + fh / 2 - 21 * s, 26, k_ink, 0);
-        if (button("CONNECT", cx, y + gap, bw, bh)) g_action = ACT_CONNECT;
-        if (button("BACK", cx, y + 2 * gap, bw, bh)) g_action = ACT_BACK;
-        text(g_message, cx, py + ph - 60 * s, 17, 0xff8a1c10);
+        text(shown, fx + 18 * s, fy + fh / 2 - 18 * s, 22, k_ink, 0);
+        if (button("CONNECT BY ADDRESS", cx, py + 188 * s, bw, 56 * s, 21)) g_action = ACT_CONNECT;
+        text("STEAM FRIENDS PLAYING THIS GAME", cx, py + 262 * s, 19, k_edge, 1, true);
+        const size_t per_page = 3;
+        if (!steam_ready()) {
+            text("Steam unavailable: use the address above.", cx, py + 330 * s, 18, k_edge);
+        } else if (!g_join_friends_at) {
+            text("Looking for friends...", cx, py + 330 * s, 18, k_edge);
+        } else if (!g_join_friend_count) {
+            text("No friends playing this game were found.", cx, py + 330 * s, 18, k_edge);
+            text("The host should start the game through Steam.", cx, py + 358 * s, 16, k_edge);
+        } else {
+            for (size_t row = 0; row < per_page; ++row) {
+                size_t index = g_join_friend_page * per_page + row;
+                if (index >= g_join_friend_count) break;
+                const lobby_friends::Friend &f = g_join_friends[index];
+                char label[128], name[38];
+                lobby_friends::copy_name(name, f.name);
+                if (name[0]) sprintf_s(label, "%s%s%s", name, strlen(f.name) > strlen(name) ? "..." : "",
+                                      f.hosting ? "  [HOSTING]" : "  [PLAYING]");
+                else sprintf_s(label, "Steam %llu%s", (unsigned long long)f.id, f.hosting ? "  [HOSTING]" : "  [PLAYING]");
+                if (button(label, cx, py + (302 + row * 58) * s, bw, 50 * s, 19)) {
+                    g_chosen_friend = f.id; g_action = ACT_CONNECT_STEAM;
+                }
+            }
+            size_t pages = (g_join_friend_count + per_page - 1) / per_page;
+            char page[80];
+            sprintf_s(page, "Page %zu / %zu%s", g_join_friend_page + 1, pages,
+                      g_join_friend_total > g_join_friend_count ? " (first 256)" : "");
+            text(page, cx, py + 486 * s, 16, k_edge);
+            if (g_join_friend_page && button("PREVIOUS", cx - 190 * s, py + 478 * s, 160 * s, 42 * s, 16)) --g_join_friend_page;
+            if (g_join_friend_page + 1 < pages && button("NEXT", cx + 190 * s, py + 478 * s, 160 * s, 42 * s, 16)) ++g_join_friend_page;
+        }
+        text("Choose a friend to connect through Steam.", cx, py + 535 * s, 16, k_edge);
+        if (button("BACK", cx, py + 570 * s, bw, 56 * s, 21)) g_action = ACT_BACK;
+        text(g_message, cx, py + ph - 55 * s, 15, 0xff8a1c10);
     } else if (g_screen == SCR_MAPWAIT) {
         draw_map_wait(cx, py, bw, bh);
     } else {

@@ -777,8 +777,15 @@ static DWORD WINAPI upnp_thread(LPVOID)
 
 // ---------------------------------------------------------------- start / stop
 #ifdef NETV21_TEST_HOOKS
-static bool g_test_no_udp;
+static bool g_test_no_udp, g_test_no_upnp;
 void session_test_disable_udp(bool value) { g_test_no_udp = value; }
+void session_test_disable_upnp(bool value) { g_test_no_upnp = value; }
+void session_test_lobby_image()
+{
+    g_image.resize(k_chunk * 2 + 117);
+    for (size_t i = 0; i < g_image.size(); ++i) g_image[i] = (unsigned char)((i * 37u + 11u) & 255u);
+    g_image_hash = fnv(g_image.data(), g_image.size());
+}
 #endif
 static bool open_socket(unsigned short port)
 {
@@ -818,6 +825,9 @@ static void host_listen(void)
     }
     g_bind_pending = false;
     mp_log("net: hosting %son %s UDP %u", g_tactical ? "battle " : "", g_local_ip, g_port);
+#ifdef NETV21_TEST_HOOKS
+    if (g_test_no_upnp) return; // no real router changes in the two-process loopback test
+#endif
     if (!g_upnp_started) {
         g_upnp_started = true;
         CloseHandle(CreateThread(0, 0, upnp_thread, 0, 0, 0));
@@ -2891,6 +2901,12 @@ void session_frame(ObjMan *om)
 {
     DWORD now = GetTickCount();
     g_prof_frames++;
+    // Publish battle state at most once a second rather than taking another log lock every frame.
+    static DWORD last_log_state;
+    if (g_tactical && (!last_log_state || now - last_log_state >= 1000)) {
+        last_log_state = now ? now : 1;
+        netlog_state((int)g_phase, (unsigned)g_sim_ms, g_connected ? 1 : 0, g_user_side);
+    }
     netlog_frame();
     steam_tick();
     // Retry a failed advertisement and recover if the game's other process briefly cleared the
@@ -2906,10 +2922,10 @@ void session_frame(ObjMan *om)
     if (g_tactical && g_role != ROLE_NONE) trench_install();
     shorten_battle_for_tests(om);
     if (g_role == ROLE_HOST && g_bind_pending && now - g_last_bind_try >= 500) host_listen();
-    // Steam's P2P packets arrive through Steam, not through the socket, so they are drained here and
-    // turned into the same on_packet() call the UDP path makes - the header, the version check and
-    // every handler above stay identical for both transports.
-    if (steam_ready()) {
+    // The menu Joiner and this session share one Steam P2P queue. While the Joiner has reserved
+    // it, only the Joiner may read its WELCOME/IMAGE_DATA; otherwise this earlier frame would eat
+    // and discard those packets before ui_frame calls Joiner::poll(). UDP keeps its own socket.
+    if (steam_ready() && !steam_lobby_receiving()) {
         uint64_t from_id = 0;
         for (int guard = 0; guard < 64; guard++) {
             unsigned char steam_buf[2048];
@@ -3021,10 +3037,11 @@ void session_frame(ObjMan *om)
             else if (g_role == ROLE_HOST)
                 mp_log("clock: battle time %.1f s, in the other game %.1f s (time scaled by %.2f to wait for it)",
                        g_sim_ms / 1000.0, g_peer_sim_ms / 1000.0, g_clock_factor);
-            mp_log("load: 5 s: %u frames, %u simulation steps covering %u ms, %.0f ms saving state, %.0f ms loading state, window %s",
-                   g_prof_frames, g_prof_steps, g_prof_step_ms, g_prof_save * 1000, g_prof_load * 1000,
-                   GetForegroundWindow() == main_window() ? "in front" : "in the background");
         }
+        if (g_tactical && g_role != ROLE_NONE)
+            mp_log("load: 5 s: %u network ticks (not FPS), %u simulation steps covering %u ms, %.0f ms saving state, %.0f ms loading state, peer %s",
+                   g_prof_frames, g_prof_steps, g_prof_step_ms, g_prof_save * 1000, g_prof_load * 1000,
+                   g_connected ? "connected" : "absent");
         g_prof_frames = g_prof_steps = g_prof_step_ms = 0;
         g_prof_save = g_prof_load = 0;
         g_last_report = now;

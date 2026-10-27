@@ -73,14 +73,14 @@ def main() -> int:
         text = run(ours)
         check("1111111111111111" not in text and "aaaaaaaaaaaaaaaa" in text,
               "a single log reports the image hash it ran from")
-        check("shots fired here and sent: **16**" in text, "and its own shot totals")
+        check("event records transmitted (including retries): **16**" in text, "and accurately labels transmissions")
         check("nothing to compare them with" in text, "and says there is nothing to compare against")
 
         theirs.write_text(log("aaaaaaaaaaaaaaaa", [2, 6, 10, 14], [4, 8, 12, 16]))
         text = run(ours, theirs)
-        check("| our launches | 16 | 16 | agrees |" in text,
-              "two logs of the same battle agree on the launches that arrived")
-        check("0 direction(s) lost something" in text, "and report nothing lost")
+        check("| our event records | 16 | 16 | counts match |" in text,
+              "two logs can have matching event counts")
+        check("0 direction(s) have different counts" in text, "and report matching counts without inferring delivery")
         check("different builds" not in text, "the same build on both machines is not flagged")
 
         theirs.write_text(log("bbbbbbbbbbbbbbbb", [2, 6, 10, 14], [4, 8, 12, 16]))
@@ -88,13 +88,27 @@ def main() -> int:
         check("different builds" in text and "bbbbbbbbbbbbbbbb" in text,
               "two different builds are called out loudly, with both hashes")
 
-        # they fired 12 launches, all of which arrived; two of our 16 did not
+        # Different counts may be retransmissions or different log windows, not necessarily loss.
         ours.write_text(log("aaaaaaaaaaaaaaaa", [4, 8, 12, 16], [2, 6, 10, 12]))
         theirs.write_text(log("aaaaaaaaaaaaaaaa", [2, 6, 10, 12], [4, 8, 12, 14]))
         text = run(ours, theirs)
-        check("| our launches | 16 | 14 | **2 did not arrive** |" in text,
-              "a launch that never arrived is counted as lost, with the number")
-        check("1 direction(s) lost something" in text, "and the directions that lost something are counted")
+        check("| our event records | 16 | 14 | **2 fewer at peer** |" in text,
+              "a counter difference is reported without diagnosing packet loss")
+        check("1 direction(s) have different counts" in text and "do not prove packet loss" in text,
+              "and the report explains why a mismatch is not proof of loss")
+
+        legacy = log("aaaaaaaaaaaaaaaa", [1], [1]).replace("state_loaded=0", "trench_sent=37 state_loaded=0")
+        ours.write_text(legacy)
+        text = run(ours)
+        check("**37** / **unknown (legacy log)**" in text and "dug locally" in text,
+              "legacy trench_sent is local digging, not proof of sending")
+        text = run(ours, theirs)
+        check("Legacy `trench_sent`" in text and "our trenches queued / applied" not in text,
+              "legacy trench totals are never compared as network traffic")
+        modern = legacy.replace("trench_sent=37", "trench_dug=37 trench_queued=3")
+        ours.write_text(modern)
+        text = run(ours)
+        check("**37** / **3**" in text, "modern counters separate local digging and queueing")
 
         theirs.write_text(log("aaaaaaaaaaaaaaaa", [2, 6, 10, 14], [4, 8, 12, 16], rejected=1))
         text = run(ours, theirs)

@@ -101,6 +101,17 @@ int main()
     check(!steam_peer_make(0, &plain) && !steam_peer_make(1, nullptr),
           "an empty ID or no address is refused");
     check(steam_peer_id(&plain) == 0, "and a UDP peer has no Steam ID");
+    uint64_t parsed = 0;
+    check(steam_parse_id("76561198000000042", &parsed) && parsed == 76561198000000042ULL,
+          "a decimal Steam ID is parsed exactly");
+    check(!steam_parse_id("0", &parsed) && !steam_parse_id("42extra", &parsed) &&
+          !steam_parse_id("-1", &parsed) && !steam_parse_id("18446744073709551616", &parsed),
+          "zero, suffixes, signs and overflowing Steam IDs are rejected");
+    check(steam_lobby_claim() && steam_lobby_receiving() && !steam_lobby_claim(),
+          "the lobby exclusively reserves the shared Steam receive queue");
+    steam_lobby_release();
+    check(!steam_lobby_receiving() && steam_lobby_claim(), "the queue is reusable after a lobby leaves");
+    steam_lobby_release();
 
     // ---- 4. presence in stand-in mode is a note, never a failure
     check(steam_presence("17 cloud"), "presence is recorded in stand-in mode");

@@ -405,6 +405,8 @@ static void frame_pacing(void)
     static LARGE_INTEGER freq, last;
     static PaceSlot *slots, *mine;
     static DWORD window_start, frames, others;
+    static DWORD diag_start, diag_ticks, diag_front, diag_background, diag_unknown, diag_sleeps;
+    static unsigned long long diag_sleep_ticks;
     static float slowest_other = 1000;
     if (bg_cap < 0) {
         char v[16];
@@ -415,10 +417,18 @@ static void frame_pacing(void)
         HANDLE map = CreateFileMappingA(INVALID_HANDLE_VALUE, 0, PAGE_READWRITE, 0, sizeof(PaceSlot) * k_pace_slots, "Local\\gtmf_mp_frame_pacing");
         if (map) slots = (PaceSlot *)MapViewOfFile(map, FILE_MAP_ALL_ACCESS, 0, 0, 0);
         window_start = GetTickCount();
+        diag_start = window_start;
     }
     HWND w = main_window();
     bool front = w && GetForegroundWindow() == w;
     DWORD tick = GetTickCount();
+    bool diagnose = !strcmp(g_program, "tacgame");
+    if (diagnose) {
+        ++diag_ticks;
+        if (!w) ++diag_unknown;
+        else if (front) ++diag_front;
+        else ++diag_background;
+    }
     frames++;
     if (tick - window_start >= 500) {
         float fps = frames * 1000.0f / (tick - window_start);
@@ -454,11 +464,27 @@ static void frame_pacing(void)
     if (cap > 0) {
         double elapsed = (double)(now.QuadPart - last.QuadPart) / freq.QuadPart, want = 1.0 / cap;
         if (elapsed < want) {
+            LARGE_INTEGER before_sleep = now;
             Sleep((DWORD)((want - elapsed) * 1000));
             QueryPerformanceCounter(&now);
+            if (diagnose && now.QuadPart >= before_sleep.QuadPart) {
+                ++diag_sleeps;
+                diag_sleep_ticks += (unsigned long long)(now.QuadPart - before_sleep.QuadPart);
+            }
         }
     }
     last = now;
+    if (diagnose && tick - diag_start >= 5000) {
+        DWORD interval = tick - diag_start;
+        double slept_ms = freq.QuadPart > 0 ? (double)diag_sleep_ticks * 1000.0 / (double)freq.QuadPart : 0.0;
+        mp_log("pacing: %lu ms, %lu network ticks (%.1f/s, not FPS), focus front/background/unknown %lu/%lu/%lu, current cap %.1f, other instances %lu, Sleep calls %lu wall %.1f ms",
+               (unsigned long)interval, (unsigned long)diag_ticks, diag_ticks * 1000.0 / interval,
+               (unsigned long)diag_front, (unsigned long)diag_background, (unsigned long)diag_unknown,
+               cap, (unsigned long)others, (unsigned long)diag_sleeps, slept_ms);
+        diag_start = tick;
+        diag_ticks = diag_front = diag_background = diag_unknown = diag_sleeps = 0;
+        diag_sleep_ticks = 0;
+    }
 }
 
 // ---------------------------------------------------------------- the network object
@@ -572,9 +598,35 @@ static void on_tick(Object *o, void *msg)
         session_start(o->objman);
         ui_start(o->objman);
     }
+    // Sample the module's own menu/session work separately from engine rendering and Sleep.
+    static DWORD perf_since;
+    static unsigned perf_samples;
+    static unsigned long long perf_session, perf_ui;
+    static LARGE_INTEGER perf_freq;
+    bool sample = !strcmp(g_program, "tacgame") && (n->ticks & 31u) == 0;
+    LARGE_INTEGER t0 = {}, t1 = {}, t2 = {};
+    if (sample) sample = QueryPerformanceCounter(&t0) != 0;
     session_frame(o->objman);
+    if (sample) sample = QueryPerformanceCounter(&t1) != 0;
     ui_frame(o->objman);
+    if (sample && QueryPerformanceCounter(&t2) && t1.QuadPart >= t0.QuadPart && t2.QuadPart >= t1.QuadPart) {
+        ++perf_samples;
+        perf_session += (unsigned long long)(t1.QuadPart - t0.QuadPart);
+        perf_ui += (unsigned long long)(t2.QuadPart - t1.QuadPart);
+    }
     frame_pacing();
+    DWORD perf_now = GetTickCount();
+    if (!perf_since) perf_since = perf_now ? perf_now : 1;
+    if (!strcmp(g_program, "tacgame") && perf_now - perf_since >= 5000) {
+        if (!perf_freq.QuadPart) QueryPerformanceFrequency(&perf_freq);
+        if (perf_samples && perf_freq.QuadPart > 0) {
+            double scale = 1000000.0 / ((double)perf_freq.QuadPart * perf_samples);
+            mp_log("module load: 1/32 network ticks sampled %u, session avg %.2f us, UI avg %.2f us (wall time, excludes pacing and engine)",
+                   perf_samples, perf_session * scale, perf_ui * scale);
+        }
+        perf_since = perf_now;
+        perf_samples = 0; perf_session = perf_ui = 0;
+    }
     // Lockstep only: lock the simulation clock (no automatic speed adjustment, speed x1). With the fixed
     // frame time this makes every frame advance the battle by exactly the same step on every machine.
     // Never done in ordinary single-player use, where the player's speed buttons must keep working.

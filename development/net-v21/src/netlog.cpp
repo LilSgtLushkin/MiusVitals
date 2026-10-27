@@ -215,9 +215,9 @@ void netlog_open(HMODULE self, const char *program, const char *out_dir)
         fclose(image);
     }
 
-    sprintf_s(g_identity, sizeof g_identity, "net_v21 v1.0.3-test, %s %s, program %s; image %s, %llu bytes, fnv1a64 %016llx, pe stamp %08lx",
+    sprintf_s(g_identity, sizeof g_identity, "net_v21 v1.0.4-test, %s %s, program %s; image %s, %llu bytes, fnv1a64 %016llx, pe stamp %08lx",
               __DATE__, __TIME__, program, path, size, hash, pe_stamp(self));
-    write_line("boot", "=== net_v21: our own network module, v1.0.3-test ===");
+    write_line("boot", "=== net_v21: our own network module, v1.0.4-test ===");
 #ifdef _MSC_VER
     write_line("boot", "build: compiled %s %s, MSVC %d", __DATE__, __TIME__, (int)_MSC_VER);
 #else
@@ -239,6 +239,7 @@ void netlog_open(HMODULE self, const char *program, const char *out_dir)
                env_or("MP_SYNC_SHOTS", "<unset>"), env_or("MP_LOG_SHOTS", "<unset>"),
                env_or("MP_SYNC_HITS", "<unset>"), env_or("MP_LOG_HITS", "<unset>"),
                env_or("MP_SYNC_ANIM", "<unset>"));
+    write_line("boot", "pacing flags: MP_BG_FPS=%s MP_FG_FPS=%s", env_or("MP_BG_FPS", "<unset>"), env_or("MP_FG_FPS", "<unset>"));
     write_line("boot", "feature status: hit and soldier animation replication are not implemented in this candidate");
     write_line("boot", "log: %s (previous run kept as .prev.log)", g_path);
     unlock();

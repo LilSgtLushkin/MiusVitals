@@ -5,7 +5,7 @@ Why a separate archive and not a new release
 --------------------------------------------
 The module built in `development/net-v21/` is our own candidate, but hit/animation replication and
 its `mp_vitals.dll` integration are not complete. Shipping it as the default would replace working
-functionality from the proven v1.0.1 module. This is a test archive, not a full 1.0.3 release.
+functionality from the proven v1.0.1 module. This is a test archive, not a full 1.0.4 release.
 
 So this archive installs exactly what v1.0.1 installs - the same bytes, checked against the same
 hashes - and carries our module in `net_v21/` beside it, with a switch script and a one-click way
@@ -16,8 +16,8 @@ The candidate logs identity, traffic and battle counters into `out/net_v21_<prog
 The archive includes a log collector and preserves the known-good rollback separately.
 
     python scripts/package_net_v21_test.py --codelib build/module/basic_network.codelib \
-        --output MiusMultiplayer_v1.0.3_TEST_INSTALL.zip
-    python scripts/package_net_v21_test.py --verify MiusMultiplayer_v1.0.3_TEST_INSTALL.zip
+        --output MiusMultiplayer_v1.0.4_TEST_INSTALL.zip
+    python scripts/package_net_v21_test.py --verify MiusMultiplayer_v1.0.4_TEST_INSTALL.zip
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ import re
 import struct
 import zipfile
 
-VERSION = "1.0.3"
+VERSION = "1.0.4"
 ROOT = "MiusMultiplayer"
 PROVEN = Path("development/unified-fps-kit-source")
 KIT = Path("development/net-v21-kit")

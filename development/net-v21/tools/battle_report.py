@@ -16,8 +16,8 @@ What it reports:
 * the connection: who joined whom, with which sides;
 * a timeline of the counters that matter (shots sent/received, object states loaded/rejected,
   trenches), every five seconds, side by side where they should agree;
-* the divergences, stated as numbers: "shots sent 40, the other game received 38 - two launches never
-  arrived" rather than a wall of log lines.
+* differences between observed counters, with caveats: retransmissions, distinct counting points and
+  unequal log windows mean those differences do not by themselves prove packet loss.
 
 Nothing here is guessed: if a line does not parse it is counted as unparsed and left out, so a report
 built from a half-written log says so instead of inventing a battle.
@@ -152,7 +152,7 @@ def first_phase(log: Log, phase: int) -> float | None:
 def side_by_side(ours: Log, theirs: Log | None, out: list[str]) -> None:
     out += ["## The battle, every five seconds", ""]
     if theirs is None:
-        out += ["| at | phase | sim | peers | frames | rx/tx packets | counters |",
+        out += ["| at | phase | sim | peers | network ticks (not FPS) | rx/tx packets | counters |",
                 "|---|---|---|---|---|---|---|"]
         for sample in ours.samples:
             counters = " ".join(f"{k}={v}" for k, v in sorted(sample.counters.items()))
@@ -195,11 +195,13 @@ def divergences(ours: Log, theirs: Log | None, out: list[str]) -> None:
     if theirs is None:
         out += ["One log: the numbers below are this game's own counts, nothing to compare them with.",
                 "",
-                f"* shots fired here and sent: **{mine.get('shots_sent', 0)}**",
-                f"* shots received and fired here: **{mine.get('shots_in', 0)}**",
+                f"* event records transmitted (including retries): **{mine.get('shots_sent', 0)}**",
+                f"* new event records accepted from peer: **{mine.get('shots_in', 0)}**",
                 f"* object states loaded / rejected: **{mine.get('state_loaded', 0)}** / "
                 f"**{mine.get('state_rejected', 0)}**",
-                f"* trenches dug and sent / applied from the peer: **{mine.get('trench_sent', 0)}** / "
+                f"* trenches dug locally / queued for the peer / applied from the peer: "
+                f"**{mine.get('trench_dug', mine.get('trench_sent', 0))}** / "
+                f"**{mine.get('trench_queued', 0) if 'trench_sent' not in mine else 'unknown (legacy log)'}** / "
                 f"**{mine.get('trench_applied', 0)}**",
                 f"* Steam datagrams sent / received: **{mine.get('steam_sent', 0)}** / "
                 f"**{mine.get('steam_received', 0)}**",
@@ -208,42 +210,45 @@ def divergences(ours: Log, theirs: Log | None, out: list[str]) -> None:
 
     other = totals(theirs)
     problems = 0
-    # Each row is one direction of one kind of traffic: what a game sent, and what the other game
-    # counted on arrival.  Those two numbers are supposed to be equal; when they are not, the
-    # difference is what the wire ate, and it is the first place to look.
+    # These are observations at different counting points, not an end-to-end loss measurement.
+    # shots_sent includes retransmissions; shots_in counts newly accepted records. Legacy
+    # trench_sent counted local digging even with no peer and must never be presented as traffic.
     rows = [
-        ("our launches", mine.get("shots_sent", 0), other.get("shots_in", 0)),
-        ("their launches", other.get("shots_sent", 0), mine.get("shots_in", 0)),
-        ("our trenches", mine.get("trench_sent", 0), other.get("trench_applied", 0)),
-        ("their trenches", other.get("trench_sent", 0), mine.get("trench_applied", 0)),
+        ("our event records", mine.get("shots_sent", 0), other.get("shots_in", 0)),
+        ("their event records", other.get("shots_sent", 0), mine.get("shots_in", 0)),
         ("our Steam datagrams", mine.get("steam_sent", 0), other.get("steam_received", 0)),
         ("their Steam datagrams", other.get("steam_sent", 0), mine.get("steam_received", 0)),
     ]
-    out += ["| direction | sent | received | difference |", "|---|---|---|---|"]
+    if "trench_sent" not in mine and "trench_sent" not in other:
+        rows.extend([
+            ("our trenches queued / applied", mine.get("trench_queued", 0), other.get("trench_applied", 0)),
+            ("their trenches queued / applied", other.get("trench_queued", 0), mine.get("trench_applied", 0)),
+        ])
+    else:
+        out += ["Legacy `trench_sent` counts local digging, including with no peer; "
+                "it cannot be compared as network traffic.", ""]
+    out += ["| direction | sender count | peer count | difference |", "|---|---|---|---|"]
     for what, sent, received in rows:
         if not sent and not received:
             continue
-        lost = sent - received
-        if lost > 0:
+        delta = sent - received
+        if delta > 0:
             problems += 1
-            out.append(f"| {what} | {sent} | {received} | **{lost} did not arrive** |")
-        elif lost < 0:
+            out.append(f"| {what} | {sent} | {received} | **{delta} fewer at peer** |")
+        elif delta < 0:
             problems += 1
-            out.append(f"| {what} | {sent} | {received} | **{-lost} more arrived than were sent** "
-                       f"(the sending log is shorter, or they came from a third game) |")
+            out.append(f"| {what} | {sent} | {received} | **{-delta} more at peer** |")
         else:
-            out.append(f"| {what} | {sent} | {received} | agrees |")
+            out.append(f"| {what} | {sent} | {received} | counts match |")
     rejected = mine.get("state_rejected", 0) + other.get("state_rejected", 0)
     out.append(f"| object states rejected (both games) | {rejected} | - | "
                f"{'nothing was thrown away' if not rejected else '**see the state lines**'} |")
     out.append("")
 
-    out += [f"{problems} direction(s) lost something.", ""]
-    if problems:
-        out += ["The sending side counts what it put on the wire, the receiving side what it accepted. "
-                "A lower received number means packets were lost (UDP) or refused (a version or a side "
-                "mismatch); sent 0 while the other direction flows means the transport never came up "
-                "that way.", ""]
+    out += [f"{problems} direction(s) have different counts.", "",
+            "Counts alone do not prove packet loss: event transmissions include retries, receivers "
+            "count new records, trenches are counted when queued versus applied, and logs may cover "
+            "different windows or stop before a summary. Inspect timestamps, ACKs and queue state.", ""]
 
 
 def build_warning(ours: Log, theirs: Log | None, out: list[str]) -> None:
