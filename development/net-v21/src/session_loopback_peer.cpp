@@ -37,6 +37,7 @@ void netlog_state(int, unsigned, int, unsigned) {}
 void render_guard_install() {}
 void render_guard_report(DWORD) {}
 void statesync_reset() {}
+void statesync_forget_peer() {}
 void statesync_apply(ObjMan *) {}
 void statesync_owner_frame(ObjMan *, DWORD, bool (*)(Object *), void (*)(const void *, int)) {}
 void statesync_on_packet(const unsigned char *, int, void (*)(const void *, int), bool) {}

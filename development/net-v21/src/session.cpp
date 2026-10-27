@@ -535,6 +535,7 @@ static void set_versus(bool versus)
     mp_log("net: %s", versus ? "versus: each game owns its own player's units" : "same side: the host owns every unit");
     g_sent.clear();
     statesync_reset();
+    if (g_tactical) statesync_forget_peer();
 }
 
 // ---------------------------------------------------------------- addresses, UPnP (host)
@@ -1385,6 +1386,7 @@ void session_stop(void)
     g_have_peer = g_connected = g_bind_pending = false;
     g_pending.clear();
     g_held.clear();
+    if (g_tactical) statesync_forget_peer();
 }
 
 // ---------------------------------------------------------------- owned units: send transforms
@@ -2327,7 +2329,7 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
             g_held.clear();
             statesync_reset();
             shots_reset();
-            if (g_tactical) { g_end.new_peer(); g_end_last_tx = 0; }
+            if (g_tactical) { statesync_forget_peer(); g_end.new_peer(); g_end_last_tx = 0; }
             g_peer_ready = 0;
             g_peer_swap_known = false;
         }
@@ -2448,6 +2450,16 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
                         (int)((const Welcome *)data)->versus, (int)((const Welcome *)data)->in_battle);
             const Welcome *w = (const Welcome *)data;
             if (!g_connected) {
+                if (g_tactical) {
+                    g_sent.clear(); g_pending.clear(); g_held.clear();
+                    statesync_forget_peer();
+                    // Keep the outgoing event epoch and saved-state version: the same host may
+                    // have stayed alive while only its replies were lost. Incoming state can
+                    // request a fresh baseline, but resetting a live shot stream mid-sequence
+                    // would strand it until both peers agree on a new epoch.
+                    g_end.new_peer(); g_end_last_tx = 0;
+                    g_host_lost = 0; // a recovered host must not still trigger the return-to-menu timer
+                }
                 g_connected = true;
                 mp_log("net: connected to host (host commands %s)", image::side_name(w->user_side));
             }

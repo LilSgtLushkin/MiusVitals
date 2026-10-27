@@ -83,6 +83,7 @@ void statesync_owner_frame(ObjMan *om, DWORD now, bool (*owns)(Object *), void (
 void statesync_on_packet(const unsigned char *data, int size, void (*send)(const void *, int), bool versus);
 void statesync_apply(ObjMan *om);
 void statesync_reset(void);
+void statesync_forget_peer(void);      // tactical: discard snapshots and partials from the previous peer
 void statesync_report(void);
 
 // ---- shell launches (shots.cpp)
