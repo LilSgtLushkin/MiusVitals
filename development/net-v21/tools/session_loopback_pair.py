@@ -6,8 +6,8 @@ separate UDP socket. A menu Joiner follows the real session-before-UI receive or
 Steam and loopback UDP: an operation-menu host must observe READY, and a tactical host must serve
 the complete synthetic image. The Steam menu case suppresses the independent UDP socket; the IP
 cases suppress UPnP only in the test build. A host-started operation battle traverses the real
-sessions, synthetic map/battle transfer and launcher/child environment; the map->lobby process
-switch is simulated, and the game engine is not present. This is not real Steam or game validation.
+sessions, synthetic map/battle transfer and both real CreateProcess child environments. The
+lobby UI is simulated and the game engine is not present. This is not real Steam or game validation.
 """
 import argparse
 import socket

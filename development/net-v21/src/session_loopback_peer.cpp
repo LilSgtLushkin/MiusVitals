@@ -42,6 +42,7 @@ unsigned session_test_map_stale();
 bool session_test_map_seed(const std::vector<unsigned char> &, bool);
 bool session_test_host_battle(const std::vector<unsigned char> &);
 bool session_test_host_battle_notice();
+void session_test_spawn_battle_lobby();
 u32 session_test_source_hash();
 void session_test_fresh_tactical();
 bool session_test_map_control();
@@ -397,9 +398,28 @@ static int spectator_map_test(bool host, bool steam, const char *own_port, const
     session_stop(); steam_shutdown(); return 1;
 }
 
-// The real launcher and sessions, but synthetic AZCF and a harmless starter instead of a game.
-// The process switch at the map->lobby boundary is simulated; the tactical child is genuinely
-// spawned with Joiner::launch, then a fresh-session test seam drives its session in this process.
+// Both actual CreateProcess paths spawn this harmless starter. Read its environment verdict
+// and wait for it to exit before reusing the filename or deleting the isolated directory.
+static bool starter_checked(const char *root)
+{
+    char path[MAX_PATH]; sprintf_s(path, "%s\\starter_fixture_result.txt", root);
+    bool ok = false; unsigned long pid = 0; DWORD start = GetTickCount();
+    while (GetTickCount() - start < 5000) {
+        FILE *f = nullptr;
+        if (!fopen_s(&f, path, "rb") && f) { ok = fscanf_s(f, "ok:%lu", &pid) == 1; fclose(f); break; }
+        Sleep(10);
+    }
+    if (pid) {
+        HANDLE child = OpenProcess(SYNCHRONIZE, FALSE, pid);
+        if (child) { ok = ok && WaitForSingleObject(child, 5000) == WAIT_OBJECT_0; CloseHandle(child); }
+    }
+    DeleteFileA(path);
+    return ok;
+}
+
+// Real network sessions, map->lobby and tactical launchers; synthetic AZCF and harmless child.
+// UI and game engine are not running: the test opens the lobby and resumes a fresh tactical
+// session in-process after checking the exact environments of both actual child processes.
 static int host_battle_transition(bool host, bool steam, const char *our_port, const char *peer_port)
 {
     SetEnvironmentVariableA("MP_STEAM", steam ? nullptr : "0");
@@ -464,10 +484,22 @@ static int host_battle_transition(bool host, bool steam, const char *our_port, c
     }
     if (map_lobby.state != Joiner::DONE || !map_lobby.want_map || map_lobby.image != map ||
         map_lobby.map_epoch != 102 || map_lobby.map_revision != 2) return 6;
+    char temp[MAX_PATH], root[MAX_PATH], src[MAX_PATH], dst[MAX_PATH], path[MAX_PATH];
+    if (!GetTempPathA(sizeof temp, temp)) return 11;
+    sprintf_s(root, "%snetv21_host_battle_%lu", temp, GetCurrentProcessId());
+    if (!CreateDirectoryA(root, nullptr)) return 12;
+    const char *dirs[] = { "data", "data\\common", "data\\common\\shared", "data\\common\\shared\\config" };
+    for (const char *d : dirs) { sprintf_s(path, "%s\\%s", root, d); if (!CreateDirectoryA(path, nullptr)) return 13; }
+    if (!GetModuleFileNameA(nullptr, src, sizeof src)) return 14;
+    char *slash = strrchr(src, '\\'); if (!slash) return 15;
+    strcpy_s(slash + 1, sizeof src - (slash + 1 - src), "starter_fixture.exe");
+    sprintf_s(dst, "%s\\starter_x64.exe", root);
+    if (!CopyFileA(src, dst, FALSE)) return 16;
+    sprintf_s(g_out_dir, "%s\\out", root);
     SetEnvironmentVariableA("MP_ROLE", "join"); SetEnvironmentVariableA("MP_MAP", "1");
     SetEnvironmentVariableA("MP_MAP_EPOCH", "102"); SetEnvironmentVariableA("MP_MAP_REV", "2");
     SetEnvironmentVariableA("MP_PEER", address);
-    session_start((ObjMan *)manager);
+    session_test_spawn_battle_lobby(); session_start((ObjMan *)manager);
     bool notice = false;
     start = GetTickCount();
     while (GetTickCount() - start < 10000) {
@@ -476,7 +508,10 @@ static int host_battle_transition(bool host, bool steam, const char *our_port, c
         Sleep(10);
     }
     if (!notice) return 7;
-    // Simulate the map process ending and its autojoin lobby opening; do not invoke ExitProcess.
+    bool lobby_child = starter_checked(root);
+    if (!lobby_child) return 18;
+    // The fixture tested CreateProcess and environment. Simulate the exited map process and
+    // the game's autojoin UI: this fixture is not the engine and must not invoke ExitProcess.
     session_test_map_leave_screen(); session_frame((ObjMan *)manager);
     if (session_map_mode() || session_role() != ROLE_NONE) return 8;
     Joiner lobby; lobby.lobby_ready = true;
@@ -492,32 +527,10 @@ static int host_battle_transition(bool host, bool steam, const char *our_port, c
 
     // Launch the real Joiner into a harmless starter, and then use its actual mirrored file to
     // model the new tactical process. Starting with MP_MAP=1 exercises its explicit removal.
-    char temp[MAX_PATH], root[MAX_PATH], src[MAX_PATH], dst[MAX_PATH], path[MAX_PATH];
-    if (!GetTempPathA(sizeof temp, temp)) return 11;
-    sprintf_s(root, "%snetv21_host_battle_%lu", temp, GetCurrentProcessId());
-    if (!CreateDirectoryA(root, nullptr)) return 12;
-    const char *dirs[] = { "data", "data\\common", "data\\common\\shared", "data\\common\\shared\\config" };
-    for (const char *d : dirs) { sprintf_s(path, "%s\\%s", root, d); if (!CreateDirectoryA(path, nullptr)) return 13; }
-    if (!GetModuleFileNameA(nullptr, src, sizeof src)) return 14;
-    char *slash = strrchr(src, '\\'); if (!slash) return 15;
-    strcpy_s(slash + 1, sizeof src - (slash + 1 - src), "starter_fixture.exe");
-    sprintf_s(dst, "%s\\starter_x64.exe", root);
-    if (!CopyFileA(src, dst, FALSE)) return 16;
     SetEnvironmentVariableA("MP_MAP", "1");
     bool launched = lobby.launch(root);
     if (!launched) { printf("launcher: %s\n", lobby.error); return 17; }
-    sprintf_s(path, "%s\\starter_fixture_result.txt", root);
-    bool child = false; unsigned long child_id = 0;
-    start = GetTickCount();
-    while (GetTickCount() - start < 5000) {
-        FILE *f = nullptr;
-        if (!fopen_s(&f, path, "rb") && f) { child = fscanf_s(f, "ok:%lu", &child_id) == 1; fclose(f); break; }
-        Sleep(10);
-    }
-    if (child_id) {
-        HANDLE h = OpenProcess(SYNCHRONIZE, FALSE, child_id);
-        if (h) { child = child && WaitForSingleObject(h, 5000) == WAIT_OBJECT_0; CloseHandle(h); }
-    }
+    bool child = starter_checked(root);
     // Start with the same environment the child fixture verified. Reset in-memory perspective to
     // model a genuinely fresh process and check the source hash after load_battle_description().
     SetEnvironmentVariableA("MP_ROLE", "join"); SetEnvironmentVariableA("MP_MAP", nullptr);
@@ -537,9 +550,9 @@ static int host_battle_transition(bool host, bool steam, const char *our_port, c
         if (session_connected()) { connected = true; break; }
         Sleep(10);
     }
-    bool ok = notice && downloaded && launched && child && hash && controls && connected;
-    printf("BATTLE_%s_RESULT join ok=%d notice=%d image=%d launch=%d child_env=%d hash=%d controls=%d connected=%d\n",
-           steam ? "STEAM" : "IP", (int)ok, (int)notice, (int)downloaded, (int)launched, (int)child,
+    bool ok = notice && lobby_child && downloaded && launched && child && hash && controls && connected;
+    printf("BATTLE_%s_RESULT join ok=%d notice=%d lobby_env=%d image=%d launch=%d battle_env=%d hash=%d controls=%d connected=%d\n",
+           steam ? "STEAM" : "IP", (int)ok, (int)notice, (int)lobby_child, (int)downloaded, (int)launched, (int)child,
            (int)hash, (int)controls, (int)connected);
     // Give the host enough time to receive the final tactical HELLO before stopping.
     start = GetTickCount();

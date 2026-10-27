@@ -125,12 +125,13 @@ static u32 g_stat_zero_steps, g_stat_zero_skipped, g_stat_cache_pruned;
 static u32 g_stat_packets, g_stat_rx_bytes, g_stat_tx_bytes, g_stat_snaps;
 #ifdef NETV21_TEST_HOOKS
 static unsigned g_test_hello_rejected;
-static bool g_test_map_no_game, g_test_map_faults, g_test_map_on_screen, g_test_battle_notice;
+static bool g_test_map_no_game, g_test_map_faults, g_test_map_on_screen, g_test_battle_notice, g_test_spawn_battle_lobby;
 static unsigned g_test_map_dropped, g_test_map_duplicates, g_test_map_stale;
 static std::set<u64> g_test_map_dropped_pieces;
 unsigned session_test_hello_rejected() { return g_test_hello_rejected; }
-void session_test_map_enable(bool faults) { g_test_map_no_game = g_test_map_on_screen = true; g_test_battle_notice = false; g_map_hooks_ready = true; g_test_map_faults = faults; }
+void session_test_map_enable(bool faults) { g_test_map_no_game = g_test_map_on_screen = true; g_test_battle_notice = g_test_spawn_battle_lobby = false; g_map_hooks_ready = true; g_test_map_faults = faults; }
 bool session_test_host_battle_notice() { return g_test_battle_notice; }
+void session_test_spawn_battle_lobby() { g_test_spawn_battle_lobby = true; }
 void session_test_map_leave_screen() { g_test_map_on_screen = false; g_guest_seen_map = true; g_guest_left_since = GetTickCount() - 2100; }
 unsigned session_test_map_dropped() { return g_test_map_dropped; }
 unsigned session_test_map_duplicates() { return g_test_map_duplicates; }
@@ -1170,6 +1171,11 @@ static void joiner_back_to_lobby(void)
     if (!env.restore()) mp_log("map: could not fully restore the parent process environment");
     mp_log("map: returning through the in-game lobby of %s", peer);
     session_stop();
+#ifdef NETV21_TEST_HOOKS
+    // The production path exits. The no-game test keeps this process alive after spawning
+    // a harmless child so it can inspect the actual launcher environment and continue.
+    if (g_test_map_no_game && g_test_spawn_battle_lobby) { g_test_battle_notice = true; g_map_battle_at = 0; return; }
+#endif
     ExitProcess(0);
 }
 
@@ -2898,7 +2904,7 @@ void session_frame(ObjMan *om)
     }
     if (g_map_mode && g_map_battle_at && now >= g_map_battle_at) {
 #ifdef NETV21_TEST_HOOKS
-        if (g_test_map_no_game) { g_test_battle_notice = true; g_map_battle_at = 0; }
+        if (g_test_map_no_game && !g_test_spawn_battle_lobby) { g_test_battle_notice = true; g_map_battle_at = 0; }
         else
 #endif
         joiner_into_battle();

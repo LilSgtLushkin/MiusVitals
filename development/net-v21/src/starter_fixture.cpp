@@ -10,17 +10,24 @@ static bool equals(const char *name, const char *expected) {
 int main() {
     char autojoin[4];
     bool tactical = strstr(GetCommandLineA(), "tacgame.progpack") != nullptr;
-    bool ok = equals("MP_ROLE", "join") && equals("MP_HOST_MODE", "operation") &&
-              GetEnvironmentVariableA("MP_PEER", nullptr, 0) > 0;
+    bool operation = strstr(GetCommandLineA(), "opgame.progpack") != nullptr;
+    char peer[128] = {}, requested[128] = {};
+    DWORD pn = GetEnvironmentVariableA("MP_PEER", peer, sizeof peer);
+    DWORD an = GetEnvironmentVariableA("MP_AUTOJOIN", requested, sizeof requested);
+    bool same_host = pn && pn < sizeof peer && an && an < sizeof requested && !strcmp(peer, requested);
+    bool ok = equals("MP_HOST_MODE", "operation") && pn && pn < sizeof peer;
     if (tactical) {
         // A battle offered by the host must not inherit the spectator marker: otherwise
         // session_start correctly isolates an unhosted local launch from the network.
-        ok = ok && !GetEnvironmentVariableA("MP_MAP", autojoin, sizeof autojoin) &&
-             GetEnvironmentVariableA("MP_AUTOJOIN", nullptr, 0) > 0 && equals("MP_VERSUS", "1");
+        ok = ok && equals("MP_ROLE", "join") && !GetEnvironmentVariableA("MP_MAP", autojoin, sizeof autojoin) &&
+             same_host && equals("MP_VERSUS", "1");
+    } else if (operation) {
+        ok = ok && equals("MP_ROLE", "join") && equals("MP_MAP", "1") && equals("MP_MAP_EPOCH", "102") &&
+             equals("MP_MAP_REV", "2") && !an;
     } else {
-        ok = ok && equals("MP_MAP", "1") && equals("MP_MAP_EPOCH", "102") &&
-             equals("MP_MAP_REV", "2") && !GetEnvironmentVariableA("MP_AUTOJOIN", autojoin, sizeof autojoin) &&
-             strstr(GetCommandLineA(), "opgame.progpack");
+        // The actual map->lobby CreateProcess must clear the map/role and retain the host address.
+        ok = ok && !GetEnvironmentVariableA("MP_ROLE", autojoin, sizeof autojoin) &&
+             !GetEnvironmentVariableA("MP_MAP", autojoin, sizeof autojoin) && same_host;
     }
     FILE *f = nullptr;
     if (fopen_s(&f, "starter_fixture_result.tmp", "wb") || !f) return 2;
