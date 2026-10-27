@@ -123,6 +123,18 @@ jobs:
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log
           if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\battle_file_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\retry_gate_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\atomic_file_selftest.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
           development\net-v21\build\selftest\reliable_inbox_test.exe >> development\net-v21\build\selftest.log 2>&1
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log

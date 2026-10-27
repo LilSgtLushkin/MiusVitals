@@ -20,6 +20,7 @@ bool session_test_udp_open();
 unsigned session_test_hello_rejected();
 void session_test_state_dispatch(bool tactical);
 bool session_test_transform_dispatch();
+bool session_test_new_force_offer();
 
 char g_program[32] = "tacgame";
 char g_out_dir[MAX_PATH] = "C:\\mius-no-game\\out";
@@ -73,7 +74,8 @@ int main(int argc, char **argv)
         puts("FAIL: tactical state dispatch"); return 1;
     }
     if (!session_test_transform_dispatch()) { puts("FAIL: transform dispatch by mode"); return 1; }
-    puts("state and transform dispatch: tactical and unchanged non-tactical paths passed");
+    if (!session_test_new_force_offer()) { puts("FAIL: new force with the same size"); return 1; }
+    puts("state, transform dispatch and changed-force tests passed");
     bool host = !strcmp(argv[1], "host");
     SetEnvironmentVariableA("MP_ROLE", argv[1]);
     SetEnvironmentVariableA("MP_HOST_MODE", "skirmish");

@@ -75,6 +75,12 @@ cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\pro
 if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\force_test.cpp /link /OUT:build\selftest\force_test.exe
 if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\battle_file_test.cpp /link /OUT:build\selftest\battle_file_test.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\retry_gate_test.cpp /link /OUT:build\selftest\retry_gate_test.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\atomic_file_selftest.cpp /link /OUT:build\selftest\atomic_file_selftest.exe
+if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\reliable_inbox_test.cpp /link /OUT:build\selftest\reliable_inbox_test.exe
 if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\ceasefire_test.cpp /link /OUT:build\selftest\ceasefire_test.exe

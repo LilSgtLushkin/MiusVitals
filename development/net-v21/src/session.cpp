@@ -26,6 +26,9 @@
 #include "ceasefire.h"
 #include "image.h"
 #include "force.h"
+#include "battle_file.h"
+#include "atomic_file.h"
+#include "retry_gate.h"
 #include "detour.h"
 #include "hooks.h"
 #include "opsave.h"
@@ -142,6 +145,7 @@ static std::vector<DWORD> g_force_asked;
 static u32 g_force_out_hash, g_force_in_hash, g_force_got;
 static bool g_force_published, g_force_applied, g_force_noted;
 static DWORD g_force_last_ask;
+static RetryGate g_force_retry; // do not reparse and log a permanently invalid offer every rendered frame
 // The joining game downloading a description the host has started its battle with.
 static std::vector<unsigned char> g_desc_in, g_desc_have;
 static std::vector<DWORD> g_desc_asked;
@@ -429,6 +433,68 @@ static bool read_file(const char *path, std::vector<unsigned char> &out)
     return got == out.size() && n > 0;
 }
 
+// M4 changes a battle description only after a checked backup and marker exist. Both marker and
+// image are written to a same-directory temporary and renamed over the target, never truncated in
+// place. Keep the first Windows failure code even if cleanup also fails.
+struct BattleFileContext { DWORD error; };
+static bool battle_copy(void *context, const char *from, const char *to)
+{
+    if (CopyFileA(from, to, FALSE)) return true;
+    BattleFileContext *c = (BattleFileContext *)context;
+    if (!c->error) c->error = GetLastError();
+    return false;
+}
+static bool battle_write(void *context, const char *to, const void *bytes, size_t size)
+{
+    if (atomic_file::replace(to, bytes, size)) return true;
+    BattleFileContext *c = (BattleFileContext *)context;
+    if (!c->error) c->error = GetLastError();
+    return false;
+}
+static bool battle_remove(void *context, const char *path)
+{
+    if (DeleteFileA(path)) return true;
+    BattleFileContext *c = (BattleFileContext *)context;
+    if (!c->error) c->error = GetLastError();
+    return false;
+}
+static bool battle_install(const char *path, const std::vector<unsigned char> &current,
+                           const std::vector<unsigned char> &replacement)
+{
+    std::vector<unsigned char> on_disk;
+    if (!read_file(path, on_disk) || on_disk != current) {
+        mp_log("lobby: battle description changed on disk or cannot be read; it was not overwritten");
+        return false;
+    }
+    BattleFileContext context = {};
+    battle_file::Io io = { &context, battle_copy, battle_write, battle_remove };
+    u32 hash = fnv(replacement.data(), replacement.size());
+    battle_file::Result result = battle_file::install(io, path, replacement, hash);
+    if (result != battle_file::Result::ok) {
+        mp_log("lobby: battle description was not replaced: %s (Windows error %lu)", battle_file::reason(result), context.error);
+        return false;
+    }
+    return true;
+}
+static bool battle_restore_backup(const char *path, std::vector<unsigned char> *restored = nullptr)
+{
+    const std::string backup = std::string(path) + ".before_mp";
+    const std::string marker = std::string(path) + ".mp_combined";
+    std::vector<unsigned char> old;
+    if (!read_file(backup.c_str(), old)) {
+        mp_log("lobby: recovery copy %s cannot be read", backup.c_str());
+        return false;
+    }
+    if (!atomic_file::replace(path, old.data(), old.size())) {
+        mp_log("lobby: cannot restore the battle description from %s (Windows error %lu)", backup.c_str(), GetLastError());
+        return false;
+    }
+    if (!DeleteFileA(marker.c_str()) && GetLastError() != ERROR_FILE_NOT_FOUND)
+        mp_log("lobby: restored the description but could not remove its marker (Windows error %lu)", GetLastError());
+    if (restored) restored->swap(old);
+    return true;
+}
+
 // A description that a two-player battle was started from carries the other player's force as well. The next
 // battle must start from this player's own - otherwise the previous opponent's squads would be fought again -
 // so what went in last time is remembered beside the file, and the copy taken before it is put back when the
@@ -439,11 +505,10 @@ static void force_restore_leftover(char *path)
     int value;
     // The battle that was just started again on purpose carries both forces: it is no leftover.
     if (env_integer("MP_FORCE_APPLIED", &value) && value) return;
-    char sidecar[MAX_PATH], backup[MAX_PATH];
-    sprintf_s(sidecar, "%s.mp_combined", path);
-    sprintf_s(backup, "%s.before_mp", path);
+    const std::string sidecar = std::string(path) + ".mp_combined";
+    const std::string backup = std::string(path) + ".before_mp";
     FILE *f = 0;
-    if (fopen_s(&f, sidecar, "rb") || !f) return;
+    if (fopen_s(&f, sidecar.c_str(), "rb") || !f) return;
     unsigned was = 0;
     size_t got = fread(&was, 1, sizeof was, f);
     fclose(f);
@@ -451,15 +516,14 @@ static void force_restore_leftover(char *path)
     if (got != sizeof was || !read_file(path, now)) return;
     if (fnv(now.data(), now.size()) != was) {
         // the player has set a battle up since: the remembered pair is stale
-        DeleteFileA(sidecar);
-        DeleteFileA(backup);
+        DeleteFileA(sidecar.c_str());
+        DeleteFileA(backup.c_str());
         return;
     }
-    if (!CopyFileA(backup, path, FALSE)) {
-        mp_log("lobby: the description still carries the last battle's other force and %s cannot be put back", backup);
+    if (!battle_restore_backup(path)) {
+        mp_log("lobby: the description still carries the last battle's other force; the previous one could not be restored");
         return;
     }
-    DeleteFileA(sidecar);
     mp_log("lobby: the battle description still carried the last two-player battle's other force - the previous one is back");
 }
 
@@ -2087,6 +2151,34 @@ static void force_offer_to_hello(Hello *hello)
     hello->force_hash = g_force_out_hash;
 }
 
+// Start a new offer even when it happens to have the same length as the previous one.
+static void force_begin_offer(u32 size, u32 hash, const char *name)
+{
+    g_force_in.assign(size, 0);
+    g_force_have.assign((size + k_chunk - 1) / k_chunk, 0);
+    g_force_asked.assign(g_force_have.size(), 0);
+    g_force_got = 0;
+    g_force_last_ask = 0;
+    g_force_retry.reset();
+    mp_log("lobby: %s is sending the force he picked (%u bytes)", name && *name ? name : "the other player", size);
+    g_force_in_hash = hash;
+}
+#ifdef NETV21_TEST_HOOKS
+bool session_test_new_force_offer()
+{
+    force_begin_offer(4, 11, "test");
+    g_force_in[0] = 0x55; g_force_have[0] = 1; g_force_got = 1;
+    (void)g_force_retry.due(10, 5000);
+    force_begin_offer(4, 12, "test");
+    bool ok = g_force_in.size() == 4 && g_force_in[0] == 0 && g_force_have.size() == 1 &&
+              g_force_have[0] == 0 && !g_force_got && g_force_in_hash == 12 && g_force_retry.due(10, 5000);
+    g_force_in.clear(); g_force_have.clear(); g_force_asked.clear();
+    g_force_got = g_force_in_hash = g_force_last_ask = 0;
+    g_force_retry.reset();
+    return ok;
+}
+#endif
+
 // The joining game's force, asked for piece by piece (the same channel the description and the map travel on).
 static void force_ask(DWORD now)
 {
@@ -2142,32 +2234,15 @@ static bool force_apply(ObjMan *)
         mp_log("lobby: the other player's own force could not be put into this battle (%s) - his side is played as set up", r.note);
         return false;
     }
-    char backup[MAX_PATH];
-    sprintf_s(backup, "%s.before_mp", g_image_file);
-    if (!CopyFileA(g_image_file, backup, FALSE)) {
-        mp_log("lobby: cannot keep a copy of the battle description (%s) - the force is not put in", backup);
-        return false;
-    }
-    FILE *f = 0;
-    if (fopen_s(&f, g_image_file, "wb") || !f) {
-        mp_log("lobby: cannot write the battle with both forces (%s) - playing it as it is", g_image_file);
-        return false;
-    }
-    fwrite(combined.data(), 1, combined.size(), f);
-    fclose(f);
+    if (!battle_install(g_image_file, g_image, combined)) return false;
     g_image.swap(combined);
     g_image_hash = fnv(g_image.data(), g_image.size());
-    {
-        char sidecar[MAX_PATH];
-        sprintf_s(sidecar, "%s.mp_combined", g_image_file);
-        FILE *m = 0;
-        if (!fopen_s(&m, sidecar, "wb") && m) { fwrite(&g_image_hash, 1, sizeof g_image_hash, m); fclose(m); }
-    }
     g_source_hash = g_image_hash;
     g_force_applied = true;
+    const std::string backup = std::string(g_image_file) + ".before_mp";
     mp_log("lobby: the other player's own force is put into the battle: %u squads and %u units of his come in, "
            "%u squads and %u units of this player's stay (%zu bytes; the description as it was is kept in %s)",
-           r.added_squads, r.added_units, r.kept_squads, r.kept_units, g_image.size(), backup);
+           r.added_squads, r.added_units, r.kept_squads, r.kept_units, g_image.size(), backup.c_str());
     return true;
 }
 
@@ -2191,10 +2266,25 @@ static void force_restart(void)
     }
     mp_log("lobby: could not restart the battle (%lu), playing it as it is", GetLastError());
     SetEnvironmentVariableA("MP_FORCE_APPLIED", 0);
-    // the file carries both forces but this battle does not: put back what the game started with
-    char backup[MAX_PATH];
-    sprintf_s(backup, "%s.before_mp", g_image_file);
-    CopyFileA(backup, g_image_file, FALSE);
+    g_restart_say = false;
+    // The running battle still uses the old description. Restore the file atomically and make
+    // the advertised in-memory description match it; do not retry the same failed restart each frame.
+    std::vector<unsigned char> restored;
+    if (battle_restore_backup(g_image_file, &restored)) {
+        g_image.swap(restored);
+        g_image_hash = fnv(g_image.data(), g_image.size());
+        g_source_hash = g_image_hash;
+    } else {
+        // Even if the filesystem blocks the rollback, keep the description served to the peer
+        // consistent with the still-running battle whenever the retained backup can be read.
+        const std::string backup = std::string(g_image_file) + ".before_mp";
+        if (read_file(backup.c_str(), restored)) {
+            g_image.swap(restored);
+            g_image_hash = fnv(g_image.data(), g_image.size());
+            g_source_hash = g_image_hash;
+        }
+        mp_log("lobby: the restart failed and the old description could not be restored on disk; the backup was retained");
+    }
 }
 
 // The joining game: the host's description has changed (it carries both forces now). Download it, mirror it
@@ -2267,13 +2357,12 @@ static void desc_write_in(ImageData *d, int size)
         desc_give_up("it could not be prepared for this side");
         return;
     }
-    FILE *f = 0;
-    if (fopen_s(&f, g_image_file, "wb") || !f) {
-        desc_give_up("it cannot be written");
+    // Keep this player's original force as well as the host's: the next opponent must not
+    // inherit the combined description. A failed write leaves the original file untouched.
+    if (!battle_install(g_image_file, g_image, out)) {
+        desc_give_up("it cannot be safely written");
         return;
     }
-    fwrite(out.data(), 1, out.size(), f);
-    fclose(f);
     SetEnvironmentVariableA("MP_FORCE_APPLIED", "1");
     mp_log("lobby: the battle with both forces is in place (%zu bytes, mirrored %d) - starting the battle again", out.size(), (int)g_versus);
     std::string cmd = GetCommandLineA();
@@ -2282,6 +2371,8 @@ static void desc_write_in(ImageData *d, int size)
     if (CreateProcessA(0, &cmd[0], 0, 0, FALSE, 0, 0, g_root, &si, &pi)) ExitProcess(0);
     mp_log("lobby: could not restart the battle (%lu), playing it as it is", GetLastError());
     SetEnvironmentVariableA("MP_FORCE_APPLIED", 0);
+    if (battle_restore_backup(g_image_file)) desc_give_up("the restart failed; the previous description was restored");
+    else desc_give_up("the restart and restoration failed; the backup was retained");
 }
 
 // Every frame: fetch what is missing, apply what is in, and keep the other game told.
@@ -2297,7 +2388,7 @@ static void force_frame(ObjMan *om, DWORD now)
                 g_force_have.clear();
                 g_force_asked.clear();
                 g_force_got = 0;
-            } else if (force_apply(om)) {
+            } else if (g_force_retry.due(now, 5000) && force_apply(om)) {
                 force_restart();
             }
         }
@@ -2413,16 +2504,11 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
         }
         // The joining player's own force: his battle description, from which this game takes his squads and
         // units (force.h). Fetched on the image channel; the host puts it into its own description.
-        if (full && in->force_size && in->force_hash && !g_force_applied && in->force_hash != g_force_in_hash &&
+        if (g_tactical && full && in->force_size && in->force_hash && !g_force_applied && in->force_hash != g_force_in_hash &&
             in->force_size <= (16u << 20)) {
-            if (g_force_in.size() != in->force_size) {
-                g_force_in.assign(in->force_size, 0);
-                g_force_have.assign((in->force_size + k_chunk - 1) / k_chunk, 0);
-                g_force_asked.assign(g_force_have.size(), 0);
-                g_force_got = 0;
-                mp_log("lobby: %s is sending the force he picked (%u bytes)", name[0] ? name : "the other player", in->force_size);
-            }
-            g_force_in_hash = in->force_hash;
+            // A changed hash is a different offer even if its length is identical. Reusing old
+            // fragment bits would mix the two offers and waste a complete fetch before failing hash.
+            force_begin_offer(in->force_size, in->force_hash, name);
         }
         if (in->phase < 0xfe && in->ready != g_peer_ready) {
             g_peer_ready = in->ready;
