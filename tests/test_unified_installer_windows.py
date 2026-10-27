@@ -5,6 +5,8 @@ The archive is produced by the current MSVC build. No game or Steam is run. Erro
 inserted ONLY into disposable extracted script copies; the archive and its installer remain intact.
 """
 from __future__ import annotations
+import ctypes
+from ctypes import wintypes
 import hashlib
 import os
 from pathlib import Path
@@ -55,8 +57,9 @@ class UnifiedInstaller(unittest.TestCase):
 
     def bat(self, name, extra=None):
         env = os.environ.copy()
-        env.pop("MIUS_CI_FAIL_AT", None)
-        env.pop("MIUS_CI_FAIL_ROLLBACK", None)
+        for name in ("MIUS_CI_FAIL_AT", "MIUS_CI_FAIL_ROLLBACK", "MIUS_CI_CRASH_AT",
+                     "MIUS_CI_CRASH_BACKUP", "MIUS_CI_CRASH_RESTORE_AT"):
+            env.pop(name, None)
         if extra:
             env.update(extra)
         # cmd.exe parses quoted batch paths differently from list2cmdline's C-runtime escaping.
@@ -90,9 +93,14 @@ class UnifiedInstaller(unittest.TestCase):
         path = self.kit / "Apply_Multiplayer.ps1"
         script = path.read_text(encoding="utf-8")
         for anchor, addition in (("# TEST-ANCHOR: installed-file",
+                                  "if ($env:MIUS_CI_CRASH_AT -eq [string]$index) { [Environment]::Exit(91) }\n"
                                   "if ($env:MIUS_CI_FAIL_AT -eq [string]$index) { throw 'injected install failure' }"),
                                  ("# TEST-ANCHOR: restore-snapshot",
-                                  "if ($env:MIUS_CI_FAIL_ROLLBACK -eq '1') { throw 'injected rollback failure' }")):
+                                  "if ($env:MIUS_CI_FAIL_ROLLBACK -eq '1') { throw 'injected rollback failure' }"),
+                                 ("# TEST-ANCHOR: snapshot-copied-file",
+                                  "if ($env:MIUS_CI_CRASH_BACKUP -eq '1' -and $folder -like '*pending_*.tmp') { [Environment]::Exit(92) }"),
+                                 ("# TEST-ANCHOR: restored-file",
+                                  "if ($folder -eq $baseline -and $env:MIUS_CI_CRASH_RESTORE_AT -eq [string]$restoreIndex) { [Environment]::Exit(93) }")):
             self.assertEqual(script.count(anchor), 1)
             script = script.replace(anchor, anchor + "\n    " + addition)
         path.write_bytes(script.replace("\r\n", "\n").replace("\n", "\r\n").encode("utf-8"))
@@ -193,6 +201,83 @@ class UnifiedInstaller(unittest.TestCase):
         self.succeed(self.bat("Enable_Multiplayer.bat"))
         self.succeed(self.bat("Disable_Multiplayer.bat"))
         self.check_original()
+
+    def test_crash_while_building_snapshot_never_publishes_an_incomplete_pending(self):
+        self.inject()
+        result = self.bat("Enable_Multiplayer.bat", {"MIUS_CI_CRASH_BACKUP": "1"})
+        self.assertEqual(result.returncode, 92, result.stdout + result.stderr)
+        self.check_original()
+        self.assertFalse(self.pending.exists())
+        self.assertTrue(self.baseline.exists())
+        self.assertTrue(list(self.state.glob("pending_*.tmp")))
+        self.failed(self.bat("Enable_Multiplayer.bat"))
+        self.succeed(self.bat("Disable_Multiplayer.bat"))
+        self.assertFalse(self.baseline.exists())
+        self.check_original()
+        self.succeed(self.bat("Enable_Multiplayer.bat"))
+        self.succeed(self.bat("Disable_Multiplayer.bat"))
+        self.check_original()
+
+    def test_process_crash_after_each_replacement_recovers_on_disable(self):
+        self.inject()
+        for index in range(1, 7):
+            with self.subTest(crash_after=index):
+                result = self.bat("Enable_Multiplayer.bat", {"MIUS_CI_CRASH_AT": str(index)})
+                self.assertEqual(result.returncode, 91, result.stdout + result.stderr)
+                self.assertTrue((self.pending / "manifest.json").exists())
+                self.failed(self.bat("Enable_Multiplayer.bat"))
+                self.succeed(self.bat("Disable_Multiplayer.bat"))
+                self.check_original()
+                self.assertFalse(self.pending.exists())
+                self.assertFalse(self.baseline.exists())
+
+    def test_process_crash_during_uninstall_is_recoverable(self):
+        self.inject()
+        self.succeed(self.bat("Enable_Multiplayer.bat"))
+        result = self.bat("Disable_Multiplayer.bat", {"MIUS_CI_CRASH_RESTORE_AT": "3"})
+        self.assertEqual(result.returncode, 93, result.stdout + result.stderr)
+        self.assertTrue((self.pending / "manifest.json").exists())
+        self.succeed(self.bat("Disable_Multiplayer.bat"))
+        self.check_original()
+        self.assertFalse(self.pending.exists())
+        self.assertFalse(self.baseline.exists())
+
+    def test_exclusive_lock_refuses_concurrent_modification(self):
+        self.state.mkdir(parents=True)
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.CreateFileW.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                                       wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE)
+        kernel.CreateFileW.restype = wintypes.HANDLE
+        kernel.CloseHandle.argtypes = (wintypes.HANDLE,)
+        handle = kernel.CreateFileW(str(self.state / "lock"), 0xC0000000, 0, None, 4, 0x80, None)
+        self.assertNotEqual(handle, ctypes.c_void_p(-1).value, ctypes.get_last_error())
+        try:
+            self.failed(self.bat("Enable_Multiplayer.bat"))
+            self.check_original()
+            self.assertFalse(self.baseline.exists())
+        finally:
+            kernel.CloseHandle(handle)
+        self.succeed(self.bat("Enable_Multiplayer.bat"))
+        self.succeed(self.bat("Disable_Multiplayer.bat"))
+        self.check_original()
+
+    def test_linked_runtime_file_is_rejected_before_any_changes(self):
+        target = self.game / FILES[0]
+        target.unlink()
+        referent = self.game / "linked-original.bin"
+        referent.write_bytes(b"data behind a link")
+        try:
+            os.symlink(str(referent), str(target))
+        except OSError as error:
+            self.skipTest(f"creating symlinks is not permitted on this Windows runner: {error}")
+        before = self.snapshot()
+        result = self.bat("Enable_Multiplayer.bat")
+        self.failed(result)
+        self.assertIn("linked runtime file is not supported", result.stdout)
+        self.assertTrue(target.is_symlink())
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(referent.read_bytes(), b"data behind a link")
+        self.assertFalse(self.baseline.exists())
 
     def test_damaged_backup_prevents_uninstall_without_any_change(self):
         self.succeed(self.bat("Enable_Multiplayer.bat"))

@@ -91,19 +91,32 @@ function Save-Snapshot([string]$folder) {
         $exists = [IO.File]::Exists($source)
         $hash = ''; $attrs = 0
         if ($exists) {
+            $attrs = [int][IO.File]::GetAttributes($source)
+            if (($attrs -band [int][IO.FileAttributes]::ReparsePoint) -ne 0) { throw "linked runtime file is not supported: $relative" }
             $backup = Join-Path (Join-Path $folder 'files') $relative
             Parent-Directory $backup
             [IO.File]::Copy($source, $backup, $false)
             $hash = Hash-File $source
             if ((Hash-File $backup) -ne $hash) { throw "backup differs: $relative" }
-            $attrs = [int][IO.File]::GetAttributes($source)
         } elseif (Test-Path -LiteralPath $source) { throw "a directory occupies the file path: $relative" }
         $items += [PSCustomObject]@{ path = $relative; existed = $exists; hash = $hash; attributes = $attrs }
+        # TEST-ANCHOR: snapshot-copied-file
     }
     $metadata = [PSCustomObject]@{ version = 1; files = $items }
     $temp = Join-Path $folder 'manifest.tmp'
     $metadata | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $temp -Encoding UTF8
     [IO.File]::Move($temp, (Join-Path $folder 'manifest.json'))
+}
+function Save-Pending {
+    # Publish a fully verified snapshot by one directory rename. A crash during the copy can leave
+    # only a draft, never an incomplete 'pending' recovery directory after runtime files changed.
+    $draft = Join-Path $state ('pending_' + [Guid]::NewGuid().ToString('N') + '.tmp')
+    try {
+        Save-Snapshot $draft
+        [IO.Directory]::Move($draft, $pending)
+    } finally {
+        if (Test-Path -LiteralPath $draft) { Remove-Item -LiteralPath $draft -Recurse -Force }
+    }
 }
 function Read-Snapshot([string]$folder) {
     $manifest = Join-Path $folder 'manifest.json'
@@ -125,12 +138,15 @@ function Read-Snapshot([string]$folder) {
 function Restore-Snapshot([string]$folder) {
     $snapshot = Read-Snapshot $folder  # check every backup before modifying any destination
     # TEST-ANCHOR: restore-snapshot
+    $restoreIndex = 0
     foreach ($item in $snapshot.files) {
         $target = Join-Path $game $item.path
         if ($item.existed) {
             Copy-Atomic (Join-Path (Join-Path $folder 'files') $item.path) $target
             [IO.File]::SetAttributes($target, [IO.FileAttributes][int]$item.attributes)
         } else { Remove-Target $target }
+        $restoreIndex++
+        # TEST-ANCHOR: restored-file
     }
 }
 function Complete-Pending {
@@ -163,15 +179,17 @@ try {
     }
     if ($Action -eq 'Install') {
         Assert-Payload
+        if (-not [IO.File]::Exists($active) -and (Test-Path -LiteralPath $baseline)) {
+            throw 'An earlier first install did not complete. Run Disable_Multiplayer.bat, then try again.'
+        }
         $createdBaseline = $false
         if (-not (Test-Path -LiteralPath $baseline)) {
             $newBaseline = Join-Path $state ('baseline_' + [Guid]::NewGuid().ToString('N') + '.tmp')
             try { Save-Snapshot $newBaseline; [IO.Directory]::Move($newBaseline, $baseline); $createdBaseline = $true }
             finally { if (Test-Path -LiteralPath $newBaseline) { Remove-Item -LiteralPath $newBaseline -Recurse -Force } }
         } else { [void](Read-Snapshot $baseline) }
-        try { Save-Snapshot $pending }
+        try { Save-Pending }
         catch {
-            if (Test-Path -LiteralPath $pending) { Remove-Item -LiteralPath $pending -Recurse -Force }
             if ($createdBaseline) { Remove-Item -LiteralPath $baseline -Recurse -Force }
             throw
         }
@@ -206,8 +224,7 @@ try {
             Write-Host 'No completed 1.0.5 test installation is recorded; no runtime file was changed.'
         } else {
             [void](Read-Snapshot $baseline)
-            try { Save-Snapshot $pending }
-            catch { if (Test-Path -LiteralPath $pending) { Remove-Item -LiteralPath $pending -Recurse -Force }; throw }
+            Save-Pending
             try { Restore-Snapshot $baseline; Complete-Pending }
             catch { Rollback-Pending; throw }
             Remove-Item -LiteralPath $active -Force
