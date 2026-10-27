@@ -125,11 +125,12 @@ static u32 g_stat_zero_steps, g_stat_zero_skipped, g_stat_cache_pruned;
 static u32 g_stat_packets, g_stat_rx_bytes, g_stat_tx_bytes, g_stat_snaps;
 #ifdef NETV21_TEST_HOOKS
 static unsigned g_test_hello_rejected;
-static bool g_test_map_no_game, g_test_map_faults, g_test_map_on_screen;
+static bool g_test_map_no_game, g_test_map_faults, g_test_map_on_screen, g_test_battle_notice;
 static unsigned g_test_map_dropped, g_test_map_duplicates, g_test_map_stale;
 static std::set<u64> g_test_map_dropped_pieces;
 unsigned session_test_hello_rejected() { return g_test_hello_rejected; }
-void session_test_map_enable(bool faults) { g_test_map_no_game = g_test_map_on_screen = true; g_map_hooks_ready = true; g_test_map_faults = faults; }
+void session_test_map_enable(bool faults) { g_test_map_no_game = g_test_map_on_screen = true; g_test_battle_notice = false; g_map_hooks_ready = true; g_test_map_faults = faults; }
+bool session_test_host_battle_notice() { return g_test_battle_notice; }
 void session_test_map_leave_screen() { g_test_map_on_screen = false; g_guest_seen_map = true; g_guest_left_since = GetTickCount() - 2100; }
 unsigned session_test_map_dropped() { return g_test_map_dropped; }
 unsigned session_test_map_duplicates() { return g_test_map_duplicates; }
@@ -799,6 +800,16 @@ static DWORD WINAPI upnp_thread(LPVOID)
 static bool g_test_no_udp, g_test_no_upnp;
 void session_test_disable_udp(bool value) { g_test_no_udp = value; }
 void session_test_disable_upnp(bool value) { g_test_no_upnp = value; }
+bool session_test_host_battle(const std::vector<unsigned char> &image)
+{
+    unsigned user = 0, enemy = 0;
+    if (!g_tactical || g_role != ROLE_HOST || !opsave_checked::validate(image) || !image::sides(image, &user, &enemy)) return false;
+    g_image = image; g_image_hash = g_source_hash = fnv(g_image.data(), g_image.size());
+    g_user_side = user; g_enemy_side = enemy; g_my_units = image::units_of(image, image::k_user);
+    return true;
+}
+u32 session_test_source_hash() { return g_source_hash; }
+void session_test_fresh_tactical() { g_versus = false; g_my_units.clear(); }
 void session_test_lobby_image()
 {
     g_image.resize(k_chunk * 2 + 117);
@@ -1358,7 +1369,7 @@ void session_start(ObjMan *)
         // A battle started from the guest's local copy is NOT the host's battle. Do not
         // connect or send tactical commands. Authorized entry goes through Joiner::launch,
         // which explicitly clears MP_MAP before starting the host's battle.
-        mp_log("map: locally started spectator battle is offline; only the host may start the shared battle");
+        mp_log("map: unhosted spectator tactical process disconnected; only the host starts shared battles");
         g_role = ROLE_NONE;
         SetEnvironmentVariableA("MP_ROLE", nullptr); SetEnvironmentVariableA("MP_PEER", nullptr);
         SetEnvironmentVariableA("MP_MAP", nullptr); SetEnvironmentVariableA("MP_AUTOJOIN", nullptr);
@@ -1366,6 +1377,8 @@ void session_start(ObjMan *)
     }
     g_block_guest_turn.store(g_map_mode && g_role == ROLE_JOIN, std::memory_order_release);
     g_watch_host_worker.store(g_role == ROLE_HOST && !g_tactical && g_host_mode == HOST_MODE_OPERATION, std::memory_order_release);
+    // Determine the guest's perspective before loading and hashing its mirrored battle image.
+    if (g_role == ROLE_JOIN && g_tactical && env_integer("MP_VERSUS", &value)) set_versus(value != 0);
     if (g_role != ROLE_NONE && g_tactical) load_battle_description();
     if (g_role == ROLE_HOST && g_tactical) {
         host_swap_sides_if_asked();
@@ -1382,8 +1395,6 @@ void session_start(ObjMan *)
             sprintf_s(v, "%u", g_map_revision); SetEnvironmentVariableA("MP_MAP_REV", v);
         }
     }
-    // a joining game is told by its launcher whether its description is the mirrored one
-    if (g_role == ROLE_JOIN && g_tactical && env_integer("MP_VERSUS", &value)) set_versus(value != 0);
     if (g_role == ROLE_HOST) {
         if (!g_host_mode) g_host_mode = HOST_MODE_SKIRMISH;
         find_local_ip();
@@ -2885,7 +2896,13 @@ void session_frame(ObjMan *om)
         g_end_turn_asked = false;
         mp_log("test: spectator cannot advance the host's turn");
     }
-    if (g_map_mode && g_map_battle_at && now >= g_map_battle_at) joiner_into_battle();
+    if (g_map_mode && g_map_battle_at && now >= g_map_battle_at) {
+#ifdef NETV21_TEST_HOOKS
+        if (g_test_map_no_game) { g_test_battle_notice = true; g_map_battle_at = 0; }
+        else
+#endif
+        joiner_into_battle();
+    }
     if (g_map_mode && g_map_reload_at && now >= g_map_reload_at) {
 #ifdef NETV21_TEST_HOOKS
         if (!g_test_map_no_game)

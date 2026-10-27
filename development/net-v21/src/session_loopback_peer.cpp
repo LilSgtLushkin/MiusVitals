@@ -40,6 +40,10 @@ unsigned session_test_map_dropped();
 unsigned session_test_map_duplicates();
 unsigned session_test_map_stale();
 bool session_test_map_seed(const std::vector<unsigned char> &, bool);
+bool session_test_host_battle(const std::vector<unsigned char> &);
+bool session_test_host_battle_notice();
+u32 session_test_source_hash();
+void session_test_fresh_tactical();
 bool session_test_map_control();
 u32 session_test_map_out_hash();
 bool session_test_map_no_guest_upload();
@@ -393,9 +397,167 @@ static int spectator_map_test(bool host, bool steam, const char *own_port, const
     session_stop(); steam_shutdown(); return 1;
 }
 
+// The real launcher and sessions, but synthetic AZCF and a harmless starter instead of a game.
+// The process switch at the map->lobby boundary is simulated; the tactical child is genuinely
+// spawned with Joiner::launch, then a fresh-session test seam drives its session in this process.
+static int host_battle_transition(bool host, bool steam, const char *our_port, const char *peer_port)
+{
+    SetEnvironmentVariableA("MP_STEAM", steam ? nullptr : "0");
+    SetEnvironmentVariableA("MP_STEAM_FAKE", steam ? our_port : nullptr);
+    SetEnvironmentVariableA("MP_PORT", host ? our_port : "0");
+    SetEnvironmentVariableA("MP_HOST_MODE", "operation");
+    SetEnvironmentVariableA("MP_ROLE", host ? "host" : nullptr);
+    SetEnvironmentVariableA("MP_MAP", nullptr); SetEnvironmentVariableA("MP_MAP_EPOCH", "101");
+    SetEnvironmentVariableA("MP_MAP_REV", "1"); SetEnvironmentVariableA("MP_VERSUS", nullptr);
+    session_test_disable_upnp(true); session_test_disable_udp(steam);
+    session_test_map_enable(false);
+    char address[80];
+    if (steam) sprintf_s(address, "steam:%s", peer_port);
+    else sprintf_s(address, "127.0.0.1:%s", peer_port);
+    const std::vector<unsigned char> map = opsave_fixture::host(false), battle = opsave_fixture::battle();
+    char event_name[128];
+    sprintf_s(event_name, "Local\\netv21_battle_ready_%s_%s", steam ? "steam" : "ip", host ? our_port : peer_port);
+    HANDLE ready = CreateEventA(nullptr, TRUE, FALSE, event_name);
+    sprintf_s(event_name, "Local\\netv21_battle_done_%s_%s", steam ? "steam" : "ip", host ? our_port : peer_port);
+    HANDLE done = CreateEventA(nullptr, TRUE, FALSE, event_name);
+    if (!ready || !done) return 2;
+    alignas(8) unsigned char manager[0x110] = {};
+    void *vtable[15] = {}; vtable[9] = (void *)&find_nothing; *(void ***)manager = vtable;
+    strcpy_s(g_program, "opgame"); session_start((ObjMan *)manager);
+    if (host) {
+        if (!session_test_map_seed(map, false)) return 3;
+        SetEvent(ready);
+        bool map_seen = false, tactical_started = false, controls = false, connected = false, finished = false;
+        DWORD start = GetTickCount();
+        while (GetTickCount() - start < 26000) {
+            session_frame((ObjMan *)manager);
+            if (!tactical_started && session_test_map_peer_loaded()) {
+                map_seen = true; session_stop();
+                strcpy_s(g_program, "tacgame"); session_start((ObjMan *)manager);
+                tactical_started = session_test_host_battle(battle);
+                if (!tactical_started) break;
+            }
+            if (tactical_started && session_connected()) {
+                connected = true;
+                Object mine = {}, theirs = {};
+                mine.iface = theirs.iface = "i_human";
+                strcpy_s(mine.full, "i_human:hum_00000100"); strcpy_s(theirs.full, "i_human:hum_00000200");
+                controls = session_versus() && session_owns(&mine) && !session_owns(&theirs) &&
+                           session_owns_squad(0x100) && !session_owns_squad(0x200);
+            }
+            if (WaitForSingleObject(done, 0) == WAIT_OBJECT_0) { finished = true; break; }
+            Sleep(10);
+        }
+        bool ok = map_seen && tactical_started && connected && controls && finished;
+        printf("BATTLE_%s_RESULT host ok=%d map=%d launched=%d connected=%d controls=%d guest_done=%d\n",
+               steam ? "STEAM" : "IP", (int)ok, (int)map_seen, (int)tactical_started,
+               (int)connected, (int)controls, (int)finished);
+        session_stop(); steam_shutdown(); CloseHandle(ready); CloseHandle(done); return ok ? 0 : 1;
+    }
+    if (WaitForSingleObject(ready, 5000) != WAIT_OBJECT_0) return 4;
+    Joiner map_lobby; map_lobby.lobby_ready = true;
+    if (!map_lobby.start(address)) return 5;
+    map_lobby.last_hello = GetTickCount() - 500;
+    DWORD start = GetTickCount();
+    while (GetTickCount() - start < 10000 && map_lobby.state != Joiner::DONE && map_lobby.state != Joiner::FAILED) {
+        session_frame((ObjMan *)manager); map_lobby.poll(); Sleep(10);
+    }
+    if (map_lobby.state != Joiner::DONE || !map_lobby.want_map || map_lobby.image != map ||
+        map_lobby.map_epoch != 102 || map_lobby.map_revision != 2) return 6;
+    SetEnvironmentVariableA("MP_ROLE", "join"); SetEnvironmentVariableA("MP_MAP", "1");
+    SetEnvironmentVariableA("MP_MAP_EPOCH", "102"); SetEnvironmentVariableA("MP_MAP_REV", "2");
+    SetEnvironmentVariableA("MP_PEER", address);
+    session_start((ObjMan *)manager);
+    bool notice = false;
+    start = GetTickCount();
+    while (GetTickCount() - start < 10000) {
+        session_frame((ObjMan *)manager);
+        if (session_test_host_battle_notice()) { notice = true; break; }
+        Sleep(10);
+    }
+    if (!notice) return 7;
+    // Simulate the map process ending and its autojoin lobby opening; do not invoke ExitProcess.
+    session_test_map_leave_screen(); session_frame((ObjMan *)manager);
+    if (session_map_mode() || session_role() != ROLE_NONE) return 8;
+    Joiner lobby; lobby.lobby_ready = true;
+    if (!lobby.start(address)) return 9;
+    lobby.last_hello = GetTickCount() - 500;
+    start = GetTickCount();
+    while (GetTickCount() - start < 10000 && lobby.state != Joiner::DONE && lobby.state != Joiner::FAILED) {
+        session_frame((ObjMan *)manager); lobby.poll(); Sleep(10);
+    }
+    bool downloaded = lobby.state == Joiner::DONE && !lobby.want_map && lobby.host_mode == HOST_MODE_OPERATION &&
+                      lobby.versus && lobby.image == battle;
+    if (!downloaded) return 10;
+
+    // Launch the real Joiner into a harmless starter, and then use its actual mirrored file to
+    // model the new tactical process. Starting with MP_MAP=1 exercises its explicit removal.
+    char temp[MAX_PATH], root[MAX_PATH], src[MAX_PATH], dst[MAX_PATH], path[MAX_PATH];
+    if (!GetTempPathA(sizeof temp, temp)) return 11;
+    sprintf_s(root, "%snetv21_host_battle_%lu", temp, GetCurrentProcessId());
+    if (!CreateDirectoryA(root, nullptr)) return 12;
+    const char *dirs[] = { "data", "data\\common", "data\\common\\shared", "data\\common\\shared\\config" };
+    for (const char *d : dirs) { sprintf_s(path, "%s\\%s", root, d); if (!CreateDirectoryA(path, nullptr)) return 13; }
+    if (!GetModuleFileNameA(nullptr, src, sizeof src)) return 14;
+    char *slash = strrchr(src, '\\'); if (!slash) return 15;
+    strcpy_s(slash + 1, sizeof src - (slash + 1 - src), "starter_fixture.exe");
+    sprintf_s(dst, "%s\\starter_x64.exe", root);
+    if (!CopyFileA(src, dst, FALSE)) return 16;
+    SetEnvironmentVariableA("MP_MAP", "1");
+    bool launched = lobby.launch(root);
+    if (!launched) { printf("launcher: %s\n", lobby.error); return 17; }
+    sprintf_s(path, "%s\\starter_fixture_result.txt", root);
+    bool child = false; unsigned long child_id = 0;
+    start = GetTickCount();
+    while (GetTickCount() - start < 5000) {
+        FILE *f = nullptr;
+        if (!fopen_s(&f, path, "rb") && f) { child = fscanf_s(f, "ok:%lu", &child_id) == 1; fclose(f); break; }
+        Sleep(10);
+    }
+    if (child_id) {
+        HANDLE h = OpenProcess(SYNCHRONIZE, FALSE, child_id);
+        if (h) { child = child && WaitForSingleObject(h, 5000) == WAIT_OBJECT_0; CloseHandle(h); }
+    }
+    // Start with the same environment the child fixture verified. Reset in-memory perspective to
+    // model a genuinely fresh process and check the source hash after load_battle_description().
+    SetEnvironmentVariableA("MP_ROLE", "join"); SetEnvironmentVariableA("MP_MAP", nullptr);
+    SetEnvironmentVariableA("MP_PEER", address); SetEnvironmentVariableA("MP_VERSUS", "1");
+    sprintf_s(g_out_dir, "%s\\out", root); strcpy_s(g_program, "tacgame");
+    session_test_fresh_tactical(); session_start((ObjMan *)manager);
+    bool hash = session_test_source_hash() == fnv(battle.data(), battle.size());
+    Object mine = {}, theirs = {};
+    mine.iface = theirs.iface = "i_human";
+    strcpy_s(mine.full, "i_human:hum_00000200"); strcpy_s(theirs.full, "i_human:hum_00000100");
+    bool controls = session_role() == ROLE_JOIN && session_versus() && session_owns(&mine) && !session_owns(&theirs) &&
+                    session_owns_squad(0x200) && !session_owns_squad(0x100);
+    bool connected = false;
+    start = GetTickCount();
+    while (GetTickCount() - start < 10000) {
+        session_frame((ObjMan *)manager);
+        if (session_connected()) { connected = true; break; }
+        Sleep(10);
+    }
+    bool ok = notice && downloaded && launched && child && hash && controls && connected;
+    printf("BATTLE_%s_RESULT join ok=%d notice=%d image=%d launch=%d child_env=%d hash=%d controls=%d connected=%d\n",
+           steam ? "STEAM" : "IP", (int)ok, (int)notice, (int)downloaded, (int)launched, (int)child,
+           (int)hash, (int)controls, (int)connected);
+    // Give the host enough time to receive the final tactical HELLO before stopping.
+    start = GetTickCount();
+    while (GetTickCount() - start < 500) { session_frame((ObjMan *)manager); Sleep(10); }
+    SetEvent(done); session_stop(); steam_shutdown();
+    DeleteFileA(path); DeleteFileA(dst);
+    sprintf_s(path, "%s\\%s", root, k_image_path); DeleteFileA(path);
+    for (int i = 3; i >= 0; --i) { sprintf_s(path, "%s\\%s", root, dirs[i]); RemoveDirectoryA(path); }
+    RemoveDirectoryA(root); CloseHandle(ready); CloseHandle(done); return ok ? 0 : 1;
+}
+
 int main(int argc, char **argv)
 {
     if (argc != 4) return 2;
+    if (!strcmp(argv[1], "battle-steam-host") || !strcmp(argv[1], "battle-steam-join"))
+        return host_battle_transition(!strcmp(argv[1], "battle-steam-host"), true, argv[2], argv[3]);
+    if (!strcmp(argv[1], "battle-ip-host") || !strcmp(argv[1], "battle-ip-join"))
+        return host_battle_transition(!strcmp(argv[1], "battle-ip-host"), false, argv[2], argv[3]);
     if (!strcmp(argv[1], "spectator-steam-host") || !strcmp(argv[1], "spectator-steam-join"))
         return spectator_map_test(!strcmp(argv[1], "spectator-steam-host"), true, argv[2], argv[3]);
     if (!strcmp(argv[1], "spectator-ip-host") || !strcmp(argv[1], "spectator-ip-join"))

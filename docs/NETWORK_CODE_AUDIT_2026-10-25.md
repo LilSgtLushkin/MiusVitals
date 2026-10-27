@@ -1,5 +1,10 @@
 # Аудит сетевого кода и source-only candidate — 2026-10-25
 
+> Исторический аудит старой схемы поочерёдных ходов. Она отменена: в 1.0.6 только хост
+> выполняет оперативные ходы и инициирует бои, клиент наблюдает и присоединяется к его боям.
+> Упомянутые ниже client-initiated attack и handoff больше не являются требованиями 1.0.6.
+> Актуальные ограничения: [NET_V21_SPECTATOR_1_0_6.md](NET_V21_SPECTATOR_1_0_6.md).
+
 ## Граница аудита
 
 Проверен весь runtime source публичного `VampyrCat/MiusPlayer@43b2736d3b4a1e208e6c80f45f6ebbdd476de3aa` (`basic_network/*.cpp`, `*.h`, включая launcher `mp_join.cpp`) и действующий C sidecar `development/kit-source/src/mp_vitals.c`.
