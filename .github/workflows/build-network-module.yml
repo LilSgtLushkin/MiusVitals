@@ -272,8 +272,10 @@ jobs:
             2>&1 | tee development/net-v21/build/package.log
           exit ${PIPESTATUS[0]}
 
+      # A documentation/packaging-only commit can validate the build without replacing the
+      # separately preserved installer. Normal source builds continue to publish as before.
       - name: Publish the test installer into the branch
-        if: success() && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/arena/')
+        if: success() && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/arena/') && !contains(github.event.head_commit.message, '[no-installer]')
         shell: bash
         run: |
           # The archive has to be reachable without the Actions API (artifact downloads are blocked

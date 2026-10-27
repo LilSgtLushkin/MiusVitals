@@ -4,17 +4,26 @@
 
 ## Скачать и установить
 
-**Актуальный устанавливаемый файл только один:** [`MiusMultiplayer_v1.0.1_INSTALL.zip`](MiusMultiplayer_v1.0.1_INSTALL.zip).
+**Основной установщик:** [`MiusMultiplayer_v1.0.1_INSTALL.zip`](MiusMultiplayer_v1.0.1_INSTALL.zip). Отдельно доступен [тестовый архив 1.0.3](MiusMultiplayer_v1.0.3_TEST_INSTALL.zip): по умолчанию он ставит те же файлы v1.0.1, а собственный модуль `net_v21` включается вручную и ещё не проверен в игре.
 
-Архив содержит единый корень `MiusMultiplayer/` и имеет SHA-256 `13dd5b317f05ee9f6852cb75671af0f3c847b040e622799b7afb19efe07479b6`. Распакуйте его в корень игры рядом со `starter_x64.exe`, затем выполните `MiusMultiplayer\\Check_Install.bat` и `MiusMultiplayer\\Enable_Multiplayer.bat` на обоих ПК. Не устанавливайте отдельно старые `mpmod1`, `MiusVitals` или архив `MiusMultiplayer_OUTDATED_INSTALL.zip`.
+Основной архив содержит единый корень `MiusMultiplayer/` и имеет SHA-256 `13dd5b317f05ee9f6852cb75671af0f3c847b040e622799b7afb19efe07479b6`. Распакуйте его в корень игры рядом со `starter_x64.exe`, затем выполните `MiusMultiplayer\\Check_Install.bat` и `MiusMultiplayer\\Enable_Multiplayer.bat` на обоих ПК. Не устанавливайте отдельно старые `mpmod1`, `MiusVitals` или архив `MiusMultiplayer_OUTDATED_INSTALL.zip`.
 
 Внутри v1.0.1 находится `basic_network.codelib` SHA-256 `7b42a69abe58deb1583d2f5320eebbecd9718ffa27ea08933613e67df1901f67`: это Steam-capable 3598/1 module с проверенным `.fpsfix` trampoline. Он пропускает `session_sim_step` только при zero-ms `ctrl_tick` и оставляет original path для non-zero steps. Steam Friends, rich presence, Join Game, SteamNetworking P2P, Vitals import/signature surface и остальные текущие runtime fixes остаются в том же codelib.
 
 `Enable_Multiplayer.bat` заменяет все шесть runtime files **безусловно**: в установщике больше нет ни allow-list известных модулей, ни `certutil`, ни SHA-256 после copy, ни чтения `game_build_3598_1.sha256`. Любой прежний `basic_network.codelib` (v1.0.0, withdrawn beta, другой мод, неизвестная сборка) сохраняется best-effort и заменяется; сбой backup-а установку не прерывает. Если файл физически не записывается, установщик печатает `NOT REPLACED` и всё равно заменяет остальные. Historical full-file game hash list остался только диагностикой в `Check_Install.bat`, а engine-specific hooks включаются только после собственных точных runtime signature checks. Причина этого изменения и разбор того, почему кнопка MULTIPLAYER может не появиться, — в [`docs/MULTIPLAYER_MENU_BUTTON_2026-10-25.md`](docs/MULTIPLAYER_MENU_BUTTON_2026-10-25.md).
 
-### Устаревшие archives
+### Какие архивы сохранены
 
-В репозитории остался ровно один устаревший архив — [`MiusMultiplayer_OUTDATED_INSTALL.zip`](MiusMultiplayer_OUTDATED_INSTALL.zip) (бывший v1.0.0). Он сохранён только для rollback/provenance и **не** является актуальным installer.
+| Архив | Назначение |
+|---|---|
+| [`MiusMultiplayer_v1.0.1_INSTALL.zip`](MiusMultiplayer_v1.0.1_INSTALL.zip) | основной установщик |
+| [`MiusMultiplayer_v1.0.3_TEST_INSTALL.zip`](MiusMultiplayer_v1.0.3_TEST_INSTALL.zip) | текущий тест собственного `net_v21`, включается отдельно |
+| [`MiusMultiplayer_v1.0.0_TEST_INSTALL_known_good.zip`](MiusMultiplayer_v1.0.0_TEST_INSTALL_known_good.zip) | сохранённая контрольная копия для отката |
+| [`MiusMultiplayer_v1.0.0_TEST_INSTALL.zip`](MiusMultiplayer_v1.0.0_TEST_INSTALL.zip), [`MiusMultiplayer_v1.0.2_TEST_INSTALL.zip`](MiusMultiplayer_v1.0.2_TEST_INSTALL.zip) | разные прежние тестовые сборки `net_v21` |
+| [`GTMP_alpha_INSTALL.zip`](GTMP_alpha_INSTALL.zip) | эксперимент с другой `mp_vitals.dll` |
+| [`MiusMultiplayer_OUTDATED_INSTALL.zip`](MiusMultiplayer_OUTDATED_INSTALL.zip) | прежний установщик v1.0.0, только для отката и истории |
+
+У этих архивов есть различия в составе или бинарных файлах; одинаковый базовый установщик внутри тестовых ZIP не делает их одинаковыми сборками. Результат проверки и удалённый дубликат — в [инвентаре архивов](docs/ARCHIVE_INVENTORY_2026-10-27.md).
 
 Отдельный experimental `MiusMultiplayer_beta_FPS_fix_INSTALL.zip` **удалён**: его единственный payload (Steam-preserving FPS `basic_network.codelib`) давно входит в v1.0.1, а два installer'а с разными codelib только путали установку. Вместе с архивом удалены `scripts/package_fps_beta.py` и `development/fps-beta-kit-source/`; воспроизводимая сборка самого FPS candidate остаётся в [`development/fps-candidate/`](development/fps-candidate/) и проверяется workflow [`verify-fps-codelib.yml`](.github/workflows/verify-fps-codelib.yml).
 

@@ -25,6 +25,7 @@ import argparse
 import hashlib
 import os
 from pathlib import Path
+import re
 import struct
 import zipfile
 
@@ -176,7 +177,9 @@ def collect(repo: Path, codelib: Path) -> dict[str, bytes]:
     for relative in sorted(PROVEN_BINARIES):
         passport.append(f"  {sha256(tree[relative])}  {relative}")
     for relative in sorted(PROVEN_TEXT):
-        passport.append(f"  {sha256(tree[relative])}  {relative}")
+        # The archive stores CRLF even when the source checkout has LF. The passport must
+        # describe the bytes in the ZIP, not the platform-dependent checkout bytes.
+        passport.append(f"  {sha256(with_crlf(relative, tree[relative]))}  {relative}")
     passport += [
         "",
         "Enable_Multiplayer.bat writes the files above, exactly as v1.0.1 does.",
@@ -210,8 +213,25 @@ def verify(archive_path: Path) -> None:
         stamp = archive.read(f"{ROOT}/{PASSPORT}").decode()
         module = archive.read(f"{ROOT}/net_v21/basic_network.netv21.codelib")
         validate_module(module)
-        if sha256(module) not in stamp:
+        module_hash_lines = [line.partition(":")[2].strip() for line in stamp.splitlines()
+                             if line.startswith("net_v21 sha256:")]
+        if module_hash_lines != [sha256(module)]:
             raise SystemExit("the passport does not describe the module in the archive")
+        passport_files = {}
+        for line in stamp.splitlines():
+            match = re.fullmatch(r"\s*([0-9a-f]{64})\s{2}(.+?)\s*", line)
+            if not match:
+                continue
+            digest, relative = match.groups()
+            if relative in passport_files:
+                raise SystemExit(f"duplicate passport entry: {relative}")
+            passport_files[relative] = digest
+        expected_files = set(PROVEN_BINARIES) | set(PROVEN_TEXT)
+        if set(passport_files) != expected_files:
+            raise SystemExit("the passport file list is incomplete or unexpected")
+        for relative, digest in passport_files.items():
+            if sha256(archive.read(f"{ROOT}/{relative}")) != digest:
+                raise SystemExit(f"passport hash mismatch: {relative}")
         proven = archive.read(f"{ROOT}/files/bin/rel/x64/basic_network.codelib")
         if proven != archive.read(f"{ROOT}/net_v21/basic_network.proven.codelib"):
             raise SystemExit("the rollback copy is not the module the installer writes")
