@@ -215,9 +215,9 @@ void netlog_open(HMODULE self, const char *program, const char *out_dir)
         fclose(image);
     }
 
-    sprintf_s(g_identity, sizeof g_identity, "net_v21 v1.0.5-test, %s %s, program %s; image %s, %llu bytes, fnv1a64 %016llx, pe stamp %08lx",
+    sprintf_s(g_identity, sizeof g_identity, "net_v21 v1.0.6-test, %s %s, program %s; image %s, %llu bytes, fnv1a64 %016llx, pe stamp %08lx",
               __DATE__, __TIME__, program, path, size, hash, pe_stamp(self));
-    write_line("boot", "=== net_v21: our own network module, v1.0.5-test ===");
+    write_line("boot", "=== net_v21: our own network module, v1.0.6-test ===");
 #ifdef _MSC_VER
     write_line("boot", "build: compiled %s %s, MSVC %d", __DATE__, __TIME__, (int)_MSC_VER);
 #else

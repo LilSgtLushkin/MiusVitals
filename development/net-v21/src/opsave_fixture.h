@@ -41,6 +41,18 @@ inline std::vector<byte> host(bool ordered) {
     if(ordered){Node orders;orders.name="user_orders";orders.type=2;orders.cols=2;orders.cells={num("",100),str("host move")};nodes.push_back(orders);}
     return build(nodes);
 }
+// Synthetic host-authored tactical description. The two squads let the no-game test
+// verify that the guest can command its own units after the host starts a battle.
+inline std::vector<byte> battle() {
+    const unsigned ger=0x00524547, ussr=0x52535355, user=0x52455355, enem=0x4d454e45;
+    Node game; game.name="i_gamespec:gamespec"; game.cells={num("user_side",ger),num("enemy_side",ussr)};
+    Node squads; squads.name="squads"; squads.type=2; squads.cols=4;
+    squads.cells={num("",0),num("",0x100),num("",ger),num("",user),
+                  num("",0),num("",0x200),num("",ussr),num("",enem)};
+    Node units; units.name="units"; units.type=2; units.cols=1;
+    units.cells={str("i_human:hum_00000100"),str("i_human:hum_00000200")};
+    return build({game,squads,units});
+}
 inline opsave::NodeRef node(const std::vector<byte> &b,const char *name){for(auto &n:opsave::nodes(b))if(n.name==name)return n;return {};}
 inline size_t field(const std::vector<byte> &b,const char *name,const char *wanted){
     auto n=node(b,name);for(unsigned i=0;i<n.rows;++i){size_t c=n.data+(size_t)i*0x40;if(!strncmp((char *)b.data()+c+0x20,wanted,0x20))return c;}return 0;

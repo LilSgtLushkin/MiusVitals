@@ -8,7 +8,7 @@ for ($i = 0; $i -lt 3; $i++) {
     if (Test-Path -LiteralPath (Join-Path $probe 'starter_x64.exe') -PathType Leaf) { $game = $probe; break }
 }
 if (-not $game) { Write-Host 'Game folder not found.'; exit 3 }
-Write-Host "MiusMultiplayer 1.0.5 TEST - game: $game"
+Write-Host "MiusMultiplayer 1.0.6 TEST - game: $game"
 $manifest = Join-Path $kit 'FILES_SHA256.txt'
 if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) { Write-Host 'Missing FILES_SHA256.txt'; exit 1 }
 $bad = 0; $count = 0
@@ -26,7 +26,7 @@ foreach ($line in Get-Content -LiteralPath $manifest) {
     Write-Host ("  {0}: {1}" -f $relative, $status)
 }
 if ($count -ne 6) { Write-Host 'The six-file manifest is incomplete.'; exit 1 }
-if (Test-Path -LiteralPath (Join-Path $kit 'state\unified_test_v105\pending')) {
+if (Test-Path -LiteralPath (Join-Path $kit 'state\unified_test_v106\pending')) {
     Write-Host 'RECOVERY REQUIRED: run Disable_Multiplayer.bat before starting the game.'; exit 1
 }
 Write-Host 'This candidate does not import mp_vitals.dll; full Vitals behaviour is not yet ported.'

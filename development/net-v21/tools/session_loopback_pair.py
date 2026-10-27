@@ -5,7 +5,9 @@ The engine, shots and object-state code are mocked. Tactical peers test F9/end b
 separate UDP socket. A menu Joiner follows the real session-before-UI receive order for both fake
 Steam and loopback UDP: an operation-menu host must observe READY, and a tactical host must serve
 the complete synthetic image. The Steam menu case suppresses the independent UDP socket; the IP
-cases suppress UPnP only in the test build. This is not real Steam or game validation.
+cases suppress UPnP only in the test build. A host-started operation battle traverses the real
+sessions, synthetic map/battle transfer and both real CreateProcess child environments. The
+lobby UI is simulated and the game engine is not present. This is not real Steam or game validation.
 """
 import argparse
 import socket
@@ -34,15 +36,17 @@ def run_pair(peer, mode):
         "ip-lobby": ("ip-lobby-", "IP_LOBBY_RESULT"),
         "steam-menu": ("steam-menu-", "STEAM_MENU_RESULT"),
         "ip-menu": ("ip-menu-", "IP_MENU_RESULT"),
-        "m5-steam": ("m5-steam-", "M5_STEAM_RESULT"),
-        "m5-ip": ("m5-ip-", "M5_IP_RESULT"),
+        "spectator-steam": ("spectator-steam-", "SPECTATOR_STEAM_RESULT"),
+        "spectator-ip": ("spectator-ip-", "SPECTATOR_IP_RESULT"),
+        "battle-steam": ("battle-steam-", "BATTLE_STEAM_RESULT"),
+        "battle-ip": ("battle-ip-", "BATTLE_IP_RESULT"),
     }[mode]
     processes = [
         subprocess.Popen([peer, prefix + "host", str(ports[0]), str(ports[1])], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True),
         subprocess.Popen([peer, prefix + "join", str(ports[1]), str(ports[0])], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True),
     ]
     try:
-        outputs = [p.communicate(timeout=25)[0] for p in processes]
+        outputs = [p.communicate(timeout=32)[0] for p in processes]
     except subprocess.TimeoutExpired:
         for p in processes:
             p.kill()
@@ -72,9 +76,12 @@ def main():
     ip_lobby = run_pair(args.peer, "ip-lobby")
     steam_menu = run_pair(args.peer, "steam-menu")
     ip_menu = run_pair(args.peer, "ip-menu")
-    m5_steam = run_pair(args.peer, "m5-steam")
-    m5_ip = run_pair(args.peer, "m5-ip")
-    return 0 if tactical and steam_lobby and ip_lobby and steam_menu and ip_menu and m5_steam and m5_ip else 1
+    spectator_steam = run_pair(args.peer, "spectator-steam")
+    spectator_ip = run_pair(args.peer, "spectator-ip")
+    battle_steam = run_pair(args.peer, "battle-steam")
+    battle_ip = run_pair(args.peer, "battle-ip")
+    return 0 if all((tactical, steam_lobby, ip_lobby, steam_menu, ip_menu, spectator_steam, spectator_ip,
+                     battle_steam, battle_ip)) else 1
 
 
 if __name__ == "__main__":

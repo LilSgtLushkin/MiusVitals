@@ -17,7 +17,7 @@ import unittest
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-ARCHIVE = Path(os.environ.get("MIUS_TEST_ARCHIVE", ROOT / "MiusMultiplayer_v1.0.5_TEST_INSTALL.zip"))
+ARCHIVE = Path(os.environ.get("MIUS_TEST_ARCHIVE", ROOT / "MiusMultiplayer_v1.0.6_TEST_INSTALL.zip"))
 FILES = ("mp_vitals.dll", "bin/rel/x64/basic_network.codelib", "mp_join.exe",
          "root/programs/opgame.progpack", "root/programs/tacgame.progpack", "steam_appid.txt")
 
@@ -45,7 +45,7 @@ class UnifiedInstaller(unittest.TestCase):
         os.chmod(self.readonly, stat.S_IREAD)
         self.sentinel = self.game / "untouched.txt"
         self.sentinel.write_bytes(b"unrelated user data")
-        self.state = self.kit / "state/unified_test_v105"
+        self.state = self.kit / "state/unified_test_v106"
         self.baseline = self.state / "baseline"
         self.pending = self.state / "pending"
 

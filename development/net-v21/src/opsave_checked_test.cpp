@@ -8,6 +8,7 @@ static int fopen_s(FILE **f, const char *p, const char *m) { *f = fopen(p, m); r
 static int fscanf_s(FILE *, const char *, ...) { return EOF; }
 #endif
 #include "opsave_checked.h"
+#include "spectator_snapshot.h"
 #include <stdio.h>
 #include <string.h>
 #include <vector>
@@ -89,6 +90,16 @@ int main(int argc, char **argv) {
     std::string why; unsigned changed = 0, added = 0;
     auto host = build(fixture());
     test(validate(host,&why),"valid synthetic save");
+    test(spectator_snapshot::publishable(host, false, 0, {}), "initial exact host snapshot allowed");
+    test(!spectator_snapshot::publishable(host, true, opsave::turns(host), host), "unchanged host snapshot is not republished");
+    auto battles_pending = host; put(battles_pending, field(battles_pending, "op_stream", "turn_phase"), 2);
+    test(spectator_snapshot::publishable(battles_pending, true, opsave::turns(host), host), "changed phase 2 host snapshot is publishable");
+    auto interim = host; put(interim, field(interim, "op_stream", "turn_phase"), 1);
+    test(!spectator_snapshot::publishable(interim, false, 0, {}), "intermediate phase is refused");
+    auto unadvanced = host; put(unadvanced, field(unadvanced, "p_host", "px"), 9);
+    test(!spectator_snapshot::publishable(unadvanced, true, opsave::turns(host), host), "phase 0 update without a new frame is refused");
+    auto bad_snapshot = host; bad_snapshot.resize(16);
+    test(!spectator_snapshot::publishable(bad_snapshot, false, 0, {}), "truncated snapshot is refused");
     auto wrong_phase_type=host; put(wrong_phase_type,field(wrong_phase_type,"op_stream","turn_phase")+16,2);
     test(opsave::turn_phase(wrong_phase_type)==-1,"non-numeric turn phase never confirms resolution");
     Sidecar side; auto base = host;

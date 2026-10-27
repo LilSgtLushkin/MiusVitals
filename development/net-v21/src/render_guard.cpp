@@ -142,9 +142,64 @@ template <typename T> static bool load_at(u64 base, u64 offset, T *out)
     return true;
 }
 
+// VirtualQuery regions are reusable only within ONE guard call: never cache them across
+// renderer calls, where allocation/protection may change. Every read/write still gets the
+// same bounds, protection and allocation checks, and the outer SEH handles unmap races.
+struct CacheProbe {
+    MEMORY_BASIC_INFORMATION regions[6] = {};
+    unsigned count = 0;
+    bool has(const void *p, size_t n, bool write, MEMORY_BASIC_INFORMATION *out = nullptr) {
+        uintptr_t at = (uintptr_t)p;
+        if (!p || !n) return false;
+        for (unsigned i = 0; i < count; ++i) {
+            const MEMORY_BASIC_INFORMATION &m = regions[i];
+            uintptr_t base = (uintptr_t)m.BaseAddress;
+            if (at < base || at - base > m.RegionSize || n > m.RegionSize - (at - base)) continue;
+            DWORD flags = m.Protect & 0xff;
+            bool writable_page = flags == PAGE_READWRITE || flags == PAGE_WRITECOPY ||
+                                 flags == PAGE_EXECUTE_READWRITE || flags == PAGE_EXECUTE_WRITECOPY;
+            if (write && !writable_page) return false;
+            if (out) *out = m;
+            return true;
+        }
+        MEMORY_BASIC_INFORMATION m = {};
+        if (!page_has(p, n, write, &m)) return false;
+        if (count < sizeof regions / sizeof regions[0]) regions[count++] = m;
+        if (out) *out = m;
+        return true;
+    }
+    template <typename T> bool load(u64 base, u64 offset, T *out) {
+        u64 address;
+        if (!add_u64(base, offset, &address) || !has((const void *)(uintptr_t)address, sizeof(T), false)) return false;
+        memcpy(out, (const void *)(uintptr_t)address, sizeof(T));
+        return true;
+    }
+};
+
+static void render_cache_preflight(void *renderer, u32 node)
+{
+    CacheProbe p;
+    u64 groups, group, at;
+    if (node == 0xffffffffu || !p.load((u64)(uintptr_t)renderer, 0x240, &groups) ||
+        !add_u64(groups, ((u64)node >> 10) << 6, &at) || !p.load(at, 0, &group) ||
+        !add_u64(group, (u64)(node & 0x3ffu) * 320u, &at) || !add_u64(at, 0x34, &at) ||
+        !p.has((void *)(uintptr_t)at, sizeof(u32), true) || (at & 3u)) return;
+    u32 *slot = (u32 *)(uintptr_t)at;
+    u32 old = (u32)InterlockedCompareExchange((volatile LONG *)slot, 0, 0);
+    u64 pool, target;
+    if (old >= cache_missing || !p.load((u64)(uintptr_t)renderer, 0x168, &pool) ||
+        !add_u64(pool, ((u64)(old & 0xffffffu)) << 6, &target)) return;
+    MEMORY_BASIC_INFORMATION a = {}, b = {};
+    if (p.has((const void *)(uintptr_t)pool, 1, true, &a) &&
+        p.has((const void *)(uintptr_t)target, 64, true, &b) && a.AllocationBase == b.AllocationBase) return;
+    if ((u32)InterlockedCompareExchange((volatile LONG *)slot, (LONG)cache_missing, (LONG)old) == old)
+        g_cache_repairs.fetch_add(1, std::memory_order_relaxed);
+}
+
+#ifdef NETV21_TEST_HOOKS
 // Cache memory is local to the renderer, not a network id. Only an out-of-allocation cached slot
 // is changed, atomically, to the engine's own 'allocate a fresh slot' sentinel.
-static u32 *render_cache_slot(void *renderer, u32 node)
+static u32 *render_cache_slot_reference(void *renderer, u32 node)
 {
     u64 groups, group, at;
     if (node == 0xffffffffu || !load_at((u64)(uintptr_t)renderer, 0x240, &groups) ||
@@ -153,7 +208,7 @@ static u32 *render_cache_slot(void *renderer, u32 node)
         !page_has((void *)(uintptr_t)at, sizeof(u32), true) || (at & 3u)) return nullptr;
     return (u32 *)(uintptr_t)at;
 }
-static bool same_writable_allocation(u64 base, u64 target, size_t n)
+static bool same_writable_allocation_reference(u64 base, u64 target, size_t n)
 {
     MEMORY_BASIC_INFORMATION a = {}, b = {};
     if (!page_has((const void *)(uintptr_t)base, 1, true, &a)) return false;
@@ -164,18 +219,20 @@ static bool same_writable_allocation(u64 base, u64 target, size_t n)
         n && n <= a.RegionSize - (at - start)) return true;
     return page_has((const void *)at, n, true, &b) && a.AllocationBase == b.AllocationBase;
 }
-static void render_cache_preflight(void *renderer, u32 node)
+static void render_cache_preflight_reference(void *renderer, u32 node)
 {
-    u32 *cache = render_cache_slot(renderer, node);
+    u32 *cache = render_cache_slot_reference(renderer, node);
     if (!cache) return;
     u32 old = (u32)InterlockedCompareExchange((volatile LONG *)cache, 0, 0);
     u64 pool, target;
     if (old >= cache_missing || !load_at((u64)(uintptr_t)renderer, 0x168, &pool) ||
         !add_u64(pool, ((u64)(old & 0xffffffu)) << 6, &target) ||
-        same_writable_allocation(pool, target, 64)) return;
+        same_writable_allocation_reference(pool, target, 64)) return;
     if ((u32)InterlockedCompareExchange((volatile LONG *)cache, (LONG)cache_missing, (LONG)old) == old)
         g_cache_repairs.fetch_add(1, std::memory_order_relaxed);
 }
+
+#endif
 
 // Cache a few readable regions for the duration of a single triangle query. This avoids issuing a
 // VirtualQuery for every vertex in the same allocation; the narrow VEH below handles engine reads if
@@ -476,6 +533,7 @@ void render_test_layout(void *base) {
 LONG render_test_fault(EXCEPTION_POINTERS *p) { return render_fault_guard(p); }
 bool render_test_triangle(void *p) { return render_triangle_bad_input(p); }
 void render_test_cache(void *p, u32 node) { render_cache_preflight(p, node); }
+void render_test_cache_reference(void *p, u32 node) { render_cache_preflight_reference(p, node); }
 using TestFn = int (*)();
 static std::atomic<TestFn> g_test_original(nullptr);
 bool render_test_install(void *target, void *hook) {

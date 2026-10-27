@@ -34,6 +34,8 @@
 #include "hooks.h"
 #include "opsave.h"
 #include "opsave_checked.h"
+#include "spectator_snapshot.h"
+#include "spectator_policy.h"
 #include "operation_turn.h"
 #include "image_chunks.h"
 #include "map_file_windows.h"
@@ -51,6 +53,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <atomic>
 
 static const int k_units_per_packet = 14;       // 24 + 14 * 80 = 1144 bytes, below any sane MTU
 
@@ -67,37 +70,28 @@ static char g_root[MAX_PATH], g_local_ip[64] = "?", g_external_ip[64], g_status[
 // lobby: who is playing, and whether the two players have exchanged forces (skirmish only)
 static char g_my_name[24] = "Player", g_peer_name[24], g_image_file[MAX_PATH];
 static bool g_peer_lobby_ready, g_swap, g_peer_swap_known;
-// Operation: the operational map is with one player at a time. It travels as the operation's save.
-static char g_profile_id[64] = "cloud";
-static std::vector<unsigned char> g_map_out, g_map_in, g_map_have;   // save offered to the other game / being received
-static std::vector<DWORD> g_map_asked;
-static u32 g_map_out_hash, g_map_in_hash, g_map_got, g_map_ack, g_map_turns;
-static char g_map_file[96];             // the save's file name, e.g. 1942_07_Oskol_07_02_odintsov_rus.opsave
-static bool g_map_given;                // host: the joining player has a copy of the map; joining game: sending it back
-static bool g_map_mode;                 // this program is the joining player's side of the operational map
-static bool g_map_fetched;              // host: the joining game has started downloading the copy
-static bool g_map_collect;              // host: ending the turn, the joining game's moves are being fetched
-static bool g_collect_asked;            // joining game: the host asked for the moves
-static bool g_end_turn_pending;         // host: restarted on the merged save, the turn still has to be ended
-static DWORD g_map_collect_since, g_share_after, g_map_seen_since;
-static DWORD g_turn_fix_at;             // host: the turn has been processed, the command tags go back at this time
-static DWORD g_map_restart_at, g_map_leave_at;
-static opsave::Sidecar g_map_sidecar;
-static char g_map_note[120];            // last thing that happened, for the banner
-static bool g_turn_done, g_peer_turn_done;  // operational map: this player / the other one has pressed "next turn"
-static bool g_peer_on_map;              // host: the joining game is on its copy of the map
-static bool g_map_sent;                 // joining game: the host has this player's moves for the turn
-// Which state of the operation a copy of the map is of: the host counts up whenever the operation moves on,
-// a joining game remembers the number of its own copy.
-static u32 g_map_epoch, g_map_base_epoch, g_map_in_epoch, g_map_in_turns;
-static u32 g_map_revision, g_map_base_revision, g_map_in_revision, g_map_ack_epoch, g_map_ack_revision;
-static operation_turn::Host g_map_host;
-static operation_turn::Client g_map_client;
-static bool g_map_hooks_ready;
-static u32 g_turn_baseline_rows;
-static char g_map_in_file[96];
-static DWORD g_map_reload_at, g_map_battle_at, g_handoff_retry_at;
 static unsigned char g_peer_swap_req;
+// The host alone owns the operation. A guest receives an unmodified, checked snapshot and
+// may navigate its local copy; it never uploads orders or participates in host resolution.
+static char g_profile_id[64] = "cloud";
+static std::vector<unsigned char> g_map_out, g_map_in, g_map_have;
+static std::vector<DWORD> g_map_asked;
+static u32 g_map_out_hash, g_map_in_hash, g_map_got, g_map_turns;
+static char g_map_file[96], g_map_in_file[96], g_map_note[120];
+static bool g_map_given, g_map_mode, g_peer_on_map, g_map_hooks_ready;
+static bool g_map_refresh_pending, g_guest_seen_map;
+static DWORD g_share_after, g_map_seen_since, g_guest_left_since;
+static DWORD g_map_reload_at, g_map_battle_at;
+static u32 g_map_epoch, g_map_base_epoch, g_map_in_epoch, g_map_in_turns;
+static u32 g_map_revision, g_map_base_revision, g_map_in_revision;
+static operation_turn::Client g_map_client; // identity/order tracking only, never grants input ownership
+// The worker may be called outside the session callback; marshal notifications to its thread.
+static std::atomic<unsigned> g_host_turn_events{0};
+typedef void (*NextTurn)(void *, u64, const char *);
+typedef void (*TurnWorker)(void *, char, void *, void *);
+static std::atomic<NextTurn> g_next_turn(nullptr);
+static std::atomic<TurnWorker> g_turn_worker(nullptr);
+static std::atomic<bool> g_watch_host_worker(false), g_block_guest_turn(false);
 
 // battle description: served by the host, read by both for sides and unit ownership
 static std::vector<unsigned char> g_image;
@@ -131,11 +125,14 @@ static u32 g_stat_zero_steps, g_stat_zero_skipped, g_stat_cache_pruned;
 static u32 g_stat_packets, g_stat_rx_bytes, g_stat_tx_bytes, g_stat_snaps;
 #ifdef NETV21_TEST_HOOKS
 static unsigned g_test_hello_rejected;
-static bool g_test_map_no_game, g_test_map_faults;
+static bool g_test_map_no_game, g_test_map_faults, g_test_map_on_screen, g_test_battle_notice, g_test_spawn_battle_lobby;
 static unsigned g_test_map_dropped, g_test_map_duplicates, g_test_map_stale;
 static std::set<u64> g_test_map_dropped_pieces;
 unsigned session_test_hello_rejected() { return g_test_hello_rejected; }
-void session_test_map_enable(bool faults) { g_test_map_no_game = true; g_map_hooks_ready = true; g_test_map_faults = faults; }
+void session_test_map_enable(bool faults) { g_test_map_no_game = g_test_map_on_screen = true; g_test_battle_notice = g_test_spawn_battle_lobby = false; g_map_hooks_ready = true; g_test_map_faults = faults; }
+bool session_test_host_battle_notice() { return g_test_battle_notice; }
+void session_test_spawn_battle_lobby() { g_test_spawn_battle_lobby = true; }
+void session_test_map_leave_screen() { g_test_map_on_screen = false; g_guest_seen_map = true; g_guest_left_since = GetTickCount() - 2100; }
 unsigned session_test_map_dropped() { return g_test_map_dropped; }
 unsigned session_test_map_duplicates() { return g_test_map_duplicates; }
 unsigned session_test_map_stale() { return g_test_map_stale; }
@@ -246,15 +243,11 @@ const char *session_status(void)
         const char *host = g_peer_name[0] ? g_peer_name : "the host";
         char what[200];
         if (g_map_note[0]) sprintf_s(what, "%s", g_map_note);
-        else if (!g_connected) sprintf_s(what, "connecting to %s - map input is locked", host);
-        else if (!g_map_hooks_ready) sprintf_s(what, "turn hooks unavailable - map input is locked");
-        else if (g_map_battle_at) sprintf_s(what, "%s has started the battle - entering the lobby", host);
-        else if (g_map_reload_at || g_map_client.pending_epoch) sprintf_s(what, "updated host map is arriving - input locked");
-        else if (g_map_sent) sprintf_s(what, "your orders are committed - waiting for the host to resolve");
-        else if (g_map_given) sprintf_s(what, "sending your orders to the host - input locked");
-        else if (g_map_client.done) sprintf_s(what, "your orders are finished - waiting for the host");
-        else if (g_map_client.input()) sprintf_s(what, "your phase: give orders, then press next turn");
-        else sprintf_s(what, "%s acts first - please wait for the updated map", host);
+        else if (g_map_battle_at) sprintf_s(what, "%s started a battle - entering the lobby", host);
+        else if (g_map_reload_at || g_map_client.pending_epoch) sprintf_s(what, "host update arriving; local changes are not sent");
+        else if (!g_connected) sprintf_s(what, "connecting to %s; local changes are not sent", host);
+        else if (!g_map_hooks_ready) sprintf_s(what, "spectator: turn control unverified; do not advance locally");
+        else sprintf_s(what, "spectator: %s controls the map; local changes are not sent", host);
         sprintf_s(g_status, "MULTIPLAYER  -  %s on the operational map  -  %s", g_my_name, what);
         return g_status;
     }
@@ -280,35 +273,31 @@ const char *session_status(void)
         !(g_connected && g_peer.sin_family == STEAM_FAMILY))
         sprintf_s(state, "UDP port %u is busy, retrying", g_port);
     else if (g_role == ROLE_JOIN && g_host_lost)
-        sprintf_s(state, "%s has left, returning to the menu", peer);
+        sprintf_s(state, "%s disconnected; use the game's own controls", peer);
     else if (!g_connected && g_role == ROLE_HOST)
         sprintf_s(state, "waiting for a player at %s:%u", g_local_ip, g_port);
     else if (!g_connected)
         sprintf_s(state, "connecting to the host");
     else if (!g_tactical && g_map_note[0])
         sprintf_s(state, "%s", g_map_note);
-    else if (!g_tactical && (g_map_collect || g_map_restart_at || g_end_turn_pending || g_turn_fix_at))
-        sprintf_s(state, "collecting or resolving %s's orders - input locked", peer);
-    else if (!g_tactical && g_map_host.shared && g_map_host.phase == operation_turn::Phase::handoff)
-        sprintf_s(state, "host phase finished - waiting for %s to load the updated map", peer);
-    else if (!g_tactical && g_map_host.shared && g_map_host.phase == operation_turn::Phase::client)
-        sprintf_s(state, "%s is giving orders - host input is locked", peer);
-    else if (!g_tactical && g_map_host.shared)
-        sprintf_s(state, "your phase: give orders, then press next turn; %s waits", peer);
+    else if (!g_tactical && g_map_refresh_pending)
+        sprintf_s(state, "your turn is yours; preparing the next spectator snapshot");
+    else if (!g_tactical && g_map_given)
+        sprintf_s(state, "host controls the map; %s follows snapshots", peer);
     else if (!g_tactical)
         sprintf_s(state, "%s has joined and is %s  (F9: lobby)", peer, g_peer_lobby_ready ? "ready" : "not ready yet");
     else if (g_end.pending)
-        sprintf_s(state, "battle end: waiting for the game's exit control");
+        sprintf_s(state, "agreement noted: finish through the game's own battle controls");
     else if (g_end.deadline) {
         DWORD now = GetTickCount();
         DWORD remaining = ceasefire::State::due(now, g_end.deadline) ? 0 : g_end.deadline - now;
-        sprintf_s(state, "ceasefire agreed - the battle ends in %u s", (unsigned)((remaining + 999) / 1000));
+        sprintf_s(state, "ceasefire agreement in %u s - use the game to finish", (unsigned)((remaining + 999) / 1000));
     } else if (g_end.proposed)
         sprintf_s(state, "you have proposed a ceasefire - F9 takes it back");
     else if (g_end.peer_proposed)
         sprintf_s(state, "%s proposes a ceasefire - F9 accepts", peer);
     else if (g_end.peer_over)
-        sprintf_s(state, "%s's battle is over - this one ends too", peer);
+        sprintf_s(state, "%s reached results - finish this battle in the game", peer);
     else if (g_phase < 2 && g_start_action && mine && !theirs)
         sprintf_s(state, "waiting for %s to finish %s", peer, what);
     else if (g_phase < 2 && g_start_action && theirs && !mine)
@@ -812,6 +801,16 @@ static DWORD WINAPI upnp_thread(LPVOID)
 static bool g_test_no_udp, g_test_no_upnp;
 void session_test_disable_udp(bool value) { g_test_no_udp = value; }
 void session_test_disable_upnp(bool value) { g_test_no_upnp = value; }
+bool session_test_host_battle(const std::vector<unsigned char> &image)
+{
+    unsigned user = 0, enemy = 0;
+    if (!g_tactical || g_role != ROLE_HOST || !opsave_checked::validate(image) || !image::sides(image, &user, &enemy)) return false;
+    g_image = image; g_image_hash = g_source_hash = fnv(g_image.data(), g_image.size());
+    g_user_side = user; g_enemy_side = enemy; g_my_units = image::units_of(image, image::k_user);
+    return true;
+}
+u32 session_test_source_hash() { return g_source_hash; }
+void session_test_fresh_tactical() { g_versus = false; g_my_units.clear(); }
 void session_test_lobby_image()
 {
     g_image.resize(k_chunk * 2 + 117);
@@ -872,11 +871,11 @@ void session_host(int mode)
     session_stop();
     g_role = ROLE_HOST;
     g_host_mode = mode;
-    g_map_host.clear();
-    g_map_given = g_map_collect = g_turn_done = false;
+    g_watch_host_worker.store(!g_tactical && mode == HOST_MODE_OPERATION, std::memory_order_release);
+    g_map_given = g_map_refresh_pending = g_peer_on_map = false;
+    g_map_out.clear(); g_host_turn_events.store(0);
     g_map_epoch = (GetTickCount() & 0x00ffffffu) | 1u;
     g_map_revision = 1;
-    g_map_ack = g_map_ack_epoch = g_map_ack_revision = 0;
     SetEnvironmentVariableA("MP_MAP_ACK", nullptr); SetEnvironmentVariableA("MP_MAP_ACK_EPOCH", nullptr);
     SetEnvironmentVariableA("MP_MAP_ACK_REV", nullptr);
     char map_identity[16];
@@ -1017,11 +1016,10 @@ static void snapshot_operation_saves(void)
     mp_log("lobby: operation saved before the battle: %d files in users\\mp_saves\\%s_vs_%s", n, g_my_name, peer);
 }
 
-// ---------------------------------------------------------------- ordered operational-map ownership
-// The guest first loads a mirrored snapshot. The host acts alone, then publishes a newer checked
-// snapshot. Only after the guest confirms loading that exact epoch/revision may it act and finish.
-// The host validates and collects the guest orders, restarts on the merged save, and resolves once.
-// File-format assumptions, visibility preservation and the engine hooks still require real-game tests.
+// ---------------------------------------------------------------- host-authoritative operation snapshots
+// The host acts normally and publishes its checked, unmodified saves. The guest only receives and
+// loads them; it never uploads map state. Local navigation remains available and the verified
+// next-turn control is intercepted, but other engine input paths still require real-game testing.
 static void *menu_controller_of(ObjMan *om)
 {
     Object *og = engine_find(om, "i_opgame", "opgame");
@@ -1046,22 +1044,15 @@ static void *operation_on_screen(ObjMan *om)
 static bool map_ready_for_hello(ObjMan *om)
 {
 #ifdef NETV21_TEST_HOOKS
-    if (g_test_map_no_game) return true; // the no-game peer explicitly simulates a loaded screen
+    if (g_test_map_no_game) return g_test_map_on_screen; // the no-game peer simulates screen transitions
 #endif
     return operation_on_screen(om) != nullptr;
 }
 bool session_on_op_map(ObjMan *om) { return operation_on_screen(om) != 0; }
-bool session_map_given(void) { return g_map_given; }
 bool session_map_mode(void) { return g_map_mode; }
-bool session_map_arriving(void) { return g_map_collect || g_map_restart_at != 0 || g_end_turn_pending || g_turn_fix_at != 0; }
-// Input is enabled for exactly the active owner of an acknowledged snapshot. Disconnect,
-// incomplete handoff, an unknown hook/build, and resolution all fail closed.
-bool session_map_blocking(void)
-{
-    if (g_map_mode) return !g_connected || !g_map_hooks_ready || g_map_battle_at || g_map_reload_at || !g_map_client.input();
-    return (g_map_host.shared && (!g_connected || !g_map_hooks_ready || !g_map_host.host_input())) ||
-           g_map_collect || g_map_restart_at != 0 || g_end_turn_pending || g_turn_fix_at != 0;
-}
+// Do not globally swallow mouse/keyboard: that also prevented Esc and the stock exit menu.
+// Local spectator actions never go to the host; the next-turn control is independently gated.
+bool session_map_blocking(void) { return false; }
 
 static void profile_path(char *out, size_t size, const char *file)
 {
@@ -1108,102 +1099,37 @@ static bool save_operation(ObjMan *om, std::vector<unsigned char> &out, char *fi
     return true;
 }
 
-static bool adopt_host_snapshot(std::vector<unsigned char> &save, const opsave::Sidecar &sidecar,
-                                const char *file, bool handoff, unsigned changed)
+// Publish the exact host save; never mirror ownership or merge a guest save. A refreshed
+// identity is made visible only after the complete checked snapshot exists.
+static void map_moved_on(void);
+static bool adopt_host_snapshot(std::vector<unsigned char> &save, const char *file, bool refresh)
 {
-    unsigned revision = handoff ? operation_turn::next_revision(g_map_revision) : g_map_revision;
-    if (handoff ? !g_map_host.publish(revision) : !g_map_host.begin(g_map_epoch, revision)) {
-        strcpy_s(g_map_note, "map phase error; turn is locked");
-        return false;
-    }
-    g_map_revision = revision;
-    char v[16]; sprintf_s(v, "%u", revision); SetEnvironmentVariableA("MP_MAP_REV", v);
-    g_map_sidecar = sidecar;
+    if (!operation_turn::valid_epoch(g_map_epoch) || !g_map_revision || !opsave_checked::validate(save)) return false;
+    if (refresh) map_moved_on();
     g_map_turns = opsave::turns(save);
-    g_map_in.clear(); g_map_in_hash = 0; g_map_got = 0;
-    g_map_fetched = false;
     strcpy_s(g_map_file, file);
     g_map_out.swap(save);
     g_map_out_hash = fnv(g_map_out.data(), g_map_out.size());
-    g_map_given = true;
+    g_map_given = true; g_map_refresh_pending = false;
     g_map_note[0] = 0;
-    mp_log("map: %s snapshot %u/%u shared (%s, %zu bytes, %u groups)", handoff ? "host-orders" : "initial",
-           g_map_epoch, g_map_revision, g_map_file, g_map_out.size(), changed);
+    mp_log("map: host snapshot %u/%u offered (%s, %zu bytes, %u frames, phase %d); no guest orders",
+           g_map_epoch, g_map_revision, g_map_file, g_map_out.size(), g_map_turns, opsave::turn_phase(g_map_out));
     return true;
 }
 
-// Publish either the initial passive copy or the host's final orders for this same turn.
-// No phase/revision changes until the game save has been read, structurally checked and mirrored.
-static bool publish_host_map(ObjMan *om, bool handoff)
+static bool publish_host_map(ObjMan *om)
 {
-    if (!g_connected || !g_map_hooks_ready || !operation_turn::valid_epoch(g_map_epoch) || !g_map_revision) {
-        strcpy_s(g_map_note, "map handoff unavailable: waiting for peer and verified turn hooks");
-        return false;
-    }
-    if (handoff && (!g_map_host.shared || g_map_host.phase != operation_turn::Phase::handoff || !g_peer_on_map)) return false;
+    if (!g_connected || !operation_turn::valid_epoch(g_map_epoch) || !g_map_revision) return false;
     std::vector<unsigned char> save;
     char file[96];
-    if (!save_operation(om, save, file, sizeof file)) { strcpy_s(g_map_note, "the operation could not be saved safely"); return false; }
-    if (handoff && strcmp(file, g_map_file)) {
-        mp_log("map: a different operation was saved during the handoff; leaving the turn locked");
-        strcpy_s(g_map_note, "operation changed during handoff; turn is locked");
+    if (!save_operation(om, save, file, sizeof file)) { strcpy_s(g_map_note, "host save unavailable; your turn is not blocked"); return false; }
+    // Phase 0 requires a newer frame; phase 2 means battles pending. Both are only
+    // serialized evidence, not proof of the real game-thread lifecycle.
+    if (!spectator_snapshot::publishable(save, g_map_refresh_pending, g_map_turns, g_map_out)) {
+        mp_log("map: save not yet a changed stable spectator snapshot (phase %d); will retry", opsave::turn_phase(save));
         return false;
     }
-    if (opsave::turn_phase(save) != 0) {
-        mp_log("map: not shared, the turn is past its orders phase");
-        return false;
-    }
-    unsigned changed = 0;
-    opsave::Sidecar sidecar;
-    std::string why;
-    if (!opsave_checked::mirror(save, &sidecar, &changed, &why)) {
-        mp_log("map: refusing to share %s: %s", file, why.c_str());
-        strcpy_s(g_map_note, "this operation cannot be shared safely; see log");
-        return false;
-    }
-    return adopt_host_snapshot(save, sidecar, file, handoff, changed);
-}
-
-static bool adopt_guest_snapshot(std::vector<unsigned char> &save, const char *file)
-{
-    if (!g_map_mode || !g_map_client.done || g_map_client.phase != operation_turn::Phase::collect ||
-        g_map_given || !g_connected || !opsave_checked::validate(save)) return false;
-    strcpy_s(g_map_file, file);
-    g_map_out.swap(save);
-    g_map_out_hash = fnv(g_map_out.data(), g_map_out.size());
-    g_map_given = true;
-    mp_log("map: offering guest orders for snapshot %u/%u (%s, %zu bytes)",
-           g_map_base_epoch, g_map_base_revision, g_map_file, g_map_out.size());
-    return true;
-}
-
-// A guest offers its completed save only when the host requests collection.
-void session_map_give(ObjMan *om)
-{
-    if (g_map_given || !g_connected) return;
-    if (g_role == ROLE_HOST && !g_tactical && g_host_mode == HOST_MODE_OPERATION) {
-        (void)publish_host_map(om, false);
-        return;
-    }
-    if (!g_map_mode || !g_map_client.done || g_map_client.phase != operation_turn::Phase::collect) return;
-    std::vector<unsigned char> save;
-    char file[96];
-    if (!save_operation(om, save, file, sizeof file)) { strcpy_s(g_map_note, "your operation could not be saved safely"); return; }
-    (void)adopt_guest_snapshot(save, file);
-}
-
-// Host: change of mind before the other player has sent anything back.
-void session_map_take_back(void)
-{
-    // Once any part of the snapshot has been fetched, silently cancelling would strand a peer
-    // with a seemingly valid copy. A later failure must remain locked for reconnect/recovery.
-    if (g_role != ROLE_HOST || !g_map_given || g_map_fetched || g_map_restart_at ||
-        g_map_host.phase != operation_turn::Phase::host) return;
-    g_map_given = false;
-    g_map_host.clear();
-    g_map_out.clear();
-    g_map_in.clear();
-    mp_log("map: cancelled before the other player fetched it");
+    return adopt_host_snapshot(save, file, g_map_given || g_map_refresh_pending);
 }
 
 static bool start_program(const char *arguments)
@@ -1220,102 +1146,6 @@ static bool start_program(const char *arguments)
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
     return true;
-}
-
-// Host: the other player's map has arrived. The host's own map is saved, his battle groups are copied in
-// from his save, and the operation program is started again on the result, where the turn is ended. This
-// program ends at once, without its usual shutdown, so it cannot write its older state over the new save.
-static bool end_turn_here(ObjMan *om);
-
-static void host_merge_and_restart(ObjMan *om)
-{
-    if (!g_map_collect || g_map_host.phase != operation_turn::Phase::collect || g_map_in.empty() ||
-        g_map_got != g_map_have.size() || g_map_in_epoch != g_map_epoch || g_map_in_revision != g_map_revision) {
-        strcpy_s(g_map_note, "guest snapshot is incomplete; turn remains locked");
-        return;
-    }
-    std::vector<unsigned char> mine;
-    char file[96], path[MAX_PATH], side_path[MAX_PATH], cmd[1024];
-    if (!save_operation(om, mine, file, sizeof file) || strcmp(file, g_map_file)) {
-        mp_log("map: host save missing or changed operation; guest orders retained, turn NOT ended");
-        strcpy_s(g_map_note, "host save failed; turn remains locked, see log");
-        return;
-    }
-    std::string why;
-    std::vector<unsigned char> mirrored = mine;
-    opsave::Sidecar current_sidecar;
-    unsigned changed = 0;
-    if (!opsave_checked::mirror(mirrored, &current_sidecar, &changed, &why) ||
-        current_sidecar.code != g_map_sidecar.code || current_sidecar.ai != g_map_sidecar.ai ||
-        current_sidecar.vis != g_map_sidecar.vis || !opsave_checked::equivalent(g_map_out, mirrored, &why)) {
-        mp_log("map: host save changed after handoff (%s); guest orders retained, turn NOT ended", why.c_str());
-        strcpy_s(g_map_note, "host save changed after handoff; turn remains locked");
-        return;
-    }
-    std::vector<unsigned char> result;
-    unsigned orders = 0;
-    if (!opsave_checked::accept(g_map_out, g_map_in, g_map_sidecar, &result, &orders, &why)) {
-        mp_log("map: guest save refused (%s); both originals retained, turn NOT ended", why.c_str());
-        strcpy_s(g_map_note, "guest save is unsupported or conflicts; turn remains locked");
-        return;
-    }
-    unsigned led = opsave::all_player_led(result);
-    if (!led || !opsave_checked::validate(result, &why)) {
-        mp_log("map: cannot prepare both sides for resolution (%s); turn NOT ended", why.c_str());
-        strcpy_s(g_map_note, "cannot prepare the joint turn; see log");
-        return;
-    }
-    std::string id = opsave::operation_id(file, opsave::operation_name(result));
-    if (id.empty()) { strcpy_s(g_map_note, "operation identity invalid; turn remains locked"); return; }
-    profile_path(path, sizeof path, file);
-    sprintf_s(side_path, "%s\\users\\mp_saves", g_root);
-    if (!CreateDirectoryA(side_path, nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) {
-        mp_log("map: cannot create sidecar directory (%lu); turn NOT ended", GetLastError());
-        strcpy_s(g_map_note, "cannot create recovery directory; turn remains locked");
-        return;
-    }
-    sprintf_s(side_path, "%s\\users\\mp_saves\\_map_sidecar_v2.bin", g_root);
-    std::vector<unsigned char> side_bytes, readback;
-    if (!opsave_checked::encode_sidecar(g_map_sidecar, &side_bytes)) {
-        strcpy_s(g_map_note, "invalid recovery sidecar; turn remains locked"); return;
-    }
-    bool exists = false;
-    if (!map_file_windows::exists(nullptr, side_path, &exists) ||
-        (!exists && !atomic_file::create_new(side_path, side_bytes.data(), side_bytes.size())) ||
-        !map_file_windows::read(nullptr, side_path, &readback) || readback != side_bytes) {
-        mp_log("map: sidecar cannot be created or does not match an earlier recovery file; turn NOT ended");
-        strcpy_s(g_map_note, "recovery sidecar blocked; turn remains locked, see log");
-        return;
-    }
-    if (sprintf_s(cmd, "\"%s\\starter_x64.exe\" root\\programs\\opgame.progpack, %s, %s, 0, %u",
-                  g_root, g_profile_id, id.c_str(), opsave::turns(result)) < 0) {
-        strcpy_s(g_map_note, "launch command too long; turn remains locked"); return;
-    }
-    char ack[16], epoch[16], revision[16], baseline[16];
-    sprintf_s(ack, "%u", g_map_in_hash); sprintf_s(epoch, "%u", g_map_in_epoch);
-    sprintf_s(revision, "%u", g_map_in_revision); sprintf_s(baseline, "%u", opsave::turns(result));
-    map_file_windows::Environment env;
-    if (!env.set("MP_ENDTURN", "1") || !env.set("MP_MAP_ACK", ack) || !env.set("MP_MAP_ACK_EPOCH", epoch) ||
-        !env.set("MP_MAP_ACK_REV", revision) || !env.set("MP_TURN_BASE", baseline)) {
-        mp_log("map: could not prepare child environment (%lu); joint turn NOT committed", GetLastError());
-        strcpy_s(g_map_note, "cannot prepare joint turn; originals retained");
-        return;
-    }
-    std::string backup;
-    DWORD launch_error = 0;
-    map_file::Result installed = map_file_windows::replace_and_launch(g_root, cmd, path, result, &backup, &launch_error);
-    if (!map_file::started(installed)) {
-        mp_log("map: guest orders NOT committed: %s (launch error %lu); backup %s", map_file::reason(installed),
-               launch_error, backup.c_str());
-        strcpy_s(g_map_note, "cannot commit/restart joint turn; originals retained, see log");
-        return;
-    }
-    if (!g_map_host.committed(g_map_in_epoch, g_map_in_revision))
-        mp_log("map: unexpected phase after successful child start; recovery backup retained");
-    if (!env.restore()) mp_log("map: could not fully restore the parent process environment");
-    mp_log("map: committed %u guest orders, %u opponent groups; backup %s; %s", orders, led,
-           backup.c_str(), map_file::reason(installed));
-    ExitProcess(0);
 }
 
 // Return through the in-game lobby, which owns the real game's Steam context and uses this
@@ -1341,6 +1171,11 @@ static void joiner_back_to_lobby(void)
     if (!env.restore()) mp_log("map: could not fully restore the parent process environment");
     mp_log("map: returning through the in-game lobby of %s", peer);
     session_stop();
+#ifdef NETV21_TEST_HOOKS
+    // The production path exits. The no-game test keeps this process alive after spawning
+    // a harmless child so it can inspect the actual launcher environment and continue.
+    if (g_test_map_no_game && g_test_spawn_battle_lobby) { g_test_battle_notice = true; g_map_battle_at = 0; return; }
+#endif
     ExitProcess(0);
 }
 
@@ -1373,265 +1208,102 @@ static void joiner_into_battle(void)
     joiner_back_to_lobby();
 }
 
-// The next-turn control is detoured in both games. It advances the ordered phase, never runs the
-// stock worker during a shared turn, and does not undo a committed player phase. With no shared
-// map the control retains the game's original behavior.
-typedef void (*NextTurn)(void *, u64, const char *);
-typedef void (*TurnWorker)(void *, char, void *, void *);
-static NextTurn g_next_turn;
-static TurnWorker g_turn_worker;
+// The current build's actual next-turn control is +0x369e0, not the older +0x36b40.
+// It alone is gated on the spectator; the host always calls stock code. In particular, do not
+// suppress the general worker on the guest: it has many unrelated callers, including UI transitions.
 
-static bool other_player_on_map(void)
-{
-    return g_role == ROLE_HOST && !g_tactical && g_map_given && g_peer_on_map && g_connected;
-}
-
-// The operation has moved on: whatever copy of the map the other player has is of the past.
 static void map_moved_on(void)
 {
     char v[16];
-    g_map_epoch = (g_map_epoch + 1) & 0xffffff;
+    g_map_epoch = (g_map_epoch + 1) & operation_turn::epoch_mask;
     if (!g_map_epoch) g_map_epoch = 1;
-    sprintf_s(v, "%u", g_map_epoch);
-    SetEnvironmentVariableA("MP_MAP_EPOCH", v);
     g_map_revision = operation_turn::next_revision(g_map_revision);
-    sprintf_s(v, "%u", g_map_revision);
-    SetEnvironmentVariableA("MP_MAP_REV", v);
-    g_map_host.clear();
-    g_map_given = false;
-    g_turn_done = false;
+    sprintf_s(v, "%u", g_map_epoch); SetEnvironmentVariableA("MP_MAP_EPOCH", v);
+    sprintf_s(v, "%u", g_map_revision); SetEnvironmentVariableA("MP_MAP_REV", v);
 }
-
-static void press_next_turn(void);
-
-// adv_opgame+0x76510(controller, 0, 0, 0): what "next turn" does once confirmed.
-//
-// On a build whose "next turn" control is not the function v20 detoured, the turn is coordinated one step
-// later: at the moment the game would carry it out.  The player still confirms his turn in the game's own
-// box, and what waits for the other player is the step that actually ends the turn - the same end state,
-// with one verified hook instead of one guess.
-static bool g_turn_executing;       // this module is carrying the turn out itself
 
 static void turn_worker_hook(void *ctrl, char a, void *b, void *c)
 {
-    bool plain = g_role != ROLE_NONE && !a && !b && !c;
-    if (plain && !g_turn_executing && (g_map_mode || g_map_host.shared || g_map_given ||
-                                      g_map_collect || g_map_restart_at || g_end_turn_pending || g_turn_fix_at)) {
-        press_next_turn(); // never run the stock worker during a shared/pending turn
-        return;
-    }
-    if (g_role == ROLE_HOST && plain) map_moved_on();
-    g_turn_worker(ctrl, a, b, c);
+    TurnWorker original = g_turn_worker.load(std::memory_order_acquire);
+    if (!original) return;
+    original(ctrl, a, b, c); // always stock, even if peer is disconnected
+    if (g_watch_host_worker.load(std::memory_order_acquire) && !a && !b && !c)
+        g_host_turn_events.fetch_add(1, std::memory_order_relaxed);
 }
-
-static void begin_collect(void)
-{
-    if (g_map_collect) return;
-    g_map_collect = true;
-    g_map_collect_since = GetTickCount();
-    mp_log("map: ending the turn - asking %s for his moves", g_peer_name[0] ? g_peer_name : "the other player");
-}
-
-static void press_next_turn(void)
-{
-    if (g_map_mode) {
-        if (!g_connected || !g_map_hooks_ready || !g_map_client.finish()) return;
-        g_turn_done = true;
-        g_last_hello = 0;
-        mp_log("map: guest finished; waiting for host to collect this snapshot");
-        return;
-    }
-    if (g_role == ROLE_HOST && g_connected && g_map_hooks_ready && g_peer_on_map && g_map_host.finish_host()) {
-        g_turn_done = true;
-        g_handoff_retry_at = 0;
-        mp_log("map: host finished; waiting to publish the updated map to the guest");
-    }
-}
-
 static void next_turn_hook(void *ctrl, u64 b, const char *event)
 {
-    bool release = readable(event, 0x10) && *(const float *)(event + 8) < 0;
-    if (g_map_mode || g_map_host.shared || g_map_given || g_map_collect || g_map_restart_at ||
-        g_end_turn_pending || g_turn_fix_at) {
-        if (release) press_next_turn();
+    if (g_block_guest_turn.load(std::memory_order_acquire)) {
+        if (readable(event, 0x10) && *(const float *)(event + 8) < 0)
+            mp_log("map: spectator cannot advance a local turn; host controls the operation");
         return;
     }
-    g_next_turn(ctrl, b, event);
+    NextTurn original = g_next_turn.load(std::memory_order_acquire);
+    if (original) original(ctrl, b, event);
 }
-
 static void install_map_detours(void)
 {
-    static const unsigned char sig[] = { 0x48, 0x89, 0x5c, 0x24, 0x08, 0x57, 0x48, 0x83, 0xec, 0x30, 0x0f, 0x57, 0xc0, 0x49, 0x8b, 0xd8 };
-    static const unsigned char worker_sig[] = { 0x48, 0x8b, 0xc4, 0x44, 0x88, 0x40, 0x18, 0x88, 0x50, 0x10, 0x55, 0x56, 0x57, 0x41, 0x56 };
-    static const HookSig next_where[] = { { 0x36b40, sig, sizeof sig } };
+    // Whole position-independent instructions; full signatures disambiguate similar prologues.
+    static const unsigned char next_sig[] = { 0x40,0x53,0x48,0x83,0xec,0x20,0x0f,0x57,0xc0,0x48,0x8b,0xd9,0x41,0x0f,0x2f,0x40,0x08,0x0f,0x86,0x99,0x00,0x00,0x00 };
+    static const unsigned char worker_sig[] = { 0x48,0x8b,0xc4,0x44,0x88,0x40,0x18,0x88,0x50,0x10,0x55,0x56,0x57,0x41,0x56 };
+    static const HookSig next_where[] = { { 0x369e0, next_sig, sizeof next_sig } };
     static const HookSig worker_where[] = { { 0x76510, worker_sig, sizeof worker_sig } };
-    static bool done;
+    static bool next_done, worker_done;
     bool host = g_role == ROLE_HOST && !g_tactical && g_host_mode == HOST_MODE_OPERATION;
-    if (done || (!g_map_mode && !host)) return;
-    if (!GetModuleHandleA("adv_opgame.codelib")) return;
-    done = true;
-    char *next = hook_resolve("adv_opgame.codelib", next_where, 1, "the next turn control");
-    char *worker = hook_resolve("adv_opgame.codelib", worker_where, 1, "ending the turn");
-    if (next) g_next_turn = (NextTurn)install_detour(next, sizeof sig, next_turn_hook);
-    if (worker) g_turn_worker = (TurnWorker)install_detour(worker, sizeof worker_sig, turn_worker_hook);
-    g_map_hooks_ready = g_turn_worker != nullptr;
-    if (!g_map_hooks_ready) {
-        mp_log("map: turn worker hook unavailable; multiplayer operation handoff is blocked");
-        return;
+    if ((!g_map_mode && !host) || !GetModuleHandleA("adv_opgame.codelib")) return;
+    if (g_map_mode) {
+        if (next_done) { g_map_hooks_ready = g_next_turn.load() != nullptr; return; }
+        next_done = true;
+        char *next = hook_resolve_checked("adv_opgame.codelib", next_where, 1, "spectator next turn control");
+        g_map_hooks_ready = next && install_published_detour(next, 17, next_turn_hook, g_next_turn);
+        mp_log("map: spectator next-turn guard %s; local changes never sent", g_map_hooks_ready ? "installed" : "unavailable: do not advance locally");
+    } else {
+        if (worker_done) { g_map_hooks_ready = g_turn_worker.load() != nullptr; return; }
+        worker_done = true;
+        char *worker = hook_resolve_checked("adv_opgame.codelib", worker_where, 1, "operation update worker");
+        g_map_hooks_ready = worker && install_published_detour(worker, sizeof worker_sig, turn_worker_hook, g_turn_worker);
+        mp_log("map: host worker observation %s; host is never blocked", g_map_hooks_ready ? "installed" : "unavailable; automatic map refresh unverified");
     }
-    if (g_next_turn && g_turn_worker)
-        mp_log("map: the next turn control and the step that ends the turn are hooked");
-    else if (g_turn_worker)
-        mp_log("map: the turn waits at the step that ends it (the control itself is the game's)");
-    else
-        mp_log("map: the next turn control is hooked, the turn is carried out by the game");
-    if (g_map_mode) mp_log("map: guest waits for a matching host-orders snapshot and explicit permission");
-    else mp_log("map: host acts first, then gives a checked updated snapshot to the guest");
 }
 
-// What the map's "next turn" control does once confirmed (adv_opgame+0x76810).
-static bool end_turn_here(ObjMan *om)
-{
-    static const unsigned char sig[] = { 0x48, 0x8b, 0xc4, 0x44, 0x88, 0x40, 0x18, 0x88, 0x50, 0x10, 0x55, 0x56, 0x57, 0x41, 0x56 };
-    static const HookSig where[] = { { 0x76510, sig, sizeof sig } };
-    static void *worker = (void *)1;            // 1: not looked for yet, 0: not in this build
-    void *c = menu_controller_of(om);
-    if (worker == (void *)1) worker = hook_resolve("adv_opgame.codelib", where, 1, "ending the turn");
-    // (with the worker detoured its first bytes are our jump; they were checked when the detour went in)
-    if (!c || !operation_on_screen(om) || (!g_turn_worker && !worker)) {
-        mp_log("map: the turn could not be ended from here");
-        return false;
-    }
-    mp_log("map: ending the turn");
-    g_turn_executing = true;
-    if (g_turn_worker) turn_worker_hook(c, 0, 0, 0);
-    else { map_moved_on(); ((void (*)(void *, char, void *, void *))worker)(c, 0, 0, 0); }
-    g_turn_executing = false;
-    g_share_after = GetTickCount() + 12000;
-    return true;
-}
-
-// Tests: the host presses "next turn"; the operation on screen is written to its save.
+// Test commands are non-invasive except the explicit host test, which uses the same verified worker.
 static bool g_end_turn_asked, g_test_save_asked;
 void session_test_next_turn(void) { g_end_turn_asked = true; }
-
-// Tests: the host behaves as if the operation had moved on (as after a turn), without a turn being
-// carried out: the other player's copy of the map is outdated and he is given a new one.
+void session_test_save(void) { g_test_save_asked = true; }
 void session_test_new_map(void)
 {
-    if (g_role != ROLE_HOST || g_tactical) return;
-    map_moved_on();
-    g_share_after = 0;
-    mp_log("test: the operation is declared to have moved on");
+    if (g_role == ROLE_HOST && !g_tactical) {
+        g_host_turn_events.fetch_add(1, std::memory_order_relaxed);
+        mp_log("test: operation update requested");
+    }
 }
-void session_test_save(void) { g_test_save_asked = true; }
-
-// Host, every frame on the operational map: share the map when the other player is ready, carry out a
-// requested end of turn, give up on a player who does not answer.
 static void host_map_frame(ObjMan *om, DWORD now)
 {
     if (g_role != ROLE_HOST || g_tactical || g_host_mode != HOST_MODE_OPERATION) return;
-    bool on_map = operation_on_screen(om) != 0;
-    if (!on_map) { g_map_seen_since = 0; return; }
+    if (g_host_turn_events.exchange(0, std::memory_order_relaxed)) {
+        g_map_refresh_pending = true;
+        g_share_after = now + 12000;
+        mp_log("map: host operation worker ran; waiting for a stable post-turn save");
+    }
+    if (!operation_on_screen(om)) { g_map_seen_since = 0; return; }
     if (!g_map_seen_since) g_map_seen_since = now;
     bool settled = now - g_map_seen_since > 4000;
-
-    if (g_end_turn_pending) {
-        if (!settled) return;
-        char side_path[MAX_PATH];
-        sprintf_s(side_path, "%s\\users\\mp_saves\\_map_sidecar_v2.bin", g_root);
-        std::vector<unsigned char> encoded;
-        opsave::Sidecar sidecar;
-        if (!g_map_hooks_ready || !operation_turn::valid_epoch(g_map_ack_epoch) || !g_map_ack_revision ||
-            !map_file_windows::read(nullptr, side_path, &encoded) || !opsave_checked::decode_sidecar(encoded, &sidecar)) {
-            strcpy_s(g_map_note, "joint turn recovery data or hook missing; turn is locked");
-            return;
-        }
-        if (end_turn_here(om)) {
-            g_end_turn_pending = false;
-            g_turn_fix_at = now + 6000;
-        }
-        return;
-    }
-    if (g_turn_fix_at) {
-        if ((LONG)(now - g_turn_fix_at) < 0) return;
-        g_turn_fix_at = now + 5000; // retry safely while the game has not finished, or on a transient I/O failure
-        char side_path[MAX_PATH], file[96], path[MAX_PATH], cmd[1024];
-        opsave::Sidecar sidecar;
-        std::vector<unsigned char> encoded, save;
-        sprintf_s(side_path, "%s\\users\\mp_saves\\_map_sidecar_v2.bin", g_root);
-        if (!map_file_windows::read(nullptr, side_path, &encoded) || !opsave_checked::decode_sidecar(encoded, &sidecar) ||
-            !save_operation(om, save, file, sizeof file)) {
-            mp_log("map: cannot safely read post-turn save or sidecar; preserving both and waiting");
-            strcpy_s(g_map_note, "post-turn save/sidecar unavailable; turn is locked");
-            return;
-        }
-        int phase = opsave::turn_phase(save);
-        if (!operation_turn::resolution_saved(phase, opsave::turns(save), g_turn_baseline_rows)) {
-            mp_log("map: engine has not yet confirmed a completed turn (phase %d, frames %u, before %u)",
-                   phase, opsave::turns(save), g_turn_baseline_rows);
-            return;
-        }
-        unsigned n = 0; std::string why;
-        if (!opsave_checked::restore_after_turn(save, sidecar, &n, &why)) {
-            mp_log("map: post-turn ownership cannot be restored safely: %s", why.c_str());
-            strcpy_s(g_map_note, "post-turn structure unsupported; recovery files retained");
-            return;
-        }
-        std::string id = opsave::operation_id(file, opsave::operation_name(save));
-        profile_path(path, sizeof path, file);
-        if (id.empty() || sprintf_s(cmd, "\"%s\\starter_x64.exe\" root\\programs\\opgame.progpack, %s, %s, 0, %u",
-                                    g_root, g_profile_id, id.c_str(), opsave::turns(save)) < 0) {
-            strcpy_s(g_map_note, "post-turn operation identity invalid; recovery files retained");
-            return;
-        }
-        map_file_windows::Environment env;
-        if (!env.set("MP_TURNDONE", "1")) {
-            mp_log("map: could not prepare post-turn environment (%lu); recovery files retained", GetLastError());
-            strcpy_s(g_map_note, "cannot prepare post-turn reload; recovery files retained");
-            return;
-        }
-        std::string backup; DWORD launch_error = 0;
-        map_file::Result installed = map_file_windows::replace_and_launch(g_root, cmd, path, save, &backup, &launch_error);
-        if (!map_file::started(installed)) {
-            mp_log("map: post-turn reload failed: %s (Windows %lu), backup %s", map_file::reason(installed),
-                   launch_error, backup.c_str());
-            strcpy_s(g_map_note, "post-turn reload failed; recovery files retained");
-            return;
-        }
-        if (!env.restore()) mp_log("map: could not fully restore the parent process environment");
-        if (!DeleteFileA(side_path)) mp_log("map: post-turn sidecar retained (%lu): %s", GetLastError(), side_path);
-        mp_log("map: confirmed turn, restored %u ownership tags; backup %s; %s", n, backup.c_str(), map_file::reason(installed));
-        ExitProcess(0);
-    }
     if (g_test_save_asked) {
         g_test_save_asked = false;
-        std::vector<unsigned char> save;
-        char file[96] = "";
+        std::vector<unsigned char> save; char file[96] = "";
         bool ok = save_operation(om, save, file, sizeof file);
         mp_log("test: operation %s (%s, %zu bytes, turn phase %d, %u orders)", ok ? "saved" : "not saved", file, save.size(),
                ok ? opsave::turn_phase(save) : -1, ok ? opsave::rows_of(save, "user_orders") : 0);
     }
     if (g_end_turn_asked) {
         g_end_turn_asked = false;
-        if (g_map_host.shared || g_map_given) press_next_turn();
-        else (void)end_turn_here(om);
+        void *c = menu_controller_of(om);
+        if (c && g_turn_worker) turn_worker_hook(c, 0, 0, 0);
+        else mp_log("test: turn worker unavailable");
     }
-    if (g_map_host.shared && g_map_host.phase == operation_turn::Phase::handoff && !g_map_host.published &&
-        g_peer_on_map && g_connected && (!g_handoff_retry_at || (LONG)(now - g_handoff_retry_at) >= 0)) {
-        if (!publish_host_map(om, true)) g_handoff_retry_at = now + 5000;
-        else g_handoff_retry_at = 0;
-    }
-    // A disconnect never advances the turn alone: the locked snapshot survives until reconnect or manual recovery.
-    if (!g_connected && g_map_host.shared && g_map_host.phase != operation_turn::Phase::host)
-        strcpy_s(g_map_note, "peer disconnected; turn remains locked for reconnect");
-
-    char *c = (char *)menu_controller_of(om);
-    bool battles_pending = c && *(int *)(c + 0x1260) == 2;
-    if (settled && !battles_pending && !g_map_given && !g_map_host.shared && !g_map_collect && !g_map_restart_at &&
-        g_connected && g_peer_lobby_ready && (!g_share_after || now > g_share_after)) {
-        session_map_give(om);
-        if (!g_map_given) g_share_after = now + 15000;
+    if (settled && g_connected && g_peer_lobby_ready && (!g_map_given || g_map_refresh_pending) &&
+        (!g_share_after || (LONG)(now - g_share_after) >= 0)) {
+        if (!publish_host_map(om)) g_share_after = now + 15000;
+        else g_share_after = 0;
     }
 }
 
@@ -1664,6 +1336,8 @@ void session_start(ObjMan *)
     steam_install();
     mp_log("net: wire protocol %u (%s)", k_version, k_wire_tag);
     g_tactical = !strcmp(g_program, "tacgame");
+    g_watch_host_worker.store(false, std::memory_order_release);
+    g_block_guest_turn.store(false, std::memory_order_release);
     strcpy_s(g_root, g_out_dir);
     if (char *s = strrchr(g_root, '\\')) *s = 0;
     read_profile_name();
@@ -1673,24 +1347,13 @@ void session_start(ObjMan *)
     } else if (GetEnvironmentVariableA("MP_SWAP", v, sizeof v)) g_swap = atoi(v) != 0;
     if (!g_tactical) SetEnvironmentVariableA("MP_SWAPPED", 0);
     g_map_mode = !g_tactical && GetEnvironmentVariableA("MP_MAP", v, sizeof v) && atoi(v);
-    // The acknowledgement must survive the resolution and subsequent map/battle process restarts.
-    if (GetEnvironmentVariableA("MP_MAP_ACK", v, sizeof v)) g_map_ack = strtoul(v, 0, 10);
-    if (GetEnvironmentVariableA("MP_MAP_ACK_EPOCH", v, sizeof v)) g_map_ack_epoch = strtoul(v, 0, 10);
-    if (GetEnvironmentVariableA("MP_MAP_ACK_REV", v, sizeof v)) g_map_ack_revision = strtoul(v, 0, 10);
-    if (!g_tactical && GetEnvironmentVariableA("MP_ENDTURN", v, sizeof v)) {
-        g_end_turn_pending = true;
-        SetEnvironmentVariableA("MP_ENDTURN", 0);
-        if (GetEnvironmentVariableA("MP_TURN_BASE", v, sizeof v)) g_turn_baseline_rows = strtoul(v, 0, 10);
-        SetEnvironmentVariableA("MP_TURN_BASE", 0);
-    }
-    if (!g_tactical && GetEnvironmentVariableA("MP_TURNDONE", v, sizeof v)) {
-        strcpy_s(g_map_note, "turn ended with both players' moves");
-        SetEnvironmentVariableA("MP_TURNDONE", 0);
-    }
+    // M5 ordered-turn flags are deliberately not resumed under spectator protocol 15.
+    SetEnvironmentVariableA("MP_ENDTURN", nullptr); SetEnvironmentVariableA("MP_TURNDONE", nullptr);
+    SetEnvironmentVariableA("MP_TURN_BASE", nullptr);
     if (GetEnvironmentVariableA("MP_MAP_EPOCH", v, sizeof v)) g_map_epoch = g_map_base_epoch = strtoul(v, 0, 10);
     if (GetEnvironmentVariableA("MP_MAP_REV", v, sizeof v)) g_map_revision = g_map_base_revision = strtoul(v, 0, 10);
     if (g_map_mode && !g_map_client.begin(g_map_base_epoch, g_map_base_revision))
-        mp_log("map: missing or invalid snapshot identity; guest input stays locked");
+        mp_log("map: missing or invalid snapshot identity; updates cannot be applied");
     if (g_tactical) {
         if (env_integer("MP_PORT", &value) && value >= 0 && value <= 65535) g_port = (unsigned short)value;
     } else if (GetEnvironmentVariableA("MP_PORT", v, sizeof v)) g_port = (unsigned short)atoi(v);
@@ -1706,6 +1369,22 @@ void session_start(ObjMan *)
     bool role_set = g_tactical ? env_text("MP_ROLE", v, sizeof v) : GetEnvironmentVariableA("MP_ROLE", v, sizeof v) != 0;
     if (!role_set) return;
     g_role = !_stricmp(v, "host") ? ROLE_HOST : !_stricmp(v, "join") ? ROLE_JOIN : ROLE_NONE;
+    int inherited_map = 0;
+    if (spectator_policy::local_battle_offline(g_tactical, g_role == ROLE_JOIN,
+                                               env_integer("MP_MAP", &inherited_map) && inherited_map != 0)) {
+        // A battle started from the guest's local copy is NOT the host's battle. Do not
+        // connect or send tactical commands. Authorized entry goes through Joiner::launch,
+        // which explicitly clears MP_MAP before starting the host's battle.
+        mp_log("map: unhosted spectator tactical process disconnected; only the host starts shared battles");
+        g_role = ROLE_NONE;
+        SetEnvironmentVariableA("MP_ROLE", nullptr); SetEnvironmentVariableA("MP_PEER", nullptr);
+        SetEnvironmentVariableA("MP_MAP", nullptr); SetEnvironmentVariableA("MP_AUTOJOIN", nullptr);
+        return;
+    }
+    g_block_guest_turn.store(g_map_mode && g_role == ROLE_JOIN, std::memory_order_release);
+    g_watch_host_worker.store(g_role == ROLE_HOST && !g_tactical && g_host_mode == HOST_MODE_OPERATION, std::memory_order_release);
+    // Determine the guest's perspective before loading and hashing its mirrored battle image.
+    if (g_role == ROLE_JOIN && g_tactical && env_integer("MP_VERSUS", &value)) set_versus(value != 0);
     if (g_role != ROLE_NONE && g_tactical) load_battle_description();
     if (g_role == ROLE_HOST && g_tactical) {
         host_swap_sides_if_asked();
@@ -1717,12 +1396,11 @@ void session_start(ObjMan *)
         if (!g_map_revision) g_map_revision = 1;
         if (g_tactical) map_moved_on();
         else {
+            map_moved_on(); // a fresh operation process must not reuse a previous offered identity
             sprintf_s(v, "%u", g_map_epoch); SetEnvironmentVariableA("MP_MAP_EPOCH", v);
             sprintf_s(v, "%u", g_map_revision); SetEnvironmentVariableA("MP_MAP_REV", v);
         }
     }
-    // a joining game is told by its launcher whether its description is the mirrored one
-    if (g_role == ROLE_JOIN && g_tactical && env_integer("MP_VERSUS", &value)) set_versus(value != 0);
     if (g_role == ROLE_HOST) {
         if (!g_host_mode) g_host_mode = HOST_MODE_SKIRMISH;
         find_local_ip();
@@ -1772,6 +1450,8 @@ void session_start(ObjMan *)
 
 void session_stop(void)
 {
+    g_block_guest_turn.store(false, std::memory_order_release);
+    g_watch_host_worker.store(false, std::memory_order_release);
     if (transport_policy::send_peer(g_tactical, g_sock != INVALID_SOCKET, g_have_peer, g_peer.sin_family == STEAM_FAMILY)) {
         Head bye = make_head(PKT_BYE); send_to(g_peer, &bye, sizeof bye);
     }
@@ -2028,17 +1708,13 @@ void session_test_resign(void) { g_resign_asked = true; }
 
 static void end_send(DWORD now, unsigned char extra);
 
-// Keep an exit request pending until both the verified game's exit function and its UI object exist.
-// In particular, do not tell the other player our battle is over merely because a timer expired.
-static bool resign_now(ObjMan *om, bool announce_end)
+// Explicit diagnostic resign only. Box 6 abandons a battle and must NEVER be used to implement
+// ceasefire or claim an engine result. Normal F9 agreement does not invoke this path.
+static bool resign_now(ObjMan *om)
 {
     if (!g_tactical || !g_box_result) return false;
     Object *ui = engine_find(om, "i_intereff", "intereff");
     if (!readable(ui, 0xdec)) return false;
-    if (announce_end) {
-        if (!g_end.confirm_exit()) return false;
-        end_send(GetTickCount(), END_OVER); // notify before the game's exit can destroy this process
-    }
     mp_log("end: leaving the battle through the game's own exit (box 6)");
     *(u32 *)((char *)ui + 0xde8) = 6;
     g_box_result(ui, 1, 0, 0);
@@ -2047,7 +1723,7 @@ static bool resign_now(ObjMan *om, bool announce_end)
 
 static void resign_if_asked(ObjMan *om)
 {
-    if (g_resign_asked && resign_now(om, false)) g_resign_asked = false;
+    if (g_resign_asked && resign_now(om)) g_resign_asked = false;
 }
 
 static u64 start_action_hook(Object *ui, u64 a, u64 b, u64 c)
@@ -2289,36 +1965,13 @@ static void shorten_battle_for_tests(ObjMan *om)
     if (*left > wanted && *left <= 86400) { mp_log("test: %g s of battle left instead of %g s", wanted, *left); *left = wanted; }
 }
 
-// ---------------------------------------------------------------- joining game: the host is gone
-// Without the host there is no battle to follow. A few seconds after the host closed its game or stopped
-// answering, the joining game starts the menu program again and closes this battle.
-static void leave_battle_for_menu(void)
-{
-    static bool left;
-    if (left) return;
-    left = true;
-    mp_log("net: leaving the battle, back to the menu");
-    SetEnvironmentVariableA("MP_ROLE", 0);
-    SetEnvironmentVariableA("MP_PEER", 0);
-    SetEnvironmentVariableA("MP_VERSUS", 0);
-    SetEnvironmentVariableA("MP_WINDOW", 0);
-    char cmd[MAX_PATH + 8];
-    sprintf_s(cmd, "\"%s\\starter_x64.exe\"", g_root);
-    STARTUPINFOA si = { sizeof si };
-    PROCESS_INFORMATION pi;
-    if (CreateProcessA(0, cmd, 0, 0, FALSE, 0, 0, g_root, &si, &pi)) {
-        CloseHandle(pi.hProcess);
-        CloseHandle(pi.hThread);
-    }
-    if (HWND w = main_window()) PostMessageA(w, WM_CLOSE, 0, 0);
-}
+// When the tactical host disappears, leave the running local battle and its result alone.
+// The joining player may wait for reconnection or use the game's own finish/menu controls.
 
 // ---------------------------------------------------------------- the end of a battle (M3)
-// A two-player battle has to end the same way in both games. Each player can propose a ceasefire - F9 while
-// the battle runs - and the battle is over five seconds after both have; the same key takes the proposal
-// back. The proposal travels as repeated state (EndState, twice a second); newer peers sequence it so a
-// delayed packet cannot resurrect a withdrawn proposal. A long partition can still prevent agreement.
-// When the engine reports a battle over, the other game is told and ends its own battle as well.
+// F9 exchanges an agreement only. The old box-6 exit abandoned the result, so neither agreement
+// nor a peer reaching results forces this game to leave. Each player uses the game's normal controls.
+// EndState is repeated and sequenced; a long partition can still prevent agreement.
 
 static bool end_running(void) { return g_tactical && g_role != ROLE_NONE && g_phase == 2; }
 
@@ -2371,18 +2024,16 @@ static void end_frame(ObjMan *, DWORD now)
         end_send(now, 0);
     }
     if (events & ceasefire::agreed) {
-        mp_log("end: both players want the ceasefire - the battle ends in 5 s");
+        mp_log("end: both players want a ceasefire; confirming agreement in 5 s");
         netlog_mark("ceasefire agreed");
     }
     if (events & ceasefire::peer_end_wait)
-        mp_log("end: the other player's battle is over (result %u there) - ending this one", g_end.peer_result);
-    if (events & ceasefire::exit_requested)
-        mp_log("end: waiting to leave through the game's exit control");
+        mp_log("end: the other game reached its results; finish this battle using the game's own controls");
+    if (events & ceasefire::finish_notice)
+        mp_log("end: agreement/peer end noted; use the game's own controls to finish; no forced exit");
 }
 
-// F9 in the battle. The game's own functions are left alone: a ceasefire is this module's own arrangement
-// between the two players, and leaving the battle is done through the game's own way out of it (the
-// "to the operation" box), which already works.
+// F9 only exchanges consent. It does not call the game's abandon/exit path or mutate its result.
 static void end_keys(void)
 {
     if (!end_running()) { g_end_key_was = 0; return; }
@@ -2793,7 +2444,7 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
     if (g_role == ROLE_HOST && h->type == PKT_HELLO) {
         // A third sender must not replace a recently active tactical peer or reset its queues.
         // After three seconds without that peer, a legitimate changed-port reconnect is allowed.
-        if (peer_guard::reject_hello(g_tactical || g_map_host.shared || g_end_turn_pending || g_turn_fix_at,
+        if (peer_guard::reject_hello(g_tactical || g_map_given,
                                      g_connected, from_peer, now, g_last_rx)) {
 #ifdef NETV21_TEST_HOOKS
             ++g_test_hello_rejected;
@@ -2809,6 +2460,10 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
         const Hello *in = (const Hello *)data;
         if (memcmp(in->proto, k_protocol, sizeof k_protocol)) return;
         bool full = size >= (int)sizeof(Hello) && in->version == k_version;
+        if (full && !spectator_policy::accept_hello(!g_tactical && g_host_mode == HOST_MODE_OPERATION, in->phase)) {
+            mp_log("map: ignoring a tactical peer while the host is on the operation");
+            return;
+        }
         unsigned prefer = full ? in->prefer_side : 0;
         // The joining player commands the opponent unless it asked for the side the host plays.
         bool versus = !(prefer && prefer == g_user_side);
@@ -2824,22 +2479,15 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
         w.versus = versus;
         w.swap = g_swap;
         strcpy_s(w.name, g_my_name);
-        operation_turn::Phase map_phase = g_map_host.shared ? g_map_host.phase :
-            (g_end_turn_pending || g_turn_fix_at ? operation_turn::Phase::resolve : operation_turn::Phase::host);
-        bool map_offered = g_map_given && !g_tactical && !g_map_restart_at &&
-                           map_phase != operation_turn::Phase::collect && map_phase != operation_turn::Phase::resolve;
+        bool map_offered = g_map_given && !g_tactical;
         if (map_offered) {
             w.map_size = (u32)g_map_out.size();
             w.map_hash = g_map_out_hash;
             w.map_turns = g_map_turns;
             strcpy_s(w.map_file, g_map_file);
-        } else {
-            w.map_hash = g_map_ack; // sent only after durable commit and successful process creation
         }
-        w.map_flags = operation_turn::flags(g_map_epoch, map_phase, g_map_collect, g_turn_done);
+        w.map_flags = operation_turn::flags(g_map_epoch, operation_turn::Phase::host, false, false);
         w.map_revision = g_map_revision;
-        w.map_ack_epoch = g_map_ack_epoch;
-        w.map_ack_revision = g_map_ack_revision;
         send_to(from, &w, sizeof w);
         if (!full) return;                              // the caller reads the version from the reply and gives up
         char name[24];
@@ -2865,33 +2513,13 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
         if (name[0]) strcpy_s(g_peer_name, name);
         g_peer_lobby_ready = in->lobby_ready != 0;
         g_peer_on_map = in->phase == 0xfe && in->map_epoch == g_map_epoch && in->map_revision == g_map_revision;
-        g_peer_turn_done = g_peer_on_map && in->turn_done != 0;
-        if (g_peer_on_map && g_map_host.peer_loaded(in->map_epoch, in->map_revision))
-            mp_log("map: guest confirmed snapshot %u/%u on its operational screen; guest owns input",
-                   in->map_epoch, in->map_revision);
-        if (g_peer_turn_done && g_map_host.peer_finished(in->map_epoch, in->map_revision)) {
-            begin_collect();
-            mp_log("map: guest finished snapshot %u/%u; collecting orders", in->map_epoch, in->map_revision);
-        }
+        // Hello's former guest-order and turn flags are intentionally ignored in protocol 15.
         if (!g_tactical) {
             // lobby: the joining player's SWAP SIDES presses arrive as a counter
             if (g_peer_swap_known && in->swap_req != g_peer_swap_req && g_host_mode != HOST_MODE_OPERATION) session_toggle_swap();
             g_peer_swap_req = in->swap_req;
             g_peer_swap_known = true;
             SetEnvironmentVariableA("MP_PEER_NAME", g_peer_name[0] ? g_peer_name : 0);
-        }
-        // the joining game offers its map (the host asked for it): start fetching it
-        if (g_peer_on_map && g_map_collect && g_map_host.phase == operation_turn::Phase::collect &&
-            !g_map_restart_at && in->map_size && in->map_size <= (64u << 20) &&
-            (g_map_in.empty() || in->map_hash != g_map_in_hash || in->map_size != g_map_in.size())) {
-            g_map_in.assign(in->map_size, 0);
-            g_map_in_hash = in->map_hash;
-            g_map_in_epoch = in->map_epoch; g_map_in_revision = in->map_revision;
-            g_map_have.assign((in->map_size + k_chunk - 1) / k_chunk, 0);
-            g_map_asked.assign(g_map_have.size(), 0);
-            g_map_got = 0;
-            mp_log("map: %s is sending orders for %u/%u (%u bytes)",
-                   g_peer_name[0] ? g_peer_name : "the other player", g_map_in_epoch, g_map_in_revision, in->map_size);
         }
         // The joining player's own force: his battle description, from which this game takes his squads and
         // units (force.h). Fetched on the image channel; the host puts it into its own description.
@@ -2923,13 +2551,15 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
         g_connected = false;
         return;
     }
+    bool operation_host = !g_tactical && g_role == ROLE_HOST && g_host_mode == HOST_MODE_OPERATION;
+    if (!spectator_policy::incoming(operation_host, !g_tactical && g_map_mode, h->type, h->flags)) return;
     g_last_rx = now;
 
     switch (h->type) {
     case PKT_KEEPALIVE:
         break;
     case PKT_IMAGE_REQUEST:
-        if (size >= (int)sizeof(ImageRequest) && (g_role == ROLE_HOST || h->flags == 1 || h->flags == 2)) {
+        if (size >= (int)sizeof(ImageRequest) && (g_role == ROLE_HOST || h->flags == 2)) {
             // flags 0: the battle description (host only); 1: the operational map this game is offering;
             // 2: this game's own force (M4), which either player serves
             if (h->flags > 2) return;
@@ -2939,7 +2569,6 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
                 u32 epoch = g_role == ROLE_HOST ? g_map_epoch : g_map_base_epoch;
                 u32 revision = g_role == ROLE_HOST ? g_map_revision : g_map_base_revision;
                 if (!g_map_given || request->map_epoch != epoch || request->map_revision != revision) return;
-                if (g_role == ROLE_HOST) g_map_fetched = true;
             }
             if (h->flags == 2 && g_force_out.empty()) return;
             u32 index = request->index;
@@ -2961,7 +2590,7 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
             desc_write_in((ImageData *)data, size);
             break;
         }
-        if ((g_role == ROLE_HOST || g_map_mode) && h->flags == 1 && !g_map_in.empty() && size >= (int)(sizeof(ImageData) - k_chunk)) {
+        if (g_map_mode && h->flags == 1 && !g_map_in.empty() && size >= (int)(sizeof(ImageData) - k_chunk)) {
             const ImageData *d = (const ImageData *)data;
             if (!image_chunks::valid(d, (size_t)size, g_map_in.size(), 1, g_map_in_epoch, g_map_in_revision) ||
                 g_map_have[d->index]) return;
@@ -2972,13 +2601,8 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
                     mp_log("map: the map arrived damaged, fetching it again");
                     g_map_in_hash = 0;
                     g_map_in.clear();
-                } else if (g_map_mode) {
-                    g_map_reload_at = now + 200;
                 } else {
-                    // A hash-matched download is NOT a commit. ACK only after structure, backup,
-                    // atomic replacement and process creation have all succeeded.
-                    g_map_restart_at = now + 200;
-                    mp_log("map: guest snapshot received; validating before commit");
+                    g_map_reload_at = now + 200;
                 }
             }
         }
@@ -2999,7 +2623,7 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
                     // request a fresh baseline, but resetting a live shot stream mid-sequence
                     // would strand it until both peers agree on a new epoch.
                     g_end.new_peer(); g_end_last_tx = 0;
-                    g_host_lost = 0; // a recovered host must not still trigger the return-to-menu timer
+                    g_host_lost = 0; // the host returned
                 }
                 g_connected = true;
                 mp_log("net: connected to host (host commands %s)", image::side_name(w->user_side));
@@ -3028,34 +2652,37 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
                     break;
                 }
                 bool same = epoch == g_map_base_epoch && w->map_revision == g_map_base_revision;
-                bool not_old = epoch == g_map_base_epoch || operation_turn::newer_epoch(epoch, g_map_base_epoch);
-                g_peer_turn_done = (w->map_flags & 2) != 0;
+                bool not_old = (epoch == g_map_base_epoch &&
+                                (w->map_revision == g_map_base_revision || operation_turn::newer_revision(w->map_revision, g_map_base_revision))) ||
+                               operation_turn::newer_epoch(epoch, g_map_base_epoch);
+                if (not_old && g_map_client.pending_epoch)
+                    not_old = (epoch == g_map_client.pending_epoch &&
+                               (w->map_revision == g_map_client.pending_revision || operation_turn::newer_revision(w->map_revision, g_map_client.pending_revision))) ||
+                              operation_turn::newer_epoch(epoch, g_map_client.pending_epoch);
                 operation_turn::Observation observation = operation_turn::Observation::stale;
                 if (same || w->map_size)
                     observation = g_map_client.observe(epoch, w->map_revision, phase);
-                if (same && observation == operation_turn::Observation::current &&
-                    phase == operation_turn::Phase::collect && g_map_client.done && !g_map_given && !g_map_sent)
-                    g_collect_asked = true;
-                if (g_map_given && !g_map_sent && !w->map_size && w->map_hash == g_map_out_hash &&
-                    w->map_ack_epoch == g_map_base_epoch && w->map_ack_revision == g_map_base_revision) {
-                    g_map_sent = true;
-                    mp_log("map: host durably committed guest orders for %u/%u", g_map_base_epoch, g_map_base_revision);
-                }
                 if (w->in_battle && not_old) {
+                    // Host battle supersedes an incomplete or already assembled map.
+                    g_map_reload_at = 0; g_map_in.clear(); g_map_have.clear();
+                    g_map_client.pending_epoch = g_map_client.pending_revision = 0;
                     if (!g_map_battle_at) g_map_battle_at = now + 300;
                 } else if (observation == operation_turn::Observation::snapshot_needed && w->map_size &&
                            w->map_size <= (64u << 20) && phase != operation_turn::Phase::collect &&
                            phase != operation_turn::Phase::resolve) {
+                    if (not_old) g_map_battle_at = 0;
                     char offered_file[96];
                     memcpy(offered_file, w->map_file, sizeof offered_file);
                     bool terminated = offered_file[sizeof offered_file - 1] == 0;
                     offered_file[sizeof offered_file - 1] = 0;
                     if (!terminated || !opsave::safe_file_name(offered_file)) {
-                        mp_log("map: host offered an invalid save file name; input remains locked");
+                        mp_log("map: host offered an invalid save file name; ignoring the offer");
                         break;
                     }
                     if (g_map_in.empty() || g_map_in_epoch != epoch || g_map_in_revision != w->map_revision ||
                         g_map_in_hash != w->map_hash || g_map_in.size() != w->map_size) {
+                        // Superseding an almost-complete download must cancel its scheduled reload.
+                        g_map_reload_at = 0;
                         g_map_in.assign(w->map_size, 0);
                         g_map_in_hash = w->map_hash;
                         g_map_have.assign((w->map_size + k_chunk - 1) / k_chunk, 0);
@@ -3064,7 +2691,7 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
                         g_map_in_epoch = epoch; g_map_in_revision = w->map_revision;
                         g_map_in_turns = w->map_turns;
                         strcpy_s(g_map_in_file, offered_file);
-                        mp_log("map: host offers snapshot %u/%u (%u bytes); guest input locked", epoch, w->map_revision, w->map_size);
+                        mp_log("map: host offers snapshot %u/%u (%u bytes); local changes are not sent", epoch, w->map_revision, w->map_size);
                     }
                 }
             }
@@ -3119,74 +2746,84 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
         mp_log("net: the other player's game closed");
         g_connected = false;
         if (g_role == ROLE_JOIN && g_tactical && !g_host_lost) g_host_lost = now ? now : 1;
-        if (g_role == ROLE_HOST) { g_have_peer = false; g_peer_on_map = g_peer_turn_done = false; }
+        if (g_role == ROLE_HOST) { g_have_peer = false; g_peer_on_map = false; }
         break;
     }
 }
 
 #ifdef NETV21_TEST_HOOKS
-// These seams substitute only the engine save/load and process launch. Packet parsing, socket/Steam
-// transport, chunking, ownership state and checked snapshot validation are the production code.
-bool session_test_map_seed(const std::vector<unsigned char> &source, bool handoff)
+// The no-game fixture substitutes save/load only; packet/transport and identity checks are real.
+bool session_test_map_seed(const std::vector<unsigned char> &source, bool refresh)
 {
-    if (g_role != ROLE_HOST || (handoff && (!g_peer_on_map || g_map_host.phase != operation_turn::Phase::handoff))) return false;
+    if (g_role != ROLE_HOST || !spectator_snapshot::publishable(source, refresh, g_map_turns, g_map_out)) return false;
     std::vector<unsigned char> save = source;
-    opsave::Sidecar side; unsigned changed = 0; std::string why;
-    if (!opsave_checked::mirror(save, &side, &changed, &why)) return false;
-    return adopt_host_snapshot(save, side, "camp_test_rus.opsave", handoff, changed);
+    return adopt_host_snapshot(save, "camp_test_rus.opsave", refresh);
 }
-int session_test_map_host_phase() { return (int)g_map_host.phase; }
+static unsigned g_test_turn_calls;
+static void test_stock_next(void *, u64, const char *) { ++g_test_turn_calls; }
+bool session_test_map_control() {
+    NextTurn old = g_next_turn.load(); bool block = g_block_guest_turn.load();
+    alignas(4) char event[16] = {}; *(float *)(event + 8) = -1.0f;
+    g_next_turn = test_stock_next; g_test_turn_calls = 0;
+    g_block_guest_turn.store(true); next_turn_hook(nullptr, 0, event);
+    bool spectator_blocked = g_test_turn_calls == 0 && !session_map_blocking();
+    g_block_guest_turn.store(false); next_turn_hook(nullptr, 0, event);
+    bool host_passed = g_test_turn_calls == 1 && !session_map_blocking();
+    g_next_turn.store(old); g_block_guest_turn.store(block);
+    return spectator_blocked && host_passed;
+}
+u32 session_test_map_out_hash() { return g_map_out_hash; }
+bool session_test_map_no_guest_upload() { return g_map_in.empty(); }
 bool session_test_map_peer_loaded() { return g_peer_on_map; }
 bool session_test_map_input() { return !session_map_blocking(); }
-bool session_test_map_finish() {
-    bool was = g_turn_done;
-    press_next_turn();
-    return !was && g_turn_done;
-}
 bool session_test_map_download_ready() { return g_map_reload_at != 0 && !g_map_in.empty() && g_map_got == g_map_have.size(); }
 bool session_test_map_adopt_download(std::vector<unsigned char> *out) {
     if (!out || !session_test_map_download_ready() || !opsave_checked::validate(g_map_in) ||
         !g_map_client.loaded(g_map_in_epoch, g_map_in_revision)) return false;
     *out = g_map_in;
     g_map_base_epoch = g_map_in_epoch; g_map_base_revision = g_map_in_revision;
-    g_map_in.clear(); g_map_reload_at = 0;
-    g_map_out.clear(); g_map_given = g_map_sent = g_turn_done = false;
-    g_map_note[0] = 0;
-    g_last_hello = 0;
+    g_map_in.clear(); g_map_reload_at = 0; g_map_note[0] = 0; g_last_hello = 0;
     return true;
 }
-bool session_test_map_collecting() { return g_map_client.phase == operation_turn::Phase::collect; }
-bool session_test_map_offer(const std::vector<unsigned char> &source) {
-    std::vector<unsigned char> save = source;
-    return adopt_guest_snapshot(save, "camp_test_ger.opsave");
-}
-bool session_test_map_received() {
-    return g_role == ROLE_HOST && g_map_collect && !g_map_in.empty() && g_map_got == g_map_have.size();
-}
-bool session_test_map_commit(bool simulated_io_ok, std::vector<unsigned char> *out) {
-    if (!out || !session_test_map_received()) return false;
-    unsigned orders = 0; std::string why; std::vector<unsigned char> result;
-    if (!opsave_checked::accept(g_map_out, g_map_in, g_map_sidecar, &result, &orders, &why) || orders != 1 || !simulated_io_ok) return false;
-    if (!g_map_host.committed(g_map_in_epoch, g_map_in_revision)) return false;
-    *out = result;
-    g_map_ack = g_map_in_hash; g_map_ack_epoch = g_map_in_epoch; g_map_ack_revision = g_map_in_revision;
-    g_map_given = g_map_collect = false; g_map_restart_at = 0;
-    return true;
-}
-bool session_test_map_acked() { return g_map_sent; }
 void session_test_map_disconnect() {
     g_connected = false;
-    if (g_role == ROLE_HOST) g_have_peer = g_peer_on_map = false; // same as production timeout
+    if (g_role == ROLE_HOST) g_have_peer = g_peer_on_map = false;
+}
+void session_test_map_forbidden_packets() {
+    StateHead state = {}; state.h = make_head(PKT_STATE);
+    on_packet(g_peer, (const unsigned char *)&state, sizeof state, GetTickCount());
+    Head obj = make_head(PKT_OBJECT), shot = make_head(PKT_SHOT);
+    on_packet(g_peer, (const unsigned char *)&obj, sizeof obj, GetTickCount());
+    on_packet(g_peer, (const unsigned char *)&shot, sizeof shot, GetTickCount());
 }
 void session_test_map_old_hello() {
     if (g_role != ROLE_HOST || !g_have_peer || g_map_revision < 2) return;
     Hello old = { make_head(PKT_HELLO) };
     memcpy(old.proto, k_protocol, sizeof k_protocol); old.version = k_version;
     old.phase = 0xfe; old.lobby_ready = 1; old.turn_done = 1;
+    old.map_size = 1000; old.map_hash = 0x1234;
     old.map_epoch = g_map_epoch; old.map_revision = g_map_revision - 1;
     on_packet(g_peer, (const unsigned char *)&old, sizeof old, GetTickCount());
 }
 #endif
+
+static void spectator_screen_lifecycle(ObjMan *om, DWORD now)
+{
+    if (g_map_mode) {
+        bool on_map = map_ready_for_hello(om);
+        if (on_map) { g_guest_seen_map = true; g_guest_left_since = 0; }
+        else if (g_guest_seen_map && !g_map_battle_at && !g_map_reload_at) {
+            if (!g_guest_left_since) g_guest_left_since = now ? now : 1;
+            else if (now - g_guest_left_since >= 2000) {
+                mp_log("map: spectator left the operation; stopping updates and returning control to the game");
+                session_single_player();
+                g_map_mode = false; g_map_in.clear(); g_map_have.clear();
+                SetEnvironmentVariableA("MP_MAP", nullptr); SetEnvironmentVariableA("MP_AUTOJOIN", nullptr);
+                SetEnvironmentVariableA("MP_MAP_EPOCH", nullptr); SetEnvironmentVariableA("MP_MAP_REV", nullptr);
+            }
+        }
+    }
+}
 
 void session_frame(ObjMan *om)
 {
@@ -3213,6 +2850,9 @@ void session_frame(ObjMan *om)
     if (g_tactical && g_role != ROLE_NONE) trench_install();
     shorten_battle_for_tests(om);
     if (g_role == ROLE_HOST && g_bind_pending && now - g_last_bind_try >= 500) host_listen();
+    // Map input safety and leaving its screen must not depend on UDP or Steam being up.
+    install_map_detours();
+    spectator_screen_lifecycle(om, now);
     // The menu Joiner and this session share one Steam P2P queue. While the Joiner has reserved
     // it, only the Joiner may read its WELCOME/IMAGE_DATA; otherwise this earlier frame would eat
     // and discard those packets before ui_frame calls Joiner::poll(). UDP keeps its own socket.
@@ -3244,21 +2884,12 @@ void session_frame(ObjMan *om)
     }
 
     install_detours();
-    install_map_detours();
     end_keys();
     end_frame(om, now);
     force_frame(om, now);
-    if (g_end.pending && resign_now(om, true)) g_resign_asked = false;
     resign_if_asked(om);
     host_map_frame(om, now);
-    if ((g_role == ROLE_HOST && !g_tactical) || g_map_mode) request_map_pieces(now);
-    if (g_map_restart_at && now >= g_map_restart_at) {
-#ifdef NETV21_TEST_HOOKS
-        if (!g_test_map_no_game)
-#endif
-        { g_map_restart_at = 0; host_merge_and_restart(om); }
-    }
-    if (g_map_mode && g_collect_asked && !g_map_given && operation_on_screen(om)) { g_collect_asked = false; session_map_give(om); }
+    if (g_map_mode) request_map_pieces(now);
     if (g_map_mode && g_test_save_asked && operation_on_screen(om)) {      // tests: how many orders has this player given?
         g_test_save_asked = false;
         std::vector<unsigned char> save;
@@ -3267,11 +2898,17 @@ void session_frame(ObjMan *om)
         mp_log("test: operation %s (%s, %zu bytes, turn phase %d, %u orders)", ok ? "saved" : "not saved", file, save.size(),
                ok ? opsave::turn_phase(save) : -1, ok ? opsave::rows_of(save, "user_orders") : 0);
     }
-    if (g_map_mode && g_end_turn_asked) {                   // tests: this player presses "next turn"
+    if (g_map_mode && g_end_turn_asked) {
         g_end_turn_asked = false;
-        if (!g_turn_done && !g_map_given && !g_map_sent) press_next_turn();
+        mp_log("test: spectator cannot advance the host's turn");
     }
-    if (g_map_mode && g_map_battle_at && now >= g_map_battle_at) joiner_into_battle();
+    if (g_map_mode && g_map_battle_at && now >= g_map_battle_at) {
+#ifdef NETV21_TEST_HOOKS
+        if (g_test_map_no_game && !g_test_spawn_battle_lobby) { g_test_battle_notice = true; g_map_battle_at = 0; }
+        else
+#endif
+        joiner_into_battle();
+    }
     if (g_map_mode && g_map_reload_at && now >= g_map_reload_at) {
 #ifdef NETV21_TEST_HOOKS
         if (!g_test_map_no_game)
@@ -3289,11 +2926,9 @@ void session_frame(ObjMan *om)
             hello.version = k_version;
             hello.prefer_side = g_prefer_side;
             hello.ready = (unsigned char)g_my_ready;
-            hello.phase = g_map_mode ? ((map_ready_for_hello(om) && g_map_hooks_ready) ? 0xfe : 0xff) : (unsigned char)g_phase;
+            hello.phase = g_map_mode ? (map_ready_for_hello(om) ? 0xfe : 0xff) : (unsigned char)g_phase;
             hello.lobby_ready = 1;
             strcpy_s(hello.name, g_my_name);
-            if (g_map_mode && g_map_given && !g_map_sent) { hello.map_size = (u32)g_map_out.size(); hello.map_hash = g_map_out_hash; }
-            hello.turn_done = g_map_mode && g_turn_done;
             hello.map_epoch = g_map_base_epoch;
             hello.map_revision = g_map_base_revision;
             force_offer_to_hello(&hello);
@@ -3321,9 +2956,8 @@ void session_frame(ObjMan *om)
         g_connected = false;
         g_peer_ready = 0;
         if (g_role == ROLE_JOIN && g_tactical && !g_host_lost) g_host_lost = now ? now : 1;
-        if (g_role == ROLE_HOST) { g_have_peer = false; g_peer_on_map = g_peer_turn_done = false; }
+        if (g_role == ROLE_HOST) { g_have_peer = false; g_peer_on_map = false; }
     }
-    if (g_host_lost && now - g_host_lost > 4000 && !g_restart_coming) leave_battle_for_menu();
     if (now - g_last_report >= 5000) {
         if (g_connected && g_tactical && (g_stat_sent || g_stat_applied || g_stat_zero_skipped || g_stat_cache_pruned)) {
             mp_log("net: 5 s: sent %u and applied %u unit transforms (%u coalesced, %u identical writes elided, %u invalid/full), mean correction %.2f m, largest %.2f m, %u jumps, rx %.1f / tx %.1f KB/s; zero-ms %u (%u idle skipped), cache pruned %u",

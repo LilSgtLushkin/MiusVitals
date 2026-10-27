@@ -16,9 +16,9 @@
 
 Новый DLL допускает только KERNEL32 imports, включая `GetCommandLineA` и `SetEnvironmentVariableA`. Во время dependency attach (до кэширования state policy в `basic_network`) он устанавливает отсутствующий `MP_SYNC_STATE=0` исключительно для strict operation-tactical command line; explicit environment setting не меняется. Ни `g_host_mode`, ни map state, ни codelib не записываются.
 
-## Единый тестовый архив net_v21 (v1.0.5-test)
+## Единый тестовый архив net_v21 (v1.0.6-test)
 
-`MiusMultiplayer_v1.0.5_TEST_INSTALL.zip` — экспериментальная сборка, не стабильный выпуск.
+`MiusMultiplayer_v1.0.6_TEST_INSTALL.zip` — экспериментальная сборка, не стабильный выпуск.
 Вся папка `MiusMultiplayer` распаковывается рядом с `starter_x64.exe`; один
 `Enable_Multiplayer.bat` ставит мод целиком, включая **net_v21 и соответствующий launcher**.
 Отдельный switch не нужен и не входит в этот архив. `Disable_Multiplayer.bat` возвращает
@@ -27,20 +27,25 @@
 Шесть устанавливаемых файлов проверяются по `FILES_SHA256.txt`. Перед записью создаются и
 проверяются backup и снимок транзакции; если откат не удался, требуется повторное восстановление.
 При сбое питания/диска или на сетевой ФС полная атомарность не гарантируется. Старые 1.0.3,
-1.0.4 и `_known_good` не перезаписываются и сохраняют свою историческую схему переключения.
+1.0.4, 1.0.5 и `_known_good` не перезаписываются и сохраняют свою историческую схему переключения.
 
 ```sh
 python3 scripts/package_net_v21_test.py \
     --codelib development/net-v21/build/module/basic_network.codelib \
     --launcher development/net-v21/build/join/mp_join.exe \
-    --output /tmp/MiusMultiplayer_v1.0.5_TEST_LOCAL.zip
-python3 scripts/package_net_v21_test.py --verify /tmp/MiusMultiplayer_v1.0.5_TEST_LOCAL.zip
+    --output /tmp/MiusMultiplayer_v1.0.6_TEST_LOCAL.zip
+python3 scripts/package_net_v21_test.py --verify /tmp/MiusMultiplayer_v1.0.6_TEST_LOCAL.zip
 ```
 
 ZIP детерминированный: фиксируются время и порядок записей; `TEST_BUILD.txt` содержит SHA-256
 всех остальных файлов. Игра, настоящий Steam, совместный бой и реальные сохранения не проверены;
 полный порт `mp_vitals` не завершён, а причина падения FPS не доказана. Результаты и пределы
-тестов — в `NET_V21_M5_VALIDATION_2026-10-27.md`.
+тестов — в `NET_V21_SPECTATOR_1_0_6.md`; документы M5 описывают историческую отменённую схему.
+Протокол 15 несовместим с 1.0.5. F9 не завершает бой и не гарантирует зачёт.
+
+Опубликованный тестовый ZIP 1.0.6: SHA-256 `ce4f80223b4a876b5d65b0c7ddc90b818c9fb7bf63de1bb827af1d0dccf284c5`.
+MSVC-built `basic_network.codelib`: `c3547d4efcb1c92ab2f53849f7995b018fb286ed502fc5ddc7beef0a52f0e7f3`;
+`mp_join.exe`: `da58a3bcc7839cde725717ac72c1460fd94763d45dd4e5cbc13947e18dad4c72`. Старые тестовые архивы сохранены.
 
 ## Публичный исходный MiusPlayer и полная source workspace
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""No-game packaging checks for the unified 1.0.5 installer and preserved archives."""
+"""No-game packaging checks for the unified 1.0.6 installer and preserved archives."""
 from __future__ import annotations
 import copy
 import hashlib
@@ -59,7 +59,8 @@ class Packaging(unittest.TestCase):
                      "MiusMultiplayer_v1.0.0_TEST_INSTALL_known_good.zip",
                      "MiusMultiplayer_v1.0.2_TEST_INSTALL.zip",
                      "MiusMultiplayer_v1.0.3_TEST_INSTALL.zip",
-                     "MiusMultiplayer_v1.0.4_TEST_INSTALL.zip"):
+                     "MiusMultiplayer_v1.0.4_TEST_INSTALL.zip",
+                     "MiusMultiplayer_v1.0.5_TEST_INSTALL.zip"):
             archive = ROOT / name
             with self.subTest(name=name):
                 before = hashlib.sha256(archive.read_bytes()).digest()

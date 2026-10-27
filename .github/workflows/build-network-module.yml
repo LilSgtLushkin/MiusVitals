@@ -88,9 +88,9 @@ jobs:
       - name: Verify the committed unified installer before rebuilding
         shell: cmd
         run: |
-          if not exist MiusMultiplayer_v1.0.5_TEST_INSTALL.zip goto :no_committed_installer
+          if not exist MiusMultiplayer_v1.0.6_TEST_INSTALL.zip goto :no_committed_installer
           if not exist development\net-v21\build mkdir development\net-v21\build
-          python scripts\package_net_v21_test.py --verify MiusMultiplayer_v1.0.5_TEST_INSTALL.zip --verify-source > development\net-v21\build\committed-installer.log 2>&1
+          python scripts\package_net_v21_test.py --verify MiusMultiplayer_v1.0.6_TEST_INSTALL.zip --verify-source > development\net-v21\build\committed-installer.log 2>&1
           set rc=%errorlevel%
           if not %rc%==0 goto :committed_installer_failed
           python tests\test_unified_installer_windows.py >> development\net-v21\build\committed-installer.log 2>&1
@@ -103,7 +103,7 @@ jobs:
           powershell -NoProfile -Command "$m = ((Get-Content development/net-v21/build/committed-installer.log -Tail 100) -join ' | ').Replace('%%','%%25'); Write-Output ('::error title=Committed installer verification::' + $m)"
           exit /b %rc%
           :no_committed_installer
-          echo First build: no committed 1.0.5 archive yet.
+          echo First build: no committed 1.0.6 archive yet.
 
       - name: Install the disassembler the comparison needs
         run: python -m pip install --quiet capstone
@@ -336,7 +336,7 @@ jobs:
           python scripts/package_net_v21_test.py \
             --codelib development/net-v21/build/module/basic_network.codelib \
             --launcher development/net-v21/build/join/mp_join.exe \
-            --output MiusMultiplayer_v1.0.5_TEST_INSTALL.zip \
+            --output MiusMultiplayer_v1.0.6_TEST_INSTALL.zip \
             2>&1 | tee development/net-v21/build/package.log
           exit ${PIPESTATUS[0]}
 
@@ -360,7 +360,7 @@ jobs:
           # The archive has to be reachable without the Actions API (artifact downloads are blocked
           # where this build is checked), so it is committed into the branch it was built from and
           # travels to main with the pull request.
-          archive=MiusMultiplayer_v1.0.5_TEST_INSTALL.zip
+          archive=MiusMultiplayer_v1.0.6_TEST_INSTALL.zip
           if [ ! -f "$archive" ]; then echo "no archive was built; nothing to publish"; exit 0; fi
           git config user.name "net-v21 build"
           git config user.email "net-v21-build@users.noreply.github.com"
@@ -418,8 +418,8 @@ jobs:
               echo '</details>'
             fi
             echo
-            if [ -f MiusMultiplayer_v1.0.5_TEST_INSTALL.zip ]; then
-              echo "test installer: MiusMultiplayer_v1.0.5_TEST_INSTALL.zip, sha256 $(sha256sum MiusMultiplayer_v1.0.5_TEST_INSTALL.zip | cut -d' ' -f1)"
+            if [ -f MiusMultiplayer_v1.0.6_TEST_INSTALL.zip ]; then
+              echo "test installer: MiusMultiplayer_v1.0.6_TEST_INSTALL.zip, sha256 $(sha256sum MiusMultiplayer_v1.0.6_TEST_INSTALL.zip | cut -d' ' -f1)"
             else
               echo "test installer: not built"
             fi
@@ -444,6 +444,6 @@ jobs:
           name: network-module
           path: |
             development/net-v21/build/**
-            MiusMultiplayer_v1.0.5_TEST_INSTALL.zip
+            MiusMultiplayer_v1.0.6_TEST_INSTALL.zip
           if-no-files-found: warn
           retention-days: 14

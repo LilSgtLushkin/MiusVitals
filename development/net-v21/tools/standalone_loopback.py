@@ -30,7 +30,7 @@ def run_case(peer: Path, launcher: Path, starter: Path, steam: bool, start_ok: b
     while client_port == host_port:
         client_port = free_port()
     transport = "steam" if steam else "ip"
-    with tempfile.TemporaryDirectory(prefix="m5 launcher ") as temporary:
+    with tempfile.TemporaryDirectory(prefix="spectator launcher ") as temporary:
         root = Path(temporary) / "Game with spaces"
         profile = root / "users" / "profiles" / "cloud"
         profile.mkdir(parents=True)
@@ -45,7 +45,7 @@ def run_case(peer: Path, launcher: Path, starter: Path, steam: bool, start_ok: b
                      "MP_TURNDONE", "MP_AUTOJOIN", "MP_HOST_MODE", "MP_MAP_EPOCH", "MP_MAP_REV"):
             env.pop(name, None)
         env["MP_STEAM_FAKE" if steam else "MP_STEAM"] = str(client_port) if steam else "0"
-        host = subprocess.Popen([str(peer), f"m5-{transport}-host", str(host_port), str(client_port)],
+        host = subprocess.Popen([str(peer), f"spectator-{transport}-host", str(host_port), str(client_port)],
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         try:
             address = f"steam:{host_port}" if steam else f"127.0.0.1:{host_port}"

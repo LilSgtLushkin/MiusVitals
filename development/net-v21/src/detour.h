@@ -5,6 +5,7 @@
 #pragma once
 #include <windows.h>
 #include <string.h>
+#include <atomic>
 
 // The engine's functions are reached through typed function pointers; a hook handed over by name is
 // one of those types. This overload does the conversion once, so every call site reads the same way
@@ -37,4 +38,28 @@ inline void *install_detour(void *target, size_t len, void *hook)
     FlushInstructionCache(GetCurrentProcess(), fn, len);
     FlushInstructionCache(GetCurrentProcess(), tramp, 64);
     return tramp;
+}
+
+// Publish the trampoline before exposing the hook to other threads. This reduces the
+// null-original race, but does not suspend engine threads while target bytes are patched.
+template <class Fn, class Hook>
+inline bool install_published_detour(void *target, size_t len, Hook hook, std::atomic<Fn> &original)
+{
+    if (!target || !hook || len < 14 || len > 32) return false;
+    unsigned char *fn = (unsigned char *)target;
+    unsigned char *tramp = (unsigned char *)VirtualAlloc(nullptr, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (!tramp) return false;
+    static const unsigned char jmp[6] = { 0xff, 0x25, 0, 0, 0, 0 };
+    void *back = fn + len, *destination = (void *)hook;
+    memcpy(tramp, fn, len); memcpy(tramp + len, jmp, 6); memcpy(tramp + len + 6, &back, 8);
+    FlushInstructionCache(GetCurrentProcess(), tramp, 64);
+    DWORD old;
+    if (!VirtualProtect(fn, len, PAGE_EXECUTE_READWRITE, &old)) { VirtualFree(tramp, 0, MEM_RELEASE); return false; }
+    unsigned char patch[32]; memset(patch, 0x90, sizeof patch);
+    memcpy(patch, jmp, 6); memcpy(patch + 6, &destination, 8);
+    original.store((Fn)tramp, std::memory_order_release);
+    memcpy(fn, patch, len);
+    DWORD ignored; VirtualProtect(fn, len, old, &ignored);
+    FlushInstructionCache(GetCurrentProcess(), fn, len);
+    return true;
 }
