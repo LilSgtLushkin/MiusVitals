@@ -143,10 +143,15 @@ class Packaging(unittest.TestCase):
             module, launcher, archive = temp / "module", temp / "launcher", temp / "test.zip"
             module.write_bytes(self.tagged_module); launcher.write_bytes(self.tagged_launcher)
             pkg.build(repo, module, archive, launcher)
+            pkg.verify_source(repo, archive)
             with zipfile.ZipFile(archive) as src:
                 data = src.read("MiusMultiplayer/README.txt")
                 self.assertIn(b"\r\n", data)
                 self.assertIn(pkg.sha256(data).encode(), src.read("MiusMultiplayer/TEST_BUILD.txt"))
+            readme = repo / pkg.UNIFIED / "README.txt"
+            readme.write_bytes(readme.read_bytes() + b"later source change\n")
+            with self.assertRaisesRegex(SystemExit, "committed archive differs from source"):
+                pkg.verify_source(repo, archive)
 
 
 if __name__ == "__main__":

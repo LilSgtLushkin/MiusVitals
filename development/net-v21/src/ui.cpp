@@ -531,9 +531,8 @@ void ui_frame(ObjMan *om)
         // Do not take the existing operation-map session's queue: M5 keeps its previous ownership.
         if (g_joiner.start(g_address, !session_map_mode())) { g_lobby_host = false; g_screen = SCR_LOBBY; }
     }
-    // While a turn is being ended nothing is drawn over the map - the players want to see the moves being
-    // made; the line at the top says what is going on. The map only takes no clicks for the moment in
-    // which the moves travel between the games.
+    // Keep the map visible while turns and transfers progress. Session state blocks input whenever
+    // it is not this player's phase, including while the other player is giving orders.
     g_map_busy = g_on_op_map && session_map_blocking();
     bool hosting = session_role() == ROLE_HOST;
     Action act = g_action;
@@ -725,7 +724,7 @@ static void draw_lobby(float cx, float px, float py, float pw, float ph)
     float y = py + 266 * s;
     if (operation) {
         text("The host opens the operation from the side he wants to play; modifiers are set on the Operations screen.", cx, y, 15, k_edge);
-        text("On the operational map both players move their own forces at the same time; the turn ends when both have pressed next turn.", cx, y + 24 * s, 15, k_edge);
+        text("Orders: host first, then guest; the host resolves the turn after both have finished.", cx, y + 24 * s, 15, k_edge);
     } else if (mission) {
         text("The host picks a mission on the Missions screen: the prepared ones and those made in the battle editor.", cx, y, 15, k_edge);
         text("The mission travels to the other player with the battle. SWAP SIDES exchanges who commands which force.", cx, y + 24 * s, 15, k_edge);
@@ -768,6 +767,8 @@ static void draw_lobby(float cx, float px, float py, float pw, float ph)
             const char *hint = !peer_here ? (g_joiner.waited_seconds() >= 8 ?
                                  (g_joiner.host.sin_family == STEAM_FAMILY ? "No answer yet. Check that your friend is hosting and Steam is online." :
                                   "No answer yet. Check the address and that UDP port 1943 reaches the host.") : "")
+                             : operation ? (!g_joiner.lobby_ready ? "Press READY; the host can then open the operation." :
+                                             "Ready. Waiting for the host to open the operation...")
                              : !g_joiner.lobby_ready ? (g_joiner.host_in_battle ? "The host is in the battle. Press READY to enter it." : "Press READY when you are; the battle starts when the host starts it.")
                              : "Ready. Waiting for the host to start the battle...";
             text(hint, cx, r2 + 22 * s, 17, g_joiner.lobby_ready ? good : wait);

@@ -5,6 +5,7 @@ The archive is produced by the current MSVC build. No game or Steam is run. Erro
 inserted ONLY into disposable extracted script copies; the archive and its installer remain intact.
 """
 from __future__ import annotations
+import hashlib
 import os
 from pathlib import Path
 import stat
@@ -104,6 +105,20 @@ class UnifiedInstaller(unittest.TestCase):
         self.succeed(self.bat("Enable_Multiplayer.bat"))
         self.check_installed()
         self.succeed(self.bat("Check_Install.bat"))
+        log = self.game / "out/net_v21_opgame.log"
+        log.write_bytes(b"synthetic log, no game run")
+        collector = subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                                    str(self.kit / "Collect_Logs.ps1"), "-NoOpen"], cwd=str(self.kit),
+                                   capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
+        self.succeed(collector)
+        reports = list(self.kit.glob("logs_*"))
+        self.assertEqual(len(reports), 1)
+        self.assertEqual((reports[0] / log.name).read_bytes(), log.read_bytes())
+        report = (reports[0] / "COLLECTION.txt").read_text(encoding="utf-8-sig")
+        digest = hashlib.sha256((self.game / FILES[1]).read_bytes()).hexdigest().upper()
+        self.assertIn(f"archive network module: {digest}", report)
+        self.assertIn(f"active network module: {digest}", report)
+        self.assertFalse(any(p.suffix in (".dll", ".exe", ".codelib", ".opsave") for p in reports[0].iterdir()))
         original_baseline = (self.baseline / "manifest.json").read_bytes()
         self.succeed(self.bat("Enable_Multiplayer.bat"))
         self.check_installed()

@@ -69,6 +69,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python development/net-v21/tools/statesync_legacy_selftest.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python development/net-v21/tools/ui_text_selftest.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Test archive validation and rollback protection
         run: |
@@ -80,6 +82,17 @@ jobs:
         run: |
           & development/net-v21/tools/collect_logs_selftest.ps1
           if (-not $?) { exit 1 }
+
+      - name: Verify the committed unified installer before rebuilding
+        shell: pwsh
+        run: |
+          $archive = 'MiusMultiplayer_v1.0.5_TEST_INSTALL.zip'
+          if (Test-Path -LiteralPath $archive) {
+            python scripts/package_net_v21_test.py --verify $archive --verify-source
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            python tests/test_unified_installer_windows.py
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } else { Write-Host 'First build: no committed 1.0.5 archive yet.' }
 
       - name: Install the disassembler the comparison needs
         run: python -m pip install --quiet capstone

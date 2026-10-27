@@ -50,6 +50,7 @@ function Remove-ReadOnly([string]$path) {
 function Copy-Atomic([string]$source, [string]$target) {
     Parent-Directory $target
     $temp = $target + '.mius_' + [Guid]::NewGuid().ToString('N') + '.tmp'
+    $displaced = $target + '.mius_previous_' + [Guid]::NewGuid().ToString('N') + '.tmp'
     $oldAttributes = $null
     try {
         [IO.File]::Copy($source, $temp, $false)
@@ -58,7 +59,9 @@ function Copy-Atomic([string]$source, [string]$target) {
         if ([IO.File]::Exists($target)) {
             $oldAttributes = [IO.File]::GetAttributes($target)
             Remove-ReadOnly $target
-            try { [IO.File]::Replace($temp, $target, $null, $true) }
+            # Windows PowerShell 5.1 can bind $null as an empty backup path, which File.Replace
+            # rejects. Use a unique real backup path instead; the transaction snapshot is retained.
+            try { [IO.File]::Replace($temp, $target, $displaced, $true) }
             catch {
                 if ([IO.File]::Exists($target) -and $null -ne $oldAttributes) { [IO.File]::SetAttributes($target, $oldAttributes) }
                 throw
@@ -67,6 +70,10 @@ function Copy-Atomic([string]$source, [string]$target) {
         if ((Hash-File $source) -ne (Hash-File $target)) { throw "installed bytes differ: $target" }
     } finally {
         if ([IO.File]::Exists($temp)) { Remove-ReadOnly $temp; [IO.File]::Delete($temp) }
+        if ([IO.File]::Exists($displaced)) {
+            try { Remove-ReadOnly $displaced; [IO.File]::Delete($displaced) }
+            catch { Write-Host "Warning: temporary replaced-file backup retained at $displaced" }
+        }
     }
 }
 function Remove-Target([string]$path) {

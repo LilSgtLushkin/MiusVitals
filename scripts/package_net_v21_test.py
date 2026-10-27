@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import re
 import struct
+import tempfile
 import zipfile
 
 VERSION = "1.0.5"
@@ -381,6 +382,28 @@ def verify(archive_path: Path) -> None:
           f"archive sha256 {sha256(archive_path.read_bytes())}")
 
 
+def verify_source(repo: Path, archive_path: Path) -> None:
+    """Check that a committed 1.0.5 archive still contains this tree's kit scripts/payloads.
+
+    The archive's own compiled module/launcher are used as inputs; this check does not prove how
+    those binaries were compiled. Windows CI independently builds and exercises them.
+    """
+    verify(archive_path)
+    with tempfile.TemporaryDirectory() as temporary, zipfile.ZipFile(archive_path) as archive:
+        directory = Path(temporary)
+        module, launcher = directory / "basic_network.codelib", directory / "mp_join.exe"
+        try:
+            module.write_bytes(archive.read(f"{ROOT}/{MODULE_PATH}"))
+            launcher.write_bytes(archive.read(f"{ROOT}/{LAUNCHER_PATH}"))
+        except KeyError:
+            raise SystemExit("source comparison requires the unified 1.0.5 layout")
+        expected = collect(repo, module, launcher)
+        for relative, data in expected.items():
+            if archive.read(f"{ROOT}/{relative}") != with_crlf(relative, data):
+                raise SystemExit(f"committed archive differs from source: {relative}")
+    print(f"OK {archive_path}: unified archive kit matches the current source tree")
+
+
 def build(repo: Path, codelib: Path, archive_path: Path, launcher: Path) -> None:
     # New builds must never overwrite any preserved release/test or the known-good rollback.
     protected = ("MiusMultiplayer_v1.0.0_TEST_INSTALL_known_good.zip",
@@ -414,6 +437,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path)
     parser.add_argument("--verify", type=Path)
+    parser.add_argument("--verify-source", action="store_true", help="also compare the unified kit to the current source tree")
     parser.add_argument("--codelib", type=Path,
                         default=Path("development/net-v21/build/module/basic_network.codelib"))
     parser.add_argument("--launcher", type=Path,
@@ -421,13 +445,18 @@ def main() -> None:
     args = parser.parse_args()
     if bool(args.output) == bool(args.verify):
         parser.error("use exactly one of --output or --verify")
+    if args.verify_source and not args.verify:
+        parser.error("--verify-source requires --verify")
     repo = Path(__file__).resolve().parents[1]
     if args.output:
         codelib = args.codelib if args.codelib.is_absolute() else repo / args.codelib
         launcher = args.launcher if args.launcher.is_absolute() else repo / args.launcher
         build(repo, codelib, args.output, launcher)
     else:
-        verify(args.verify)
+        if args.verify_source:
+            verify_source(repo, args.verify)
+        else:
+            verify(args.verify)
 
 
 if __name__ == "__main__":
