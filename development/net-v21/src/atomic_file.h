@@ -8,6 +8,29 @@
 #include <string>
 
 namespace atomic_file {
+// Create a durable file without ever replacing a prior backup/marker. A failed partial file is removed.
+inline bool create_new(const char *path, const void *data, size_t size)
+{
+    if (!path || !*path || (!data && size)) { SetLastError(ERROR_INVALID_PARAMETER); return false; }
+    HANDLE file = CreateFileA(path, GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return false;
+    DWORD error = ERROR_SUCCESS;
+    const unsigned char *bytes = (const unsigned char *)data;
+    size_t at = 0;
+    while (at < size) {
+        DWORD wanted = size - at > 0x7fffffffu ? 0x7fffffffu : (DWORD)(size - at), written = 0;
+        if (!WriteFile(file, bytes + at, wanted, &written, nullptr)) {
+            error = GetLastError(); if (!error) error = ERROR_WRITE_FAULT; break;
+        }
+        if (!written || written > wanted) { error = ERROR_WRITE_FAULT; break; }
+        at += written;
+    }
+    if (!error && !FlushFileBuffers(file)) { error = GetLastError(); if (!error) error = ERROR_WRITE_FAULT; }
+    if (!CloseHandle(file) && !error) { error = GetLastError(); if (!error) error = ERROR_INVALID_HANDLE; }
+    if (error) { DeleteFileA(path); SetLastError(error); return false; }
+    return true;
+}
+
 inline bool replace(const char *path, const void *data, size_t size)
 {
     if (!path || !*path || (!data && size)) { SetLastError(ERROR_INVALID_PARAMETER); return false; }

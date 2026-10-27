@@ -6,6 +6,7 @@
 #include "render_guard.h"
 #include "protocol.h"
 #include "joiner.h"
+#include "opsave_fixture.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -34,6 +35,24 @@ u32 session_test_motion_updates();
 u32 session_test_motion_skipped();
 size_t session_test_motion_cached();
 void session_test_motion_end();
+void session_test_map_enable(bool);
+unsigned session_test_map_dropped();
+unsigned session_test_map_duplicates();
+unsigned session_test_map_stale();
+bool session_test_map_seed(const std::vector<unsigned char> &, bool);
+int session_test_map_host_phase();
+bool session_test_map_peer_loaded();
+bool session_test_map_input();
+bool session_test_map_finish();
+bool session_test_map_download_ready();
+bool session_test_map_adopt_download(std::vector<unsigned char> *);
+bool session_test_map_collecting();
+bool session_test_map_offer(const std::vector<unsigned char> &);
+bool session_test_map_received();
+bool session_test_map_commit(bool, std::vector<unsigned char> *);
+bool session_test_map_acked();
+void session_test_map_disconnect();
+void session_test_map_old_hello();
 
 char g_program[32] = "tacgame";
 char g_out_dir[MAX_PATH] = "C:\\mius-no-game\\out";
@@ -253,9 +272,130 @@ static int lobby_test(bool host, bool steam, bool menu_only, const char *own_por
     return 1;
 }
 
+// End-to-end M5 packet flow through the real session + Joiner. Only game save/load and engine
+// turn execution are substituted by fixture operations; no claim is made about the real game.
+static int ordered_map_test(bool host, bool steam, const char *own_port, const char *peer_port)
+{
+    char event_name[96];
+    sprintf_s(event_name, "Local\\netv21_m5_%s_%s_ready", steam ? "steam" : "ip", host ? own_port : peer_port);
+    HANDLE host_ready = CreateEventA(nullptr, TRUE, FALSE, event_name);
+    sprintf_s(event_name, "Local\\netv21_m5_%s_%s_done", steam ? "steam" : "ip", host ? own_port : peer_port);
+    HANDLE guest_done = CreateEventA(nullptr, TRUE, FALSE, event_name);
+    if (!host_ready || !guest_done) return 2;
+    strcpy_s(g_program, "opgame");
+    SetEnvironmentVariableA("MP_ROLE", host ? "host" : nullptr);
+    SetEnvironmentVariableA("MP_HOST_MODE", "operation");
+    SetEnvironmentVariableA("MP_MAP", nullptr);
+    SetEnvironmentVariableA("MP_MAP_EPOCH", "101"); SetEnvironmentVariableA("MP_MAP_REV", "1");
+    SetEnvironmentVariableA("MP_STEAM", steam ? nullptr : "0");
+    SetEnvironmentVariableA("MP_STEAM_FAKE", steam ? own_port : nullptr);
+    SetEnvironmentVariableA("MP_PORT", host && !steam ? own_port : nullptr);
+    session_test_disable_udp(steam); session_test_disable_upnp(true);
+    alignas(8) unsigned char manager[0x1800] = {};
+    void *vt[16] = {}; vt[9] = (void *)find_nothing; ((ObjMan *)manager)->vtbl = vt;
+    session_start((ObjMan *)manager);
+    session_test_map_enable(true); // inject losses/duplicates/one stale revision in the test build
+    if ((steam && (!steam_ready() || session_test_udp_open())) || (!steam && host && !session_test_udp_open())) return 3;
+    const char *result = steam ? "M5_STEAM_RESULT" : "M5_IP_RESULT";
+    if (host) {
+        if (!session_test_map_seed(opsave_fixture::host(false), false)) return 4;
+        SetEvent(host_ready);
+    } else {
+        if (WaitForSingleObject(host_ready, 5000) != WAIT_OBJECT_0) return 5;
+        char address[80];
+        if (steam) sprintf_s(address, "steam:%s", peer_port);
+        else sprintf_s(address, "127.0.0.1:%s", peer_port);
+        Joiner lobby; lobby.lobby_ready = true;
+        if (!lobby.start(address)) return 6;
+        lobby.last_hello = GetTickCount() - 500;
+        DWORD started = GetTickCount();
+        while (GetTickCount() - started < 10000 && lobby.state != Joiner::DONE && lobby.state != Joiner::FAILED) {
+            session_frame((ObjMan *)manager); lobby.poll(); Sleep(10);
+        }
+        if (lobby.state != Joiner::DONE || !lobby.want_map || lobby.map_epoch != 101 || lobby.map_revision != 1 ||
+            !opsave_checked::validate(lobby.image)) {
+            printf("%s join ok=0 initial state=%d error=%s\n",result,(int)lobby.state,lobby.error); return 7;
+        }
+        // Simulate the opgame process that would be started by launch_map; this one keeps no engine.
+        session_stop();
+        SetEnvironmentVariableA("MP_ROLE", "join"); SetEnvironmentVariableA("MP_MAP", "1");
+        SetEnvironmentVariableA("MP_PEER", address); SetEnvironmentVariableA("MP_MAP_EPOCH", "101");
+        SetEnvironmentVariableA("MP_MAP_REV", "1");
+        session_start((ObjMan *)manager); session_test_map_enable(true);
+    }
+    bool host_finished = false, adopted = false, guest_finished = false, offered = false;
+    bool failed_commit_seen = false, committed = false, old_hello_safe = false, reconnected = false;
+    DWORD failure_at = 0, started = GetTickCount();
+    std::vector<unsigned char> live, combined;
+    while (GetTickCount() - started < 22000) {
+        DWORD now = GetTickCount();
+        session_frame((ObjMan *)manager);
+        if (host && !host_finished && session_test_map_peer_loaded()) {
+            if (!session_test_map_input() || !session_test_map_finish() || session_test_map_input()) return 8;
+            if (!session_test_map_seed(opsave_fixture::host(true), true)) return 9;
+            session_test_map_old_hello();
+            old_hello_safe = session_test_map_host_phase() == (int)operation_turn::Phase::handoff && !session_test_map_input();
+            if (!old_hello_safe) return 10;
+            session_test_map_disconnect(); // same peer must reconnect without resetting phase
+            host_finished = true;
+        }
+        if (host && host_finished && session_connected()) reconnected = true;
+        if (!host && !adopted && session_test_map_download_ready()) {
+            if (!session_test_map_adopt_download(&live) || opsave::rows_of(live,"user_orders") != 1 || session_test_map_input()) return 11;
+            adopted = true;
+        }
+        if (!host && adopted && !guest_finished && session_test_map_input()) {
+            if (!opsave_fixture::guest_order(&live) || !session_test_map_finish() || session_test_map_input()) return 12;
+            guest_finished = true;
+        }
+        if (!host && guest_finished && !offered && session_test_map_collecting()) {
+            if (!session_test_map_offer(live)) return 13;
+            offered = true;
+        }
+        if (host && session_test_map_received() && !failed_commit_seen) {
+            if (session_test_map_commit(false, &combined) || session_test_map_host_phase() != (int)operation_turn::Phase::collect ||
+                session_test_map_input()) return 14;
+            failed_commit_seen = true; failure_at = now;
+        }
+        if (host && failed_commit_seen && !committed && now - failure_at >= 1500) {
+            if (!session_test_map_commit(true, &combined) || opsave::rows_of(combined,"user_orders") != 2 ||
+                opsave::u32_at(combined,opsave_fixture::field(combined,"p_guest","px")) != 7) return 15;
+            committed = true;
+        }
+        if (!host && session_test_map_acked()) {
+            bool ok = adopted && guest_finished && offered && !session_test_map_input() &&
+                      session_test_map_dropped() && session_test_map_duplicates() && session_test_map_stale();
+            printf("%s join ok=%d adopted=%d finished=%d offer=%d drop=%u duplicate=%u stale=%u\n",result,(int)ok,
+                   (int)adopted,(int)guest_finished,(int)offered,session_test_map_dropped(),
+                   session_test_map_duplicates(),session_test_map_stale());
+            SetEvent(guest_done); session_stop(); steam_shutdown(); CloseHandle(host_ready); CloseHandle(guest_done);
+            return ok ? 0 : 1;
+        }
+        if (host && committed && WaitForSingleObject(guest_done,0) == WAIT_OBJECT_0) {
+            bool ok = host_finished && old_hello_safe && reconnected && failed_commit_seen &&
+                      session_test_map_dropped() && session_test_map_duplicates() && session_test_map_stale();
+            printf("%s host ok=%d stale_hello=%d reconnect=%d io_failure=%d drop=%u duplicate=%u stale=%u\n",result,(int)ok,
+                   (int)old_hello_safe,(int)reconnected,(int)failed_commit_seen,session_test_map_dropped(),
+                   session_test_map_duplicates(),session_test_map_stale());
+            session_stop(); steam_shutdown(); CloseHandle(host_ready); CloseHandle(guest_done);
+            return ok ? 0 : 1;
+        }
+        Sleep(10);
+    }
+    printf("%s %s ok=0 timeout connected=%d phase=%d adopted=%d offered=%d commit=%d ack=%d\n", result,
+           host ? "host" : "join", (int)session_connected(),session_test_map_host_phase(),(int)adopted,(int)offered,
+           (int)committed,(int)session_test_map_acked());
+    session_stop(); steam_shutdown(); CloseHandle(host_ready); CloseHandle(guest_done);
+    return 1;
+}
+
 int main(int argc, char **argv)
 {
     if (argc != 4) return 2;
+    if (!strcmp(argv[1], "m5-steam-host") || !strcmp(argv[1], "m5-steam-join"))
+        return ordered_map_test(!strcmp(argv[1], "m5-steam-host"), true, argv[2], argv[3]);
+    if (!strcmp(argv[1], "m5-ip-host") || !strcmp(argv[1], "m5-ip-join"))
+        return ordered_map_test(!strcmp(argv[1], "m5-ip-host"), false, argv[2], argv[3]);
     if (!strcmp(argv[1], "lobby-host") || !strcmp(argv[1], "lobby-join"))
         return lobby_test(!strcmp(argv[1], "lobby-host"), true, false, argv[2], argv[3]);
     if (!strcmp(argv[1], "ip-lobby-host") || !strcmp(argv[1], "ip-lobby-join"))

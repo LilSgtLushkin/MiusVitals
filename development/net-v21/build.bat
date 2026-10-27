@@ -75,6 +75,14 @@ cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\net
 if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\protocol_selftest.cpp /link /OUT:build\selftest\protocol_selftest.exe
 if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\operation_turn_test.cpp /link /OUT:build\selftest\operation_turn_test.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\opsave_checked_test.cpp /link /OUT:build\selftest\opsave_checked_test.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\map_file_test.cpp /link /OUT:build\selftest\map_file_test.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\map_file_windows_test.cpp /link /OUT:build\selftest\map_file_windows_test.exe
+if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\force_test.cpp /link /OUT:build\selftest\force_test.exe
 if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\battle_file_test.cpp /link /OUT:build\selftest\battle_file_test.exe
