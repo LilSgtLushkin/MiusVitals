@@ -98,7 +98,8 @@ static std::unordered_set<u64> g_position_only;     // units whose saved state i
 static std::unordered_map<u64, transforms::Sent> g_sent;            // what was last sent per owned unit
 static std::unordered_map<u64, Object *> g_units;       // local unit per id
 static u32 g_units_count_seen;
-static transforms::Inbox g_pending;                     // latest arrival per unit before the next simulation step
+static transforms::Inbox g_pending;                     // tactical: latest arrival per unit before the next simulation step
+static std::vector<UnitRec> g_pending_legacy;           // non-tactical: preserve the old unfiltered receive path
 // The last two transforms received per followed unit, with the time each arrived: the unit is shown
 // between them, a little in the past (see session_sim_step).
 struct Snap { UnitRec rec; double at; };
@@ -540,6 +541,18 @@ static void state_packet_for_mode(const unsigned char *data, int size, void (*se
     if (g_tactical) statesync_on_packet(data, size, send, versus);
     else statesync_legacy_on_packet(data, size, send, versus);
 }
+static void queue_transforms_for_mode(const UnitRec *records, unsigned count)
+{
+    if (!g_tactical) {
+        g_pending_legacy.insert(g_pending_legacy.end(), records, records + count); // original non-tactical path
+        return;
+    }
+    for (unsigned i = 0; i < count; i++) {
+        transforms::Put result = g_pending.put(records[i]);
+        if (result == transforms::Put::replaced) g_stat_coalesced++;
+        else if (result == transforms::Put::invalid || result == transforms::Put::full) g_stat_bad_transforms++;
+    }
+}
 #ifdef NETV21_TEST_HOOKS
 void session_test_state_dispatch(bool tactical)
 {
@@ -548,6 +561,26 @@ void session_test_state_dispatch(bool tactical)
     reset_state_for_mode();
     state_packet_for_mode(nullptr, 0, nullptr, false); // the test substitutes both receivers
     g_tactical = previous;
+}
+bool session_test_transform_dispatch()
+{
+    bool previous = g_tactical;
+    u32 previous_coalesced = g_stat_coalesced, previous_bad = g_stat_bad_transforms;
+    UnitRec records[3] = {};
+    records[0].kind = records[1].kind = 1;
+    records[0].id = records[1].id = 42; // same unit twice, third record is invalid
+    g_tactical = false;
+    g_pending_legacy.clear();
+    queue_transforms_for_mode(records, 3);
+    bool legacy_ok = g_pending_legacy.size() == 3;
+    g_tactical = true;
+    g_pending.clear();
+    queue_transforms_for_mode(records, 3);
+    bool tactical_ok = g_pending.records().size() == 1;
+    g_pending.clear(); g_pending_legacy.clear();
+    g_stat_coalesced = previous_coalesced; g_stat_bad_transforms = previous_bad;
+    g_tactical = previous;
+    return legacy_ok && tactical_ok;
 }
 #endif
 
@@ -1406,9 +1439,11 @@ void session_stop(void)
         g_sock = INVALID_SOCKET;
     }
     g_have_peer = g_connected = g_bind_pending = false;
-    g_pending.clear();
-    g_held.clear();
-    if (g_tactical) statesync_forget_peer();
+    if (g_tactical) {
+        g_pending.clear();
+        g_held.clear();
+        statesync_forget_peer();
+    }
 }
 
 // ---------------------------------------------------------------- owned units: send transforms
@@ -2347,7 +2382,7 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
                         ip, ntohs(from.sin_port), name[0] ? name : "no name", w.user_side,
                         w.enemy_side, (int)versus);
             g_sent.clear();            // a new game needs every unit once
-            g_pending.clear();         // never apply the previous peer's queued transforms
+            if (g_tactical) g_pending.clear(); // never apply the previous tactical peer's queued transforms
             g_held.clear();
             reset_state_for_mode();
             shots_reset();
@@ -2565,11 +2600,7 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
                 g_peer_clock_at = now ? now : 1;
             }
             const UnitRec *recs = (const UnitRec *)(sh + 1);
-            for (unsigned i = 0; i < sh->h.count; i++) {
-                transforms::Put result = g_pending.put(recs[i]);
-                if (result == transforms::Put::replaced) g_stat_coalesced++;
-                else if (result == transforms::Put::invalid || result == transforms::Put::full) g_stat_bad_transforms++;
-            }
+            queue_transforms_for_mode(recs, sh->h.count);
             g_stat_packets++;
         }
         break;
