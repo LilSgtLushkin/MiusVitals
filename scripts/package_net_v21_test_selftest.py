@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""No-game tests for paired net_v21 module/launcher packaging and rollback protection."""
+"""No-game packaging checks for the unified 1.0.5 installer and preserved archives."""
 from __future__ import annotations
 import copy
 import hashlib
@@ -21,18 +21,29 @@ class Packaging(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.known_good = ROOT / "MiusMultiplayer_v1.0.0_TEST_INSTALL_known_good.zip"
-        with zipfile.ZipFile(cls.known_good) as z:
-            cls.module = z.read("MiusMultiplayer/net_v21/basic_network.netv21.codelib")
-            cls.proven_launcher = z.read("MiusMultiplayer/files/mp_join.exe")
-        # Packaging-only fixtures: a PE overlay is not a real matching build and must not be shipped.
+        with zipfile.ZipFile(cls.known_good) as archive:
+            cls.module = archive.read("MiusMultiplayer/net_v21/basic_network.netv21.codelib")
+            cls.old_launcher = archive.read("MiusMultiplayer/files/mp_join.exe")
+        # PE overlays are packaging fixtures only; they do not make compatible binaries.
         cls.tagged_module = cls.module + pkg.WIRE_TAG
-        cls.tagged_launcher = cls.proven_launcher + pkg.WIRE_TAG
+        cls.tagged_launcher = cls.old_launcher + pkg.WIRE_TAG
+
+    def build_fixture(self, directory: Path, name="test.zip") -> Path:
+        module, launcher, archive = directory / "module.codelib", directory / "launcher.exe", directory / name
+        module.write_bytes(self.tagged_module)
+        launcher.write_bytes(self.tagged_launcher)
+        pkg.build(ROOT, module, archive, launcher)
+        return archive
 
     def test_pe_validation(self):
         pkg.validate_module(self.module)
+        pkg.validate_launcher(self.old_launcher)
         for invalid in (b"", self.module[:100], b"NO" + self.module[2:]):
             with self.assertRaises(SystemExit):
                 pkg.validate_module(invalid)
+        for invalid in (b"", self.old_launcher[:100], b"NO" + self.old_launcher[2:], self.module):
+            with self.assertRaises(SystemExit):
+                pkg.validate_launcher(invalid)
         bad_machine = bytearray(self.module)
         pe = struct.unpack_from("<I", bad_machine, 0x3c)[0]
         struct.pack_into("<H", bad_machine, pe + 4, 0x14c)
@@ -43,113 +54,99 @@ class Packaging(unittest.TestCase):
         with self.assertRaises(SystemExit):
             pkg.validate_module(bad_export)
 
-    def test_protected_rollback(self):
-        for archive in (self.known_good, ROOT / "MiusMultiplayer_v1.0.3_TEST_INSTALL.zip",
-                        ROOT / "MiusMultiplayer_v1.0.4_TEST_INSTALL.zip"):
-            before = hashlib.sha256(archive.read_bytes()).digest()
-            with self.subTest(archive=archive.name), self.assertRaisesRegex(SystemExit, "refusing to overwrite"):
-                pkg.build(ROOT, Path("nonexistent.codelib"), archive, Path("nonexistent.exe"))
-            self.assertEqual(before, hashlib.sha256(archive.read_bytes()).digest())
-
-    def test_passports_of_preserved_test_archives(self):
+    def test_preserved_archives_are_protected_and_verifiable(self):
         for name in ("MiusMultiplayer_v1.0.0_TEST_INSTALL.zip",
                      "MiusMultiplayer_v1.0.0_TEST_INSTALL_known_good.zip",
                      "MiusMultiplayer_v1.0.2_TEST_INSTALL.zip",
                      "MiusMultiplayer_v1.0.3_TEST_INSTALL.zip",
                      "MiusMultiplayer_v1.0.4_TEST_INSTALL.zip"):
-            with self.subTest(archive=name):
-                pkg.verify(ROOT / name)
+            archive = ROOT / name
+            with self.subTest(name=name):
+                before = hashlib.sha256(archive.read_bytes()).digest()
+                pkg.verify(archive)
+                with self.assertRaisesRegex(SystemExit, "refusing to overwrite"):
+                    pkg.build(ROOT, Path("nonexistent.codelib"), archive, Path("nonexistent.exe"))
+                self.assertEqual(before, hashlib.sha256(archive.read_bytes()).digest())
 
-    def test_determinism_and_missing_collector(self):
+    def test_unified_layout_and_reproducibility(self):
         with tempfile.TemporaryDirectory() as tmp:
             temp = Path(tmp)
-            binary, first, second, broken = (temp / x for x in ("module.codelib", "a.zip", "b.zip", "broken.zip"))
-            launcher = temp / "launcher.exe"
-            binary.write_bytes(self.tagged_module)
-            launcher.write_bytes(self.tagged_launcher)
-            pkg.build(ROOT, binary, first, launcher)
-            pkg.build(ROOT, binary, second, launcher)
+            first = self.build_fixture(temp, "a.zip")
+            second = self.build_fixture(temp, "b.zip")
             self.assertEqual(first.read_bytes(), second.read_bytes())
-            with zipfile.ZipFile(first) as src, zipfile.ZipFile(broken, "w") as dst:
-                for item in src.infolist():
-                    if item.filename != "MiusMultiplayer/net_v21/Collect_Logs.ps1":
-                        dst.writestr(item, src.read(item.filename))
-            with self.assertRaisesRegex(SystemExit, "missing.*Collect_Logs.ps1"):
-                pkg.verify(broken)
-            pkg.verify(self.known_good)  # a historical standalone .bat remains verifiable
+            with zipfile.ZipFile(first) as archive:
+                names = archive.namelist()
+                self.assertNotIn("MiusMultiplayer/net_v21/", names)
+                self.assertFalse(any("Switch_" in name for name in names))
+                self.assertEqual(self.tagged_module, archive.read(f"MiusMultiplayer/{pkg.MODULE_PATH}"))
+                self.assertEqual(self.tagged_launcher, archive.read(f"MiusMultiplayer/{pkg.LAUNCHER_PATH}"))
+                self.assertIn(b"-Action Install", archive.read("MiusMultiplayer/Enable_Multiplayer.bat"))
+                runtime = archive.read("MiusMultiplayer/FILES_SHA256.txt").decode().splitlines()
+                self.assertEqual(len(runtime), 6)
+                self.assertTrue(any(pkg.MODULE_PATH in line for line in runtime))
+                self.assertTrue(any(pkg.LAUNCHER_PATH in line for line in runtime))
 
-    def test_pair_validation_and_missing_tampered_payloads(self):
-        pkg.validate_launcher(self.proven_launcher)
-        for invalid in (b"", self.proven_launcher[:100], b"NO" + self.proven_launcher[2:], self.module):
-            with self.assertRaises(SystemExit):
-                pkg.validate_launcher(invalid)
+    def test_tagged_pair_is_required(self):
         with tempfile.TemporaryDirectory() as tmp:
             temp = Path(tmp)
-            binary, launcher, archive = temp / "module.codelib", temp / "launcher.exe", temp / "good.zip"
-            binary.write_bytes(self.tagged_module)
-            launcher.write_bytes(self.proven_launcher)
+            module, launcher, archive = temp / "module", temp / "launcher", temp / "test.zip"
+            module.write_bytes(self.tagged_module)
+            launcher.write_bytes(self.old_launcher)
             with self.assertRaisesRegex(SystemExit, "wire-protocol tag"):
-                pkg.build(ROOT, binary, archive, launcher)
+                pkg.build(ROOT, module, archive, launcher)
+            module.write_bytes(self.module)
             launcher.write_bytes(self.tagged_launcher)
-            binary.write_bytes(self.module)
             with self.assertRaisesRegex(SystemExit, "wire-protocol tag"):
-                pkg.build(ROOT, binary, archive, launcher)
-            binary.write_bytes(self.tagged_module)
-            pkg.build(ROOT, binary, archive, launcher)
-            for path, how in (("net_v21/mp_join.netv21.exe", "missing"),
-                              ("net_v21/mp_join.netv21.exe", "altered"),
-                              ("net_v21/Switch_Pair.bat", "missing"),
-                              ("net_v21/Switch_To_NetV21.bat", "altered")):
-                broken = temp / (how + "-" + Path(path).name + ".zip")
-                with zipfile.ZipFile(archive) as src, zipfile.ZipFile(broken, "w") as dst:
+                pkg.build(ROOT, module, archive, launcher)
+
+    def test_missing_or_tampered_files_are_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            temp = Path(tmp)
+            archive = self.build_fixture(temp)
+            for path, how in ((pkg.MODULE_PATH, "missing"), (pkg.MODULE_PATH, "altered"),
+                              (pkg.LAUNCHER_PATH, "missing"), (pkg.LAUNCHER_PATH, "altered"),
+                              ("Apply_Multiplayer.ps1", "missing"), ("Apply_Multiplayer.ps1", "altered"),
+                              ("Collect_Logs.ps1", "missing"), ("FILES_SHA256.txt", "altered"),
+                              ("README.txt", "altered"), ("TEST_BUILD.txt", "layout")):
+                output = temp / (how + "-" + Path(path).name + ".zip")
+                with zipfile.ZipFile(archive) as src, zipfile.ZipFile(output, "w") as dst:
                     for item in src.infolist():
-                        if item.filename == "MiusMultiplayer/" + path and how == "missing":
+                        target = item.filename == "MiusMultiplayer/" + path
+                        if target and how == "missing":
                             continue
                         data = src.read(item.filename)
-                        if item.filename == "MiusMultiplayer/" + path and how == "altered":
+                        if target and how == "altered":
                             data += b"changed"
+                        if target and how == "layout":
+                            data = data.replace(b"layout: unified", b"layout: removed")
                         dst.writestr(copy.copy(item), data)
                 with self.subTest(path=path, how=how), self.assertRaises(SystemExit):
-                    pkg.verify(broken)
+                    pkg.verify(output)
 
-    def test_passport_hashes_actual_crlf_and_detects_tampering(self):
+    def test_passport_hashes_actual_crlf(self):
         with tempfile.TemporaryDirectory() as tmp:
             temp = Path(tmp)
-            binary, good, broken_passport, broken_text = (
-                temp / name for name in ("module.codelib", "good.zip", "passport.zip", "text.zip"))
-            launcher = temp / "launcher.exe"
-            binary.write_bytes(self.tagged_module)
-            launcher.write_bytes(self.tagged_launcher)
-            # Give the builder an LF-only checkout even on Windows, where Git may use CRLF.
             repo = temp / "repo"
-            for base, paths in ((pkg.PROVEN, (*pkg.PROVEN_BINARIES, *pkg.PROVEN_TEXT)),
-                                (pkg.KIT, pkg.KIT_TEXT)):
+            groups = ((pkg.PROVEN, (*pkg.SHARED_BINARIES, *pkg.COMMON_TEXT)),
+                      (pkg.UNIFIED, pkg.UNIFIED_TEXT),
+                      (pkg.KIT / "net_v21", pkg.COLLECTOR_TEXT))
+            for base, paths in groups:
                 for relative in paths:
                     source, target = ROOT / base / relative, repo / base / relative
                     target.parent.mkdir(parents=True, exist_ok=True)
                     data = source.read_bytes()
-                    if base == pkg.PROVEN and relative == "README.txt":
+                    if base == pkg.UNIFIED and relative == "README.txt":
                         data = data.replace(b"\r\n", b"\n")
                         self.assertIn(b"\n", data)
                         self.assertNotIn(b"\r\n", data)
                     target.write_bytes(data)
-            pkg.build(repo, binary, good, launcher)
-            with zipfile.ZipFile(good) as src:
-                self.assertIn(b"\r\n", src.read("MiusMultiplayer/README.txt"))
-                actual_hash = pkg.sha256(src.read("MiusMultiplayer/README.txt")).encode()
-                for output, altered in ((broken_passport, "passport"), (broken_text, "text")):
-                    with zipfile.ZipFile(output, "w") as dst:
-                        for item in src.infolist():
-                            data = src.read(item.filename)
-                            if altered == "passport" and item.filename == "MiusMultiplayer/TEST_BUILD.txt":
-                                self.assertIn(actual_hash, data)
-                                data = data.replace(actual_hash, b"0" * 64, 1)
-                            elif altered == "text" and item.filename == "MiusMultiplayer/README.txt":
-                                data += b"\r\naltered\r\n"
-                            # writestr mutates ZipInfo; do not change the source archive's CRC.
-                            dst.writestr(copy.copy(item), data)
-                    with self.subTest(altered=altered), self.assertRaisesRegex(SystemExit, "passport hash mismatch: README.txt"):
-                        pkg.verify(output)
+            module, launcher, archive = temp / "module", temp / "launcher", temp / "test.zip"
+            module.write_bytes(self.tagged_module); launcher.write_bytes(self.tagged_launcher)
+            pkg.build(repo, module, archive, launcher)
+            with zipfile.ZipFile(archive) as src:
+                data = src.read("MiusMultiplayer/README.txt")
+                self.assertIn(b"\r\n", data)
+                self.assertIn(pkg.sha256(data).encode(), src.read("MiusMultiplayer/TEST_BUILD.txt"))
 
 
 if __name__ == "__main__":

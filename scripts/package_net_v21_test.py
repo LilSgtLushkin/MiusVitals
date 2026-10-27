@@ -1,23 +1,10 @@
 #!/usr/bin/env python3
-"""Package the net_v21 test installer: the proven v1.0.1 install plus our own module beside it.
+"""Build the single MiusMultiplayer 1.0.5 TEST archive.
 
-Why a separate archive and not a new release
---------------------------------------------
-The module built in `development/net-v21/` is our own candidate, but hit/animation replication and
-its `mp_vitals.dll` integration are not complete. Shipping it as the default would replace working
-functionality from the proven v1.0.1 module. This is a test archive, not a full 1.0.5 release.
-
-So this archive installs exactly what v1.0.1 installs - the same bytes, checked against the same
-hashes - and carries our matching module and launcher in `net_v21/`, with a switch script and a
-one-click way back for both files.  Installing this archive changes nothing about how the game runs until somebody runs
-`Switch_To_NetV21.bat`, and even then the proven module travels in the same archive.
-
-The candidate logs identity, traffic and battle counters into `out/net_v21_<program>.log`.
-The archive includes a log collector and preserves the known-good rollback separately.
-
-    python scripts/package_net_v21_test.py --codelib build/module/basic_network.codelib \
-        --launcher build/join/mp_join.exe --output MiusMultiplayer_v1.0.5_TEST_INSTALL.zip
-    python scripts/package_net_v21_test.py --verify MiusMultiplayer_v1.0.5_TEST_INSTALL.zip
+The matched net_v21 module and launcher are the actual files installed by Enable_Multiplayer.bat;
+there is no separate patch switch. The archive is experimental and does not claim real-game or
+Steam validation. Historical archives are verified using their original layout and are protected
+from overwrite.
 """
 from __future__ import annotations
 
@@ -51,6 +38,16 @@ PROVEN_TEXT = ("Enable_Multiplayer.bat", "Disable_Multiplayer.bat", "Check_Insta
 KIT_TEXT = ("net_v21/Switch_To_NetV21.bat", "net_v21/Switch_Back_To_Proven.bat", "net_v21/Switch_Pair.bat",
             "net_v21/Collect_Logs.bat", "net_v21/Collect_Logs.ps1", "net_v21/README_TEST.txt")
 PASSPORT = "TEST_BUILD.txt"
+UNIFIED = KIT / "unified"
+UNIFIED_TEXT = ("Enable_Multiplayer.bat", "Disable_Multiplayer.bat", "Apply_Multiplayer.ps1",
+                "Check_Install.bat", "Check_Install.ps1", "README.txt")
+COLLECTOR_TEXT = ("Collect_Logs.bat", "Collect_Logs.ps1")
+COMMON_TEXT = ("LICENSE_CC0.txt", "game_build_3598_1.sha256")
+MODULE_PATH = "files/bin/rel/x64/basic_network.codelib"
+LAUNCHER_PATH = "files/mp_join.exe"
+SHARED_BINARIES = {name: digest for name, digest in PROVEN_BINARIES.items()
+                   if name not in (MODULE_PATH, LAUNCHER_PATH)}
+FILES_MANIFEST = "FILES_SHA256.txt"
 
 BINARY_SUFFIXES = {".codelib", ".dll", ".exe", ".progpack"}
 ZIP_TIME = (2026, 10, 26, 0, 0, 0)
@@ -58,6 +55,7 @@ DIRS = tuple(f"{ROOT}{suffix}" for suffix in (
     "/", "/files/", "/files/bin/", "/files/bin/rel/", "/files/bin/rel/x64/",
     "/files/root/", "/files/root/programs/", "/net_v21/",
 ))
+UNIFIED_DIRS = DIRS[:-1]
 
 
 def sha256(data: bytes) -> str:
@@ -169,69 +167,46 @@ def with_crlf(name: str, data: bytes) -> bytes:
 
 
 def collect(repo: Path, codelib: Path, launcher: Path) -> dict[str, bytes]:
-    """The archive's whole tree, before CRLF handling: name -> raw bytes."""
+    """Assemble a one-step installer; all runtime files are under files/."""
     tree: dict[str, bytes] = {}
-    for relative, expected in PROVEN_BINARIES.items():
+    for relative, expected in SHARED_BINARIES.items():
+        source = repo / PROVEN / relative
+        if not source.is_file() or sha256(source.read_bytes()) != expected:
+            raise SystemExit(f"shared runtime payload is missing or changed: {relative}")
+        tree[relative] = source.read_bytes()
+    for relative in COMMON_TEXT:
         source = repo / PROVEN / relative
         if not source.is_file():
-            raise SystemExit(f"the proven v1.0.1 tree is incomplete: {relative}")
-        data = source.read_bytes()
-        if sha256(data) != expected:
-            raise SystemExit(f"{relative}: {sha256(data)} is not the proven v1.0.1 file {expected}")
-        tree[relative] = data
-    for relative in PROVEN_TEXT:
-        source = repo / PROVEN / relative
-        if not source.is_file():
-            raise SystemExit(f"the proven v1.0.1 tree is incomplete: {relative}")
+            raise SystemExit(f"common kit file is missing: {relative}")
         tree[relative] = source.read_bytes()
-    for relative in KIT_TEXT:
-        source = repo / KIT / relative
+    for relative in UNIFIED_TEXT:
+        source = repo / UNIFIED / relative
         if not source.is_file():
-            raise SystemExit(f"the net_v21 kit is incomplete: {relative}")
+            raise SystemExit(f"unified kit file is missing: {relative}")
         tree[relative] = source.read_bytes()
-
-    candidate = codelib.read_bytes()
+    for relative in COLLECTOR_TEXT:
+        source = repo / KIT / "net_v21" / relative
+        if not source.is_file():
+            raise SystemExit(f"collector file is missing: {relative}")
+        tree[relative] = source.read_bytes()
+    candidate, candidate_launcher = codelib.read_bytes(), launcher.read_bytes()
     validate_module(candidate)
-    if candidate == tree["files/bin/rel/x64/basic_network.codelib"]:
-        raise SystemExit("candidate is the proven module, not the net_v21 build")
-    candidate_launcher = launcher.read_bytes()
     validate_launcher(candidate_launcher)
     if WIRE_TAG not in candidate or WIRE_TAG not in candidate_launcher:
         raise SystemExit("module and launcher must contain the matching net_v21 wire-protocol tag")
-    if candidate_launcher == tree["files/mp_join.exe"]:
-        raise SystemExit("candidate launcher is identical to the proven launcher")
-    tree["net_v21/basic_network.netv21.codelib"] = candidate
-    tree["net_v21/basic_network.proven.codelib"] = tree["files/bin/rel/x64/basic_network.codelib"]
-    tree["net_v21/mp_join.netv21.exe"] = candidate_launcher
-
-    module_hash = sha256(tree["net_v21/basic_network.netv21.codelib"])
-    passport = [
-        f"MiusMultiplayer {VERSION} - test archive",
-        "",
-        f"net_v21 module:         net_v21/basic_network.netv21.codelib",
-        f"net_v21 sha256:         {module_hash}",
-        f"net_v21 size:           {len(tree['net_v21/basic_network.netv21.codelib'])} bytes",
-        f"net_v21 launcher sha256: {sha256(candidate_launcher)}",
-        f"wire protocol:          {WIRE_TAG.decode('ascii')}",
-        f"proven launcher sha256: {PROVEN_BINARIES['files/mp_join.exe']}",
-        "",
-        "the archive installs these proven v1.0.1 files:",
-    ]
-    for relative in sorted(PROVEN_BINARIES):
-        passport.append(f"  {sha256(tree[relative])}  {relative}")
-    for relative in sorted(PROVEN_TEXT):
-        # The archive stores CRLF even when the source checkout has LF. The passport must
-        # describe the bytes in the ZIP, not the platform-dependent checkout bytes.
+    if sha256(candidate) == PROVEN_BINARIES[MODULE_PATH] or sha256(candidate_launcher) == PROVEN_BINARIES[LAUNCHER_PATH]:
+        raise SystemExit("candidate module and launcher must not be the old proven binaries")
+    tree[MODULE_PATH] = candidate
+    tree[LAUNCHER_PATH] = candidate_launcher
+    runtime = sorted((*SHARED_BINARIES, MODULE_PATH, LAUNCHER_PATH))
+    tree[FILES_MANIFEST] = ("\n".join(f"{sha256(tree[name])}  {name}" for name in runtime) + "\n").encode()
+    passport = [f"MiusMultiplayer {VERSION} - test archive", "layout: unified", "",
+                f"wire protocol: {WIRE_TAG.decode('ascii')}",
+                f"net_v21 sha256: {sha256(candidate)}", f"launcher sha256: {sha256(candidate_launcher)}", "",
+                "Enable_Multiplayer.bat installs the entire test kit, including net_v21; no separate patch switch.",
+                "Files in this archive (SHA-256 of actual bytes):"]
+    for relative in sorted(tree):
         passport.append(f"  {sha256(with_crlf(relative, tree[relative]))}  {relative}")
-    passport.append("")
-    for relative in sorted(KIT_TEXT):
-        passport.append(f"kit sha256: {sha256(with_crlf(relative, tree[relative]))}  {relative}")
-    passport += [
-        "",
-        "Enable_Multiplayer.bat writes the files above, exactly as v1.0.1 does.",
-        "The net_v21 module and launcher are used only after net_v21\\Switch_To_NetV21.bat;",
-        "net_v21\\Switch_Back_To_Proven.bat restores both proven files from this same archive.",
-    ]
     tree[PASSPORT] = ("\n".join(passport) + "\n").encode("utf-8")
     return tree
 
@@ -244,7 +219,7 @@ def info(name: str, directory: bool = False) -> zipfile.ZipInfo:
     return result
 
 
-def verify(archive_path: Path) -> None:
+def _verify_legacy(archive_path: Path) -> None:
     if not archive_path.is_file():
         raise SystemExit(f"archive is absent: {archive_path}")
     with zipfile.ZipFile(archive_path) as archive:
@@ -335,6 +310,77 @@ def verify(archive_path: Path) -> None:
           f"archive sha256 {sha256(archive_path.read_bytes())}")
 
 
+def verify(archive_path: Path) -> None:
+    if not archive_path.is_file():
+        raise SystemExit(f"archive is absent: {archive_path}")
+    with zipfile.ZipFile(archive_path) as archive:
+        names = tuple(archive.namelist())
+        if len(names) != len(set(names)):
+            raise SystemExit("ZIP contains duplicate entry names")
+        if f"{ROOT}/{PASSPORT}" not in names:
+            raise SystemExit("missing build passport")
+        stamp = archive.read(f"{ROOT}/{PASSPORT}").decode("utf-8")
+        unified = "layout: unified" in stamp
+    if not unified:
+        version_match = re.search(r"^MiusMultiplayer (\d+)\.(\d+)\.(\d+) - test archive", stamp, re.M)
+        if version_match and tuple(map(int, version_match.groups())) >= (1, 0, 5):
+            raise SystemExit("version 1.0.5 requires the unified layout")
+        _verify_legacy(archive_path)
+        return
+    expected_files = set(SHARED_BINARIES) | {MODULE_PATH, LAUNCHER_PATH, FILES_MANIFEST, PASSPORT} | \
+                     set(UNIFIED_TEXT) | set(COLLECTOR_TEXT) | set(COMMON_TEXT)
+    with zipfile.ZipFile(archive_path) as archive:
+        if archive.testzip():
+            raise SystemExit("ZIP CRC failed")
+        names = tuple(archive.namelist())
+        if names[:len(UNIFIED_DIRS)] != UNIFIED_DIRS:
+            raise SystemExit("ZIP does not start with the unified directories")
+        if set(names[len(UNIFIED_DIRS):]) != {f"{ROOT}/{name}" for name in expected_files}:
+            missing = {f"{ROOT}/{name}" for name in expected_files} - set(names)
+            raise SystemExit(f"unified archive file list differs; missing: {sorted(missing)}")
+        if any(entry.date_time != ZIP_TIME for entry in archive.infolist()):
+            raise SystemExit("ZIP timestamp is not reproducible")
+        stamp = archive.read(f"{ROOT}/{PASSPORT}").decode("utf-8")
+        if f"MiusMultiplayer {VERSION} - test archive" not in stamp or f"wire protocol: {WIRE_TAG.decode('ascii')}" not in stamp:
+            raise SystemExit("build passport version or wire protocol mismatch")
+        module, launcher = archive.read(f"{ROOT}/{MODULE_PATH}"), archive.read(f"{ROOT}/{LAUNCHER_PATH}")
+        validate_module(module); validate_launcher(launcher)
+        if WIRE_TAG not in module or WIRE_TAG not in launcher:
+            raise SystemExit("module/launcher wire protocol tag mismatch")
+        if f"net_v21 sha256: {sha256(module)}" not in stamp or f"launcher sha256: {sha256(launcher)}" not in stamp:
+            raise SystemExit("build passport does not identify the installed module and launcher")
+        if sha256(module) == PROVEN_BINARIES[MODULE_PATH] or sha256(launcher) == PROVEN_BINARIES[LAUNCHER_PATH]:
+            raise SystemExit("old module/launcher present instead of net_v21")
+        for relative, digest in SHARED_BINARIES.items():
+            if sha256(archive.read(f"{ROOT}/{relative}")) != digest:
+                raise SystemExit(f"shared runtime hash mismatch: {relative}")
+        passport_files = {}
+        for line in stamp.splitlines():
+            match = re.fullmatch(r"\s*([0-9a-f]{64})\s{2}(.+?)\s*", line)
+            if match:
+                digest, relative = match.groups()
+                if relative in passport_files:
+                    raise SystemExit(f"duplicate passport entry: {relative}")
+                passport_files[relative] = digest
+        if set(passport_files) != expected_files - {PASSPORT}:
+            raise SystemExit("unified passport file list is incomplete or unexpected")
+        for relative, digest in passport_files.items():
+            if sha256(archive.read(f"{ROOT}/{relative}")) != digest:
+                raise SystemExit(f"passport hash mismatch: {relative}")
+        lines = archive.read(f"{ROOT}/{FILES_MANIFEST}").decode().splitlines()
+        expected_runtime = sorted((*SHARED_BINARIES, MODULE_PATH, LAUNCHER_PATH))
+        expected_lines = [f"{sha256(archive.read(f'{ROOT}/{name}'))}  {name}" for name in expected_runtime]
+        if lines != expected_lines:
+            raise SystemExit("runtime manifest does not describe the six installed files")
+        enable = archive.read(f"{ROOT}/Enable_Multiplayer.bat")
+        if b"Apply_Multiplayer.ps1" not in enable or b"-Action Install" not in enable:
+            raise SystemExit("unified installer does not install the full kit")
+        if b"basic_network.codelib" not in archive.read(f"{ROOT}/files/root/programs/opgame.progpack"):
+            raise SystemExit("opgame.progpack no longer loads basic_network.codelib")
+    print(f"OK {archive_path}: {len(names)} entries, unified net_v21 module {sha256(module)[:16]}, "
+          f"archive sha256 {sha256(archive_path.read_bytes())}")
+
+
 def build(repo: Path, codelib: Path, archive_path: Path, launcher: Path) -> None:
     # New builds must never overwrite any preserved release/test or the known-good rollback.
     protected = ("MiusMultiplayer_v1.0.0_TEST_INSTALL_known_good.zip",
@@ -353,7 +399,7 @@ def build(repo: Path, codelib: Path, archive_path: Path, launcher: Path) -> None
     try:
         with zipfile.ZipFile(temporary, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9,
                              strict_timestamps=True) as archive:
-            for name in DIRS:
+            for name in UNIFIED_DIRS:
                 archive.writestr(info(name, directory=True), b"")
             for name in sorted(tree):
                 archive.writestr(info(f"{ROOT}/{name}"), with_crlf(name, tree[name]))

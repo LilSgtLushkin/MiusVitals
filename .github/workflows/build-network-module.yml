@@ -18,6 +18,8 @@ on:
       - "development/game-build-3598-1/**"
       - "scripts/package_net_v21_test.py"
       - "scripts/package_net_v21_test_selftest.py"
+      - "tests/test_unified_installer_windows.py"
+      - "tests/test_switch_pair_windows.py"
       - ".github/workflows/build-network-module.yml"
   pull_request:
     paths:
@@ -26,6 +28,8 @@ on:
       - "development/game-build-3598-1/**"
       - "scripts/package_net_v21_test.py"
       - "scripts/package_net_v21_test_selftest.py"
+      - "tests/test_unified_installer_windows.py"
+      - "tests/test_switch_pair_windows.py"
       - ".github/workflows/build-network-module.yml"
   workflow_dispatch:
 
@@ -256,6 +260,17 @@ jobs:
           type development\net-v21\build\join.log
           exit /b %rc%
 
+      - name: Exercise the standalone launcher over IP and fake Steam (no game)
+        shell: cmd
+        run: |
+          python development\net-v21\tools\standalone_loopback.py --peer development\net-v21\build\selftest\session_loopback_peer.exe --launcher development\net-v21\build\join\mp_join.exe --starter development\net-v21\build\selftest\starter_fixture.exe > development\net-v21\build\launcher-selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\launcher-selftest.log
+          if not %rc%==0 (
+            powershell -NoProfile -Command "$m = ((Get-Content development/net-v21/build/launcher-selftest.log -Tail 40) -join ' | ').Replace('%%','%%25'); Write-Output ('::error title=Launcher self-test::' + $m)"
+            exit /b %rc%
+          )
+
       - name: M1 - compare our baseline against the released v12 module
         shell: bash
         run: |
@@ -291,7 +306,7 @@ jobs:
             2>&1 | tee development/net-v21/build/battle-report-selftest.log
           exit ${PIPESTATUS[0]}
 
-      - name: Package the test installer (proven v1.0.1 + our module beside it)
+      - name: Package the unified test installer (net_v21 and launcher included)
         shell: bash
         run: |
           python scripts/package_net_v21_test.py \
@@ -300,6 +315,17 @@ jobs:
             --output MiusMultiplayer_v1.0.5_TEST_INSTALL.zip \
             2>&1 | tee development/net-v21/build/package.log
           exit ${PIPESTATUS[0]}
+
+      - name: Exercise the packaged one-step installer and recovery on Windows
+        shell: cmd
+        run: |
+          python tests\test_unified_installer_windows.py > development\net-v21\build\installer-selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\installer-selftest.log
+          if not %rc%==0 (
+            powershell -NoProfile -Command "$m = ((Get-Content development/net-v21/build/installer-selftest.log -Tail 50) -join ' | ').Replace('%%','%%25'); Write-Output ('::error title=Installer self-test::' + $m)"
+            exit /b %rc%
+          )
 
       # A documentation/packaging-only commit can validate the build without replacing the
       # separately preserved installer. Normal source builds continue to publish as before.
@@ -373,7 +399,7 @@ jobs:
             else
               echo "test installer: not built"
             fi
-            for name in baseline module selftest join battle-report-selftest package compare-m1 compare-m2; do
+            for name in baseline module selftest join launcher-selftest installer-selftest battle-report-selftest package compare-m1 compare-m2; do
               log="development/net-v21/build/$name.log"
               echo
               echo "<details><summary>$name log</summary>"
