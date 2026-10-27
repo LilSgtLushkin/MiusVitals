@@ -86,15 +86,24 @@ jobs:
           if (-not $?) { exit 1 }
 
       - name: Verify the committed unified installer before rebuilding
-        shell: pwsh
+        shell: cmd
         run: |
-          $archive = 'MiusMultiplayer_v1.0.5_TEST_INSTALL.zip'
-          if (Test-Path -LiteralPath $archive) {
-            python scripts/package_net_v21_test.py --verify $archive --verify-source
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            python tests/test_unified_installer_windows.py
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          } else { Write-Host 'First build: no committed 1.0.5 archive yet.' }
+          if not exist MiusMultiplayer_v1.0.5_TEST_INSTALL.zip goto :no_committed_installer
+          if not exist development\net-v21\build mkdir development\net-v21\build
+          python scripts\package_net_v21_test.py --verify MiusMultiplayer_v1.0.5_TEST_INSTALL.zip --verify-source > development\net-v21\build\committed-installer.log 2>&1
+          set rc=%errorlevel%
+          if not %rc%==0 goto :committed_installer_failed
+          python tests\test_unified_installer_windows.py >> development\net-v21\build\committed-installer.log 2>&1
+          set rc=%errorlevel%
+          if not %rc%==0 goto :committed_installer_failed
+          type development\net-v21\build\committed-installer.log
+          exit /b 0
+          :committed_installer_failed
+          type development\net-v21\build\committed-installer.log
+          powershell -NoProfile -Command "$m = ((Get-Content development/net-v21/build/committed-installer.log -Tail 100) -join ' | ').Replace('%%','%%25'); Write-Output ('::error title=Committed installer verification::' + $m)"
+          exit /b %rc%
+          :no_committed_installer
+          echo First build: no committed 1.0.5 archive yet.
 
       - name: Install the disassembler the comparison needs
         run: python -m pip install --quiet capstone
@@ -414,7 +423,7 @@ jobs:
             else
               echo "test installer: not built"
             fi
-            for name in baseline module selftest join launcher-selftest installer-selftest battle-report-selftest package compare-m1 compare-m2; do
+            for name in committed-installer baseline module selftest join launcher-selftest installer-selftest battle-report-selftest package compare-m1 compare-m2; do
               log="development/net-v21/build/$name.log"
               echo
               echo "<details><summary>$name log</summary>"
