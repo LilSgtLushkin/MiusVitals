@@ -159,6 +159,14 @@ jobs:
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log
           if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\hit_anim_wire_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\hit_anim_integration_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
           development\net-v21\build\selftest\vitals_integration_test.exe >> development\net-v21\build\selftest.log 2>&1
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log
@@ -276,6 +284,10 @@ jobs:
           type development\net-v21\build\selftest.log
           if not %rc%==0 exit /b %rc%
           python development\net-v21\tools\session_loopback_pair.py --peer development\net-v21\build\selftest\session_loopback_peer.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          python development\net-v21\tools\event_loopback_pair.py --peer development\net-v21\build\selftest\session_event_peer.exe >> development\net-v21\build\selftest.log 2>&1
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log
           exit /b %rc%

@@ -29,6 +29,7 @@ int main()
     sections[0].VirtualAddress = 0x1000;
     sections[0].Misc.VirtualSize = sections[0].SizeOfRawData = 0x1000;
     sections[0].Characteristics = IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ;
+    memcpy(sections[1].Name, ".rdata", 6);
     sections[1].VirtualAddress = 0x3000;
     sections[1].Misc.VirtualSize = sections[1].SizeOfRawData = 0x1000;
     sections[1].Characteristics = IMAGE_SCN_MEM_READ;
@@ -69,6 +70,28 @@ int main()
     two[1] = { 0, a, sizeof a };
     check(hook_test_resolve(image, two, 2, &reason) == image + 0x1300 && reason == 0,
           "two signatures resolving to the same address are allowed");
+
+    // Two independent vtable members make the table signature stronger than a lone pointer.
+    HookVtableMember members[] = { { 0, image + 0x1300 }, { 2, image + 0x1500 } };
+    void **t1 = (void **)(image + 0x3400), **t2 = (void **)(image + 0x3500);
+    t1[0] = t2[0] = (void *)members[0].target;
+    t1[2] = t2[2] = (void *)members[1].target;
+    check(hook_test_vtable(image, 0x3400, members, 2, &reason) == t1 && reason == 0,
+          "known vtable wins even with duplicate table elsewhere");
+    t1[2] = 0;
+    check(hook_test_vtable(image, 0x3400, members, 2, &reason) == t2 && reason == 0,
+          "unique read-only-data vtable fallback");
+    t1[2] = (void *)members[1].target;
+    check(!hook_test_vtable(image, 0x3600, members, 2, &reason) && reason == 3,
+          "ambiguous vtables refused");
+    check(!hook_test_vtable(image, 0x1000, members, 0, &reason) && reason == 1,
+          "empty vtable specification refused");
+    check(hook_swap_vtable_slot(&t1[0], (void *)members[0].target, image + 0x1400) && t1[0] == image + 0x1400,
+          "slot replacement succeeds for the expected pointer");
+    check(!hook_swap_vtable_slot(&t1[0], (void *)members[0].target, image + 0x1600) && t1[0] == image + 0x1400,
+          "slot replacement refuses a changed pointer");
+    check(hook_swap_vtable_slot(&t1[0], image + 0x1400, (void *)members[0].target),
+          "slot replacement is reversible");
 
     DWORD old = 0, ignored = 0;
     check(VirtualProtect(image + 0x1000, 0x1000, PAGE_NOACCESS, &old) != 0, "fixture made inaccessible");

@@ -5,6 +5,7 @@ struct ObjMan;
 void vitals_start();
 void vitals_pause();
 uint32_t vitals_epoch();
+uint32_t vitals_peer_epoch();
 void vitals_peer(uint32_t epoch);
 void vitals_on_packet(const unsigned char *data, int size, void (*send)(const void *, int));
 void vitals_frame(ObjMan *om, uint32_t now, void (*send)(const void *, int));

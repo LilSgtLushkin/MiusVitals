@@ -48,6 +48,16 @@ static bool image_info(const char *base, Image *out)
     return true;
 }
 
+bool hook_image_identity(const char *module, unsigned timestamp, unsigned image_size)
+{
+    HMODULE m = GetModuleHandleA(module);
+    Image image;
+    if (!m || !image_info((const char *)m, &image) || image.size != image_size) return false;
+    const IMAGE_DOS_HEADER *dos = (const IMAGE_DOS_HEADER *)m;
+    const IMAGE_NT_HEADERS *nt = (const IMAGE_NT_HEADERS *)((const char *)m + dos->e_lfanew);
+    return nt->FileHeader.TimeDateStamp == timestamp;
+}
+
 static bool executable_range(const Image &image, const IMAGE_SECTION_HEADER &section, unsigned *start, unsigned *size)
 {
     if (!(section.Characteristics & IMAGE_SCN_MEM_EXECUTE) || section.VirtualAddress >= image.size) return false;
@@ -125,6 +135,96 @@ static char *resolve_image(const char *base, const HookSig *list, unsigned count
     return (char *)answer;
 }
 
+static bool readonly_data_range(const Image &image, const IMAGE_SECTION_HEADER &section, unsigned *start, unsigned *size)
+{
+    static const char name[8] = {'.','r','d','a','t','a',0,0};
+    if (memcmp(section.Name, name, sizeof name) || !(section.Characteristics & IMAGE_SCN_MEM_READ) ||
+        (section.Characteristics & IMAGE_SCN_MEM_EXECUTE) || section.VirtualAddress >= image.size) return false;
+    unsigned length = section.Misc.VirtualSize > section.SizeOfRawData ? section.Misc.VirtualSize : section.SizeOfRawData;
+    if (length > image.size - section.VirtualAddress) length = image.size - section.VirtualAddress;
+    *start = section.VirtualAddress; *size = length;
+    return length != 0;
+}
+
+static bool vtable_matches(const char *base, const HookVtableMember *members, unsigned count, size_t span)
+{
+    if (!safe_read(base, span)) return false;
+    for (unsigned i = 0; i < count; ++i) {
+        const void *value = 0;
+        memcpy(&value, base + (size_t)members[i].index * sizeof(void *), sizeof value);
+        if (value != members[i].target) return false;
+    }
+    return true;
+}
+
+// reason: 0 found, 1 invalid image/specification, 2 absent, 3 ambiguous.
+static void **resolve_vtable_image(const char *base, unsigned rva, const HookVtableMember *members,
+                                   unsigned count, int *reason)
+{
+    Image image;
+    if (!members || !count || count > 64 || !image_info(base, &image)) { *reason = 1; return 0; }
+    unsigned last = 0;
+    for (unsigned i = 0; i < count; ++i) {
+        if (!members[i].target || members[i].index > 256) { *reason = 1; return 0; }
+        if (members[i].index > last) last = members[i].index;
+    }
+    size_t span = ((size_t)last + 1) * sizeof(void *);
+    for (unsigned i = 0; i < image.count; ++i) {
+        unsigned start, size;
+        if (!readonly_data_range(image, image.sections[i], &start, &size) || (rva & (sizeof(void *) - 1)) || rva < start) continue;
+        unsigned delta = rva - start;
+        if (delta <= size && span <= size - delta && vtable_matches(base + rva, members, count, span)) {
+            *reason = 0; return (void **)(base + rva);
+        }
+    }
+    void **found = 0;
+    for (unsigned i = 0; i < image.count; ++i) {
+        unsigned start, size;
+        if (!readonly_data_range(image, image.sections[i], &start, &size) || size < span) continue;
+        unsigned first = (start + (unsigned)sizeof(void *) - 1) & ~((unsigned)sizeof(void *) - 1);
+        unsigned end = start + size - (unsigned)span;
+        for (unsigned at = first; at <= end; at += (unsigned)sizeof(void *)) {
+            const char *candidate = base + at;
+            const void *value = 0;
+            const char *first_member = candidate + (size_t)members[0].index * sizeof(void *);
+            if (!safe_read(first_member, sizeof value)) continue;
+            memcpy(&value, first_member, sizeof value);
+            if (value != members[0].target || !vtable_matches(candidate, members, count, span)) continue;
+            if (found) { *reason = 3; return 0; }
+            found = (void **)candidate;
+        }
+    }
+    *reason = found ? 0 : 2;
+    return found;
+}
+
+void **hook_vtable_checked(const char *module, unsigned rva, const HookVtableMember *members,
+                           unsigned count, const char *what)
+{
+    HMODULE m = GetModuleHandleA(module);
+    int reason = 1;
+    void **table = m ? resolve_vtable_image((const char *)m, rva, members, count, &reason) : 0;
+    if (!table) {
+        const char *why = reason == 1 ? "invalid or unreadable PE/specification" : reason == 3 ? "ambiguous tables" : "no matching table";
+        mp_log("hooks: %s: %s in %s, the feature stays off", what, why, module);
+    } else if ((char *)table != (char *)m + rva) {
+        mp_log("hooks: %s table moved to +0x%lx; the unique data scan found it", what, (long)((char *)table - (char *)m));
+    }
+    return table;
+}
+
+bool hook_swap_vtable_slot(void **slot, void *expected, void *replacement)
+{
+    if (!slot || !expected || !replacement || ((uintptr_t)slot & (sizeof(void *) - 1)) || !safe_read(slot, sizeof *slot)) return false;
+    DWORD old = 0;
+    if (!VirtualProtect(slot, sizeof *slot, PAGE_READWRITE, &old)) return false;
+    void *previous = InterlockedCompareExchangePointer((void *volatile *)slot, replacement, expected);
+    DWORD ignored = 0;
+    if (!VirtualProtect(slot, sizeof *slot, old, &ignored))
+        mp_log("hooks: warning: could not restore vtable page protection (error %lu)", GetLastError());
+    return previous == expected;
+}
+
 long hook_offset(const char *module, const void *address)
 {
     HMODULE m = GetModuleHandleA(module);
@@ -158,6 +258,10 @@ char *hook_resolve_checked(const char *module, const HookSig *list, unsigned cou
 char *hook_test_resolve(const void *base, const HookSig *list, unsigned count, int *reason)
 {
     return resolve_image((const char *)base, list, count, reason);
+}
+void **hook_test_vtable(const void *base, unsigned rva, const HookVtableMember *members, unsigned count, int *reason)
+{
+    return resolve_vtable_image((const char *)base, rva, members, count, reason);
 }
 #endif
 

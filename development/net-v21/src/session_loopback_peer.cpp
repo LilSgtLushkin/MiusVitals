@@ -99,6 +99,17 @@ void shots_on_packet(const unsigned char *, int, void (*)(const void *, int)) { 
 void shots_on_packet_legacy(const unsigned char *, int, void (*)(const void *, int)) { ++legacy_shot_packets; }
 void shots_reset() {}
 void shots_report() {}
+void hits_install(ObjMan *) {}
+bool hits_available() { return false; }
+void hits_report() {}
+void hits_reset_peer() {}
+void hits_stop() {}
+void anim_install(ObjMan *) {}
+bool anim_available() { return false; }
+void anim_frame(ObjMan *, DWORD) {}
+void anim_report() {}
+void anim_reset_peer() {}
+void anim_stop() {}
 void trench_install() {}
 void trench_sim_step(ObjMan *) { ++trench_steps; }
 void trench_report() {}

@@ -21,6 +21,7 @@
 #include "env_value.h"
 #include "netlog.h"
 #include "protocol.h"
+#include "vitals.h"
 #include "reliable_inbox.h"
 #include "hooks.h"
 #include "detour.h"
@@ -162,6 +163,31 @@ void shots_queue(ShotRec &s)
     g_out.push_back({ s, 0, 0 });
 }
 
+// Do not let a new producer add unbounded events to the legacy queue. A refused admission
+// must not consume a sequence number or create a gap in the other producer's stream.
+bool shots_try_queue(ShotRec &s, size_t limit)
+{
+    if (!limit || g_out.size() >= limit || g_seq == 0xffffffffu) return false;
+    shots_queue(s);
+    return true;
+}
+
+bool shots_queue_latest(ShotRec &s, size_t limit)
+{
+    if (s.kind != 8 || !s.shooter || !limit) return false;
+    // Never mutate a record already sent, and never move a post-hit snapshot across a hit or a
+    // launch. That preserves causal order while coalescing an unsent suffix of snapshot records.
+    for (auto it = g_out.rbegin(); it != g_out.rend(); ++it) {
+        if (it->sent || it->rec.kind != s.kind) break;
+        if (it->rec.shooter == s.shooter) {
+            s.seq = it->rec.seq;
+            it->rec = s;
+            return true;
+        }
+    }
+    return shots_try_queue(s, limit);
+}
+
 static void launch_hook(char *sp, char *rec, u64 flags, float *pos, void *obj5, u32 arg6)
 {
     // bit 1: asked for from another thread; the shell manager queues it and launches it later through
@@ -234,6 +260,8 @@ void shots_frame(void (*send)(const void *, int))
 {
     if (g_out.empty()) return;
     if (!(session_connected() && session_role() != ROLE_NONE)) { g_out.clear(); return; }
+    const u32 owner = vitals_epoch(), target = vitals_peer_epoch();
+    if (!owner || !target) return; // wait for both tactical process identities
     const size_t per = 5, window = 60;
     DWORD now = GetTickCount();
     size_t n = g_out.size() < window ? g_out.size() : window, at = 0;
@@ -247,7 +275,7 @@ void shots_frame(void (*send)(const void *, int))
         }
         unsigned char packet[sizeof(ShotHead) + per * sizeof(ShotRec)];
         size_t k = n - at < per ? n - at : per;
-        ShotHead h = { make_head(PKT_SHOT, (int)k), g_epoch };
+        ShotHead h = { make_head(PKT_SHOT, (int)k), g_epoch, owner, target };
         memcpy(packet, &h, sizeof h);
         for (size_t i = 0; i < k; i++) {
             memcpy(packet + sizeof h + i * sizeof(ShotRec), &g_out[at + i].rec, sizeof(ShotRec));
@@ -264,8 +292,8 @@ void shots_frame(void (*send)(const void *, int))
 
 static void shots_ack(void (*send)(const void *, int))
 {
-    if (!send || !g_in.current_epoch()) return;
-    ShotAck ack = { make_head(PKT_SHOT_ACK), g_in.current_epoch(), g_in.committed() };
+    if (!send || !g_in.current_epoch() || !vitals_epoch() || !vitals_peer_epoch()) return;
+    ShotAck ack = { make_head(PKT_SHOT_ACK), g_in.current_epoch(), g_in.committed(), vitals_peer_epoch(), vitals_epoch() };
     send(&ack, sizeof ack);
 }
 
@@ -274,16 +302,18 @@ void shots_on_packet(const unsigned char *data, int size, void (*send)(const voi
     if (!data || size < (int)sizeof(Head)) return;
     const Head *head = (const Head *)data;
     if (head->type == PKT_SHOT_ACK) {
-        if (size < (int)sizeof(ShotAck)) return;
+        if (size != (int)sizeof(ShotAck) || head->magic != k_magic || head->flags || head->count) return;
         const ShotAck *a = (const ShotAck *)data;
-        if (a->epoch != g_epoch || a->seq > g_seq) return;
+        if (!vitals_epoch() || !vitals_peer_epoch() || a->owner != vitals_epoch() || a->target != vitals_peer_epoch() ||
+            a->epoch != g_epoch || a->seq > g_seq) return;
         // An event that has never been sent cannot have been acknowledged by the peer.
         while (!g_out.empty() && g_out.front().sent && g_out.front().rec.seq <= a->seq) g_out.pop_front();
         return;
     }
-    if (head->type != PKT_SHOT || !head->count || head->count > 5 ||
-        size < (int)sizeof(ShotHead) || size < (int)(sizeof(ShotHead) + head->count * sizeof(ShotRec))) return;
+    if (head->type != PKT_SHOT || head->magic != k_magic || head->flags || !head->count || head->count > 5 ||
+        size < (int)sizeof(ShotHead) || size != (int)(sizeof(ShotHead) + head->count * sizeof(ShotRec))) return;
     const ShotHead *h = (const ShotHead *)data;
+    if (!vitals_epoch() || !vitals_peer_epoch() || h->owner != vitals_peer_epoch() || h->target != vitals_epoch()) return;
     const ShotRec *recs = (const ShotRec *)(h + 1);
     u32 old_epoch = g_in.current_epoch();
     size_t old_pending = g_in.pending();
@@ -336,6 +366,8 @@ void shots_reset(void)
     g_out.clear();
     g_seq = 0;
     g_epoch = (GetTickCount() ^ (GetCurrentProcessId() << 16) ^ (g_epoch * 2654435761u)) | 1;
+    hits_reset_peer();
+    anim_reset_peer();
     trench_resend();
     xlate_resend();
 }
@@ -351,7 +383,7 @@ void shots_sim_step(ObjMan *om)
         const ShotRec &s = item.record;
         if (s.kind == 2) { trench_received(s); item.complete = true; }
         else if (s.kind == 3 || s.kind == 4) { xlate_received(s, om); item.complete = true; }
-        else if (s.kind != 0) {
+        else if (s.kind != 0 && s.kind != 7 && s.kind != 8) {
             // kind 1 was never emitted by this module; reject unknown records explicitly.
             g_stat_refused++;
             item.complete = true;
@@ -361,8 +393,15 @@ void shots_sim_step(ObjMan *om)
         g_shellphys = (char *)engine_find(om, "i_shellphys", "shellphys");
     g_om = om;
     for (auto &item : g_in.items()) {
-        if (item.complete || item.record.kind != 0) continue;
+        if (item.complete) continue;
         const ShotRec &s = item.record;
+        if (s.kind == 7 || s.kind == 8) {
+            bool done = s.kind == 7 ? hits_received(s, om) : anim_received(s, om);
+            if (!done) break; // do not replay a later shot ahead of a waiting hit/snapshot
+            item.complete = true;
+            continue;
+        }
+        if (s.kind != 0) continue;
         if (!g_install_done || (g_launch && g_enabled && !g_shellphys)) {
             // The engine may appear on a later simulation step. Do not clear or acknowledge it.
             static DWORD last_wait;
@@ -371,7 +410,7 @@ void shots_sim_step(ObjMan *om)
                 last_wait = now ? now : 1;
                 mp_log("shots: %zu incoming events are waiting for the shell manager", g_in.pending());
             }
-            continue;
+            break;
         }
         if (!g_launch || !g_enabled) {
             // This build explicitly refused/disabled its hook; do not pretend the shot was played.

@@ -18,7 +18,7 @@ import tempfile
 import zipfile
 
 VERSION = "1.0.7"
-WIRE_TAG = b"NETV21_WIRE_PROTOCOL_16"
+WIRE_TAG = b"NETV21_WIRE_PROTOCOL_17"
 ROOT = "MiusMultiplayer"
 PROVEN = Path("development/unified-fps-kit-source")
 KIT = Path("development/net-v21-kit")

@@ -200,6 +200,16 @@ void xlate_received(const ShotRec &s, ObjMan *om)
 // be installed. Shots may still use the tables separately via xlate_desc().
 bool xlate_ready(void) { return g_ready && g_hooked; }
 u32 xlate_desc(u32 theirs) { auto it = g_desc.find(theirs); return it == g_desc.end() ? theirs : it->second; }
+bool xlate_desc_checked(u32 theirs, u32 *local)
+{
+    if (!local) return false;
+    if (theirs == 0xffffffffu) { *local = theirs; return true; }
+    if (!g_ready) return false;
+    auto it = g_desc.find(theirs);
+    if (it == g_desc.end()) return false;
+    *local = it->second;
+    return true;
+}
 
 static void *obj_by_place_hook(ObjMan *om, u32 place)
 {

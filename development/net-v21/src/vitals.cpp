@@ -391,6 +391,7 @@ void vitals_start() {
 }
 void vitals_pause() { stats_enabled.store(false, std::memory_order_release); }
 uint32_t vitals_epoch() { return channel.epoch(); }
+uint32_t vitals_peer_epoch() { return channel.peer_epoch(); }
 void vitals_peer(uint32_t epoch) {
     if (channel.set_peer(epoch)) {
         clear_local(); last_refused_peer = last_refused_at = 0;

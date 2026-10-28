@@ -24,6 +24,16 @@ char *hook_resolve(const char *module, const HookSig *list, unsigned count, cons
 // Tactical resolver: validates mapped PE bounds and rejects ambiguous cross-version matches.
 char *hook_resolve_checked(const char *module, const HookSig *list, unsigned count, const char *what);
 
+// Resolve a read-only vtable by its expected code pointers. Check the known RVA first, then
+// accept only one matching aligned table in .rdata. Never write a candidate here.
+struct HookVtableMember { unsigned index; const void *target; };
+void **hook_vtable_checked(const char *module, unsigned rva, const HookVtableMember *members,
+                           unsigned count, const char *what);
+// Replace only the pointer we checked, not an intervening hook; restore page protection.
+bool hook_swap_vtable_slot(void **slot, void *expected, void *replacement);
+// Layout-sensitive features additionally gate the known image timestamp and SizeOfImage.
+bool hook_image_identity(const char *module, unsigned timestamp, unsigned image_size);
+
 // The offset of an address inside a loaded module, for the log ("adv_interf+0x3b320"); -1 when the
 // address is not in that module.
 long hook_offset(const char *module, const void *address);
@@ -31,4 +41,5 @@ long hook_offset(const char *module, const void *address);
 #ifdef NETV21_TEST_HOOKS
 // Tests only: inspect an in-memory PE without finding or patching a real game module.
 char *hook_test_resolve(const void *base, const HookSig *list, unsigned count, int *reason);
+void **hook_test_vtable(const void *base, unsigned rva, const HookVtableMember *members, unsigned count, int *reason);
 #endif
