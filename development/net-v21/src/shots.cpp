@@ -21,6 +21,7 @@
 #include "env_value.h"
 #include "netlog.h"
 #include "protocol.h"
+#include "named_shots.h"
 #include "vitals.h"
 #include "reliable_inbox.h"
 #include "hooks.h"
@@ -56,6 +57,57 @@ static void (*g_ack_send)(const void *, int);
 // launch record: pointers at +0x38 (ammunition), +0x40 (weapon), +0x48 (firing object), +0x50 (object),
 // +0x60 (description)
 enum { L_AMMO = 0x38, L_WEAPON = 0x40, L_SHOOTER = 0x48, L_OBJ2 = 0x50, L_DESC3 = 0x60, L_SIZE = 0x90 };
+
+// These offsets are layout-sensitive, not a new detour. Refuse the experimental name path on
+// another image or vtable rather than guessing. The regular number path remains available.
+static HMODULE g_named_image;
+static bool g_named_probed;
+static void **g_named_vtable;
+#ifdef NETV21_TEST_HOOKS
+static bool g_named_test_override;
+static void *g_named_test_registry;
+void shots_test_name_registry(void *registry) { g_named_test_override = true; g_named_test_registry = registry; }
+#endif
+
+static void *named_registry(ObjMan *om)
+{
+#ifdef NETV21_TEST_HOOKS
+    if (g_named_test_override) return g_named_test_registry;
+#endif
+    HMODULE image = GetModuleHandleA("adv_game.codelib");
+    if (!image) return nullptr; // it may be loaded later
+    if (image != g_named_image) { g_named_image = image; g_named_probed = false; g_named_vtable = nullptr; }
+    if (!g_named_probed) {
+        g_named_probed = true;
+        if (!hook_image_identity("adv_game.codelib", 0x66f2d3a9, 0x178000)) {
+            mp_log("named shots: unknown adv_game layout; using the ordinary number path");
+            return nullptr;
+        }
+        static const unsigned char weapon_sig[] = {
+            0x48,0x89,0x5c,0x24,0x08,0x57,0x48,0x83,0xec,0x60,0x48,0x85,
+            0xd2,0x4c,0x8d,0x05,0x41,0xa4,0x0a,0x00,0x48,0x8b,0xf9,0x48
+        };
+        static const unsigned char ammo_sig[] = {
+            0x48,0x89,0x5c,0x24,0x08,0x57,0x48,0x83,0xec,0x60,0x48,0x85,
+            0xd2,0x4c,0x8d,0x05,0x91,0xa3,0x0a,0x00,0x48,0x8b,0xf9,0x48
+        };
+        const HookSig weapon_where[] = { { 0x6c6e0, weapon_sig, sizeof weapon_sig } };
+        const HookSig ammo_where[] = { { 0x6c790, ammo_sig, sizeof ammo_sig } };
+        char *weapon = hook_resolve_checked("adv_game.codelib", weapon_where, 1, "named weapon lookup");
+        char *ammo = hook_resolve_checked("adv_game.codelib", ammo_where, 1, "named ammunition lookup");
+        if (weapon && ammo) {
+            const HookVtableMember slots[] = { { 3, weapon }, { 4, ammo } };
+            g_named_vtable = hook_vtable_checked("adv_game.codelib", 0x12e180, slots, 2, "i_weapons");
+        }
+        mp_log("named shots: %s (experimental; not all descriptors have usable names)",
+               g_named_vtable ? "verified game image and i_weapons table" : "game identity could not be verified");
+    }
+    if (!g_named_vtable || !hook_image_identity("adv_game.codelib", 0x66f2d3a9, 0x178000) ||
+        !readable(g_named_vtable, 5 * sizeof(void *)) || !readable(om, sizeof *om) ||
+        !readable(om->vtbl, 10 * sizeof(void *)) || !om->vtbl[9]) return nullptr;
+    Object *registry = engine_find(om, "i_weapons", "weapons");
+    return readable(registry, 0x148) && registry->vtbl == g_named_vtable ? registry : nullptr;
+}
 
 static u32 desc_id(void *p) { return p ? ((u32 (*)(ObjMan *, void *))g_om->vtbl[56])(g_om, p) : 0xffffffffu; }
 static void *desc_ptr(u32 id) { return id == 0xffffffffu ? 0 : ((void *(*)(ObjMan *, u32))g_om->vtbl[57])(g_om, id); }
@@ -150,6 +202,17 @@ static void queue_shot(char kind, const char *rec, u64 flags, const float *pos, 
         memcpy(s.launch, rec, L_SIZE);
         memset(s.launch + L_AMMO, 0, 0x20);         // the four pointers
         memset(s.launch + L_DESC3, 0, 8);
+        // Experimental, additive identity: exact short names and selected game-used fields fit
+        // in these otherwise blank slots. A 1.0.7 receiver ignores them and restores pointers.
+        void *registry = named_registry(g_om);
+        named_shots::Name ammo_name = {}, weapon_name = {};
+        void *weapon = *(void **)(rec + L_WEAPON);
+        if (registry && named_shots::name_for(registry, named_shots::AMMO, ammo, &ammo_name) &&
+            named_shots::name_for(registry, named_shots::WEAPON, weapon, &weapon_name) &&
+            named_shots::encode(s, ammo_name, weapon_name, ammo, weapon))
+            netlog_count("shot_named_sent");
+        else
+            netlog_count("shot_named_fallback");
     } else {
         s.desc3 = 0xffffffffu;
         memcpy(s.launch, rec, 0x40);                // an explosion is a place and the two descriptions
@@ -467,8 +530,15 @@ void shots_sim_step(ObjMan *om)
             item.complete = true;
             continue;
         }
-        u32 ammo_id, weapon_id, desc3_id;
-        if (!xlate_desc_checked(s.ammo, &ammo_id) || !xlate_desc_checked(s.weapon, &weapon_id) ||
+        const bool named = s.pad == named_shots::k_marker;
+        named_shots::Proof proof = {};
+        if (named && !named_shots::decode(s, &proof)) {
+            ++g_stat_refused;
+            mp_log("shots: event %u refused without replay: malformed experimental name proof", s.seq);
+            g_head_wait.reset(); item.complete = true; continue;
+        }
+        u32 ammo_id = 0xffffffffu, weapon_id = 0xffffffffu, desc3_id = 0xffffffffu;
+        if ((!named && (!xlate_desc_checked(s.ammo, &ammo_id) || !xlate_desc_checked(s.weapon, &weapon_id))) ||
             !xlate_desc_checked(s.desc3, &desc3_id)) {
             if (shots_refuse_expired(s, "description table incomplete or ID not matched")) { item.complete = true; continue; }
             break;
@@ -477,7 +547,33 @@ void shots_sim_step(ObjMan *om)
             if (shots_refuse_expired(s, "description lookup unavailable")) { item.complete = true; continue; }
             break;
         }
-        void *ammo = desc_ptr(ammo_id), *weapon = desc_ptr(weapon_id), *desc3 = desc_ptr(desc3_id);
+        void *ammo = nullptr, *weapon = nullptr;
+        if (named) {
+            void *registry = named_registry(om);
+            ammo = (void *)named_shots::pointer_for(registry, named_shots::AMMO, proof.ammo);
+            weapon = (void *)named_shots::pointer_for(registry, named_shots::WEAPON, proof.weapon);
+            if (!ammo || !weapon || !om->vtbl[56]) {
+                if (shots_refuse_expired(s, "experimental name unavailable or ambiguous")) { item.complete = true; continue; }
+                break;
+            }
+            // The named array element must also be registered with this object manager now.
+            // This round trip reduces stale-pointer risk but is not a lifetime/thread guarantee.
+            u32 named_ammo_id = desc_id(ammo), named_weapon_id = desc_id(weapon);
+            if (named_ammo_id == 0xffffffffu || named_weapon_id == 0xffffffffu ||
+                desc_ptr(named_ammo_id) != ammo || desc_ptr(named_weapon_id) != weapon) {
+                if (shots_refuse_expired(s, "named description not registered locally")) { item.complete = true; continue; }
+                break;
+            }
+            if (!named_shots::fields_match(proof, ammo, weapon)) {
+                ++g_stat_refused;
+                mp_log("shots: event %u refused without replay: named description fields differ", s.seq);
+                g_head_wait.reset(); item.complete = true; continue;
+            }
+            netlog_count("shot_named_resolved");
+        } else {
+            ammo = desc_ptr(ammo_id); weapon = desc_ptr(weapon_id);
+        }
+        void *desc3 = desc_ptr(desc3_id);
         float two[2];
         u32 code;
         bool ammo_readable = ammo_check(ammo, two, &code);
@@ -519,6 +615,8 @@ void shots_sim_step(ObjMan *om)
 }
 
 #ifdef NETV21_TEST_HOOKS
+// Test only: exercise the same producer after a synthetic local launch.
+void shots_test_queue_launch(const char *rec) { queue_shot('L', rec, 0, nullptr, nullptr, 0); }
 // The Windows no-game integration test supplies a fake shell manager; none of these seams is
 // compiled into the game module.
 void shots_test_engine(ObjMan *om, char *shell, Launch launch)

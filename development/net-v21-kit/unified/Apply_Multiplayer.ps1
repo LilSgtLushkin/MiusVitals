@@ -16,7 +16,7 @@ if (Get-Process -Name 'starter_x64' -ErrorAction SilentlyContinue) {
 }
 $files = @('mp_vitals.dll', 'bin\rel\x64\basic_network.codelib', 'mp_join.exe',
            'root\programs\opgame.progpack', 'root\programs\tacgame.progpack', 'steam_appid.txt')
-$state = Join-Path $kit 'state\unified_test_v107'
+$state = Join-Path $kit 'state\unified_test_v107_experimental'
 $baseline = Join-Path $state 'baseline'
 $pending = Join-Path $state 'pending'
 $active = Join-Path $state 'active.txt'
@@ -201,7 +201,7 @@ try {
                 $index++
                 # TEST-ANCHOR: installed-file
             }
-            [IO.File]::WriteAllText($active, 'MiusMultiplayer 1.0.7 test installed')
+            [IO.File]::WriteAllText($active, 'MiusMultiplayer 1.0.7 EXPERIMENTAL installed')
             Complete-Pending
         } catch {
             Rollback-Pending

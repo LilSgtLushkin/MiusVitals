@@ -201,7 +201,8 @@ def collect(repo: Path, codelib: Path, launcher: Path) -> dict[str, bytes]:
     tree[LAUNCHER_PATH] = candidate_launcher
     runtime = sorted((*SHARED_BINARIES, MODULE_PATH, LAUNCHER_PATH))
     tree[FILES_MANIFEST] = ("\n".join(f"{sha256(tree[name])}  {name}" for name in runtime) + "\n").encode()
-    passport = [f"MiusMultiplayer {VERSION} - test archive", "layout: unified", "",
+    passport = [f"MiusMultiplayer {VERSION} - test archive", "layout: unified",
+                "build status: 1.0.7 EXPERIMENTAL", "",
                 f"wire protocol: {WIRE_TAG.decode('ascii')}",
                 f"net_v21 sha256: {sha256(candidate)}", f"launcher sha256: {sha256(candidate_launcher)}", "",
                 "Enable_Multiplayer.bat installs the entire test kit, including net_v21; no separate patch switch.",
@@ -419,6 +420,9 @@ def build(repo: Path, codelib: Path, archive_path: Path, launcher: Path) -> None
                  "MiusMultiplayer_v1.0.7_TEST_INSTALL.zip")
     if archive_path.resolve() in {(repo / name).resolve() for name in protected}:
         raise SystemExit("refusing to overwrite a preserved archive")
+    experimental = (repo / "MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip").resolve()
+    if archive_path.resolve() == experimental and archive_path.exists():
+        raise SystemExit("refusing to overwrite a preserved experimental archive")
     if not codelib.is_file():
         raise SystemExit(f"no module to package: {codelib}")
     if not launcher.is_file():

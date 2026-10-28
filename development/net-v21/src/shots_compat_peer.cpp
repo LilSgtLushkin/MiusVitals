@@ -5,6 +5,7 @@
 #include "common.h"
 #include "netlog.h"
 #include "protocol.h"
+#include "named_shots.h"
 #include <chrono>
 #include <stdio.h>
 #include <string>
@@ -17,6 +18,8 @@ void shots_test_engine(ObjMan *, char *, TestLaunch);
 size_t shots_test_outstanding();
 #ifndef COMPAT_LEGACY
 void shots_test_wait_time(DWORD);
+void shots_test_name_registry(void *);
+void shots_test_queue_launch(const char *);
 #endif
 
 char g_out_dir[MAX_PATH] = ".";
@@ -26,7 +29,8 @@ static unsigned launches;
 static void *last_ammo, *last_weapon, *last_shooter, *last_obj2, *last_desc3, *last_obj5;
 static Object *fixture_unit;
 static unsigned char last_launch_byte;
-static unsigned char correct_ammo[0xc8], wrong_ammo[0xc8], correct_weapon[0xc8], wrong_weapon[0xc8];
+static unsigned char correct_ammo[0x170], wrong_ammo[0xc8], correct_weapon[0x130], wrong_weapon[0xc8];
+static unsigned char named_registry_fixture[0x148], named_ammo_row[0x44], named_weapon_row[0x44];
 static ShotAck last_ack;
 static bool saw_ack;
 static std::vector<unsigned char> last_packet;
@@ -52,6 +56,9 @@ void hits_reset_peer() {}
 void anim_reset_wait() {}
 void anim_reset_peer() {}
 
+static u32 id_for(ObjMan *, void *p) {
+    return p == correct_ammo ? (sender ? 41 : 7) : p == correct_weapon ? (sender ? 42 : 8) : 0xffffffffu;
+}
 static void *lookup(ObjMan *, u32 id)
 {
     switch (id) {
@@ -142,13 +149,17 @@ static ShotRec table(unsigned char kind, const u32 *pairs, u32 count)
 int main(int argc, char **argv)
 {
     if (argc != 5 || (strcmp(argv[1], "send") && strcmp(argv[1], "receive")) ||
-        (strcmp(argv[4], "mapped") && strcmp(argv[4], "marked") && strcmp(argv[4], "unknown"))) return 2;
+        (strcmp(argv[4], "mapped") && strcmp(argv[4], "marked") && strcmp(argv[4], "named") && strcmp(argv[4], "unknown"))) return 2;
     sender = !strcmp(argv[1], "send");
     bool marked = !strcmp(argv[4], "marked");
-    bool mapped = marked || !strcmp(argv[4], "mapped");
+    bool named = !strcmp(argv[4], "named");
+    bool mapped = marked || named || !strcmp(argv[4], "mapped");
+#ifdef COMPAT_LEGACY
+    if (sender && named) return 2; // an unmodified 1.0.7 producer does not create the extension
+#endif
 
     alignas(8) unsigned char manager[0x1800] = {}, rows[2 * 0x10] = {};
-    void *vtbl[58] = {}; vtbl[57] = (void *)lookup;
+    void *vtbl[58] = {}; vtbl[56] = (void *)id_for; vtbl[57] = (void *)lookup;
     ObjMan *om = (ObjMan *)manager; om->vtbl = vtbl;
     Object local_object = {};
     memcpy(local_object.full, "i_human:test", sizeof "i_human:test");
@@ -162,7 +173,19 @@ int main(int argc, char **argv)
     void *p = correct_ammo; memcpy(rows, &local_a, 4); memcpy(rows + 8, &p, sizeof p);
     p = correct_weapon; memcpy(rows + 0x10, &local_w, 4); memcpy(rows + 0x18, &p, sizeof p);
     *(void **)(manager + 0x1748) = rows; *(u32 *)(manager + 0x1754) = 2;
+    void *ammo_base = correct_ammo, *weapon_base = correct_weapon;
+    void *ammo_rows = named_ammo_row, *weapon_rows = named_weapon_row;
+    const u32 one = 1; const uint16_t four = 4, three = 3;
+    memcpy(named_registry_fixture + 0x108, &ammo_base, 8); memcpy(named_registry_fixture + 0x114, &one, 4);
+    memcpy(named_registry_fixture + 0x138, &ammo_rows, 8); memcpy(named_registry_fixture + 0x144, &one, 4);
+    memcpy(named_registry_fixture + 0xf0, &weapon_base, 8); memcpy(named_registry_fixture + 0xfc, &one, 4);
+    memcpy(named_registry_fixture + 0x120, &weapon_rows, 8); memcpy(named_registry_fixture + 0x12c, &one, 4);
+    memcpy(named_ammo_row, &four, 2); memcpy(named_ammo_row + 2, "ammo", 4);
+    memcpy(named_weapon_row, &three, 2); memcpy(named_weapon_row + 2, "gun", 3);
     shots_reset(); shots_test_engine(om, (char *)om, launch);
+#ifndef COMPAT_LEGACY
+    shots_test_name_registry(named_registry_fixture);
+#endif
 
     if (sender) {
         if (mapped) {
@@ -184,7 +207,15 @@ int main(int argc, char **argv)
             memset(shot.launch + 0x60, 0x5a, 8);
             shot.launch[0x20] = 0x37;  // a non-pointer byte must survive unchanged
         }
-        shots_queue(shot); shots_frame(capture);
+#ifndef COMPAT_LEGACY
+        if (named) {
+            char launch_rec[0x90] = {}; void *a = correct_ammo, *w = correct_weapon;
+            memcpy(launch_rec + 0x38, &a, 8); memcpy(launch_rec + 0x40, &w, 8);
+            shots_test_queue_launch(launch_rec);  // actual current producer emits the proof
+        } else
+#endif
+            shots_queue(shot);
+        shots_frame(capture);
         if (!require(!last_packet.empty() && write_atomic(argv[2], last_packet.data(), last_packet.size()), "write real sender packet")) return 1;
         std::vector<unsigned char> ack;
         for (unsigned i = 0; i < 500 && !read_file(argv[3], ack); ++i)
@@ -209,6 +240,12 @@ int main(int argc, char **argv)
                      !memcmp(wire.launch + 0x38, pointers, sizeof pointers) &&
                      !memcmp(wire.launch + 0x60, desc3, sizeof desc3),
                      "nonzero marker bytes are present on the wire before the receiver runs")) return 1;
+    }
+    if (named) {
+        if (!require(packet.size() == sizeof(ShotHead) + 3 * sizeof(ShotRec), "named producer packet size")) return 1;
+        ShotRec wire = {}; memcpy(&wire, packet.data() + sizeof(ShotHead) + 2 * sizeof(ShotRec), sizeof wire);
+        named_shots::Proof proof = {};
+        if (!require(named_shots::decode(wire, &proof), "actual current producer placed the named proof on the wire")) return 1;
     }
     shots_on_packet(packet.data(), (int)packet.size(), capture);
     if (!require(saw_ack && last_ack.seq == 0, "receipt alone is not an application ACK")) return 1;
@@ -246,6 +283,6 @@ int main(int argc, char **argv)
 #else
            "current",
 #endif
-           marked ? "marked synthetic" : mapped ? "mapped" : "unknown-ID");
+           named ? "actual named" : marked ? "marked synthetic" : mapped ? "mapped" : "unknown-ID");
     return 0;
 }

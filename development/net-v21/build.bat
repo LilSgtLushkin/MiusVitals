@@ -129,6 +129,8 @@ cl /nologo /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\
 if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\shots.cpp src\hooks.cpp src\shots_integration_test.cpp /link /OUT:build\selftest\shots_integration_test.exe
 if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\shots.cpp src\hooks.cpp src\named_shots_integration_test.cpp /link /OUT:build\selftest\named_shots_integration_test.exe
+if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\shots.cpp src\xlate.cpp src\hooks.cpp src\shots_xlate_characterization_test.cpp /link /OUT:build\selftest\shots_xlate_characterization_test.exe
 if errorlevel 1 exit /b %errorlevel%
 python tools\extract_legacy_shots_fixture.py build\selftest\compat107

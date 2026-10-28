@@ -93,7 +93,11 @@ jobs:
         run: |
           if not exist MiusMultiplayer_v1.0.7_TEST_INSTALL.zip goto :no_committed_installer
           if not exist development\net-v21\build mkdir development\net-v21\build
-          python scripts\package_net_v21_test.py --verify MiusMultiplayer_v1.0.7_TEST_INSTALL.zip --verify-source > development\net-v21\build\committed-installer.log 2>&1
+          rem The released archive is historical; verify its passport and pinned hash, not against the new experimental source.
+          python scripts\package_net_v21_test.py --verify MiusMultiplayer_v1.0.7_TEST_INSTALL.zip > development\net-v21\build\committed-installer.log 2>&1
+          set rc=%errorlevel%
+          if not %rc%==0 goto :committed_installer_failed
+          python -c "import hashlib,pathlib; p=pathlib.Path('MiusMultiplayer_v1.0.7_TEST_INSTALL.zip'); assert hashlib.sha256(p.read_bytes()).hexdigest()=='65f7a325095577cec98b2bab590f4674b81ad240bc5191adce346ebf8bec5ec6'" >> development\net-v21\build\committed-installer.log 2>&1
           set rc=%errorlevel%
           if not %rc%==0 goto :committed_installer_failed
           python tests\test_unified_installer_windows.py >> development\net-v21\build\committed-installer.log 2>&1
@@ -285,6 +289,10 @@ jobs:
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log
           if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\named_shots_integration_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
           development\net-v21\build\selftest\shots_xlate_characterization_test.exe >> development\net-v21\build\selftest.log 2>&1
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log
@@ -396,6 +404,8 @@ jobs:
         shell: cmd
         env:
           MIUS_TEST_ARCHIVE: development/net-v21/build/CI_fixture_NOT_RELEASE.zip
+          MIUS_TEST_STATE: unified_test_v107_experimental
+          MIUS_TEST_UPGRADE: '1'
         run: |
           python tests\test_unified_installer_windows.py > development\net-v21\build\installer-selftest.log 2>&1
           set rc=%errorlevel%
