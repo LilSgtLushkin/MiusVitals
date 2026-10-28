@@ -324,6 +324,31 @@ class UnifiedInstaller(unittest.TestCase):
         self.succeed(self.bat("Disable_Multiplayer.bat"))
         self.check_original()
 
+    @unittest.skipUnless(os.environ.get("MIUS_TEST_UPGRADE_107_EXPERIMENTAL") == "1", "FPS experimental upgrade fixture only")
+    def test_old_107_experimental_then_fps_and_two_step_rollback(self):
+        old = ROOT / "MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip"
+        if not old.exists():
+            self.skipTest("the preserved 1.0.7 experimental archive is not available")
+        with zipfile.ZipFile(old) as archive:
+            archive.extractall(self.game)
+        self.succeed(self.bat("Enable_Multiplayer.bat"))
+        installed_old = {relative: (self.game / relative).read_bytes() for relative in FILES}
+        old_state = self.kit / "state/unified_test_v107_experimental"
+        self.assertTrue((old_state / "active.txt").exists())
+        with zipfile.ZipFile(ARCHIVE) as archive:
+            archive.extractall(self.game)
+        self.succeed(self.bat("Enable_Multiplayer.bat"))
+        self.assertTrue((self.state / "active.txt").exists())
+        self.assertTrue((old_state / "active.txt").exists())
+        self.check_installed()
+        self.succeed(self.bat("Disable_Multiplayer.bat"))
+        for relative in FILES:
+            self.assertEqual((self.game / relative).read_bytes(), installed_old[relative], relative)
+        with zipfile.ZipFile(old) as archive:
+            archive.extractall(self.game)
+        self.succeed(self.bat("Disable_Multiplayer.bat"))
+        self.check_original()
+
     def test_damaged_backup_prevents_uninstall_without_any_change(self):
         self.succeed(self.bat("Enable_Multiplayer.bat"))
         backup = self.baseline / "files" / FILES[1]

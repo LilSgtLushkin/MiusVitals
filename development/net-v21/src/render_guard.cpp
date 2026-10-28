@@ -3,6 +3,7 @@
 // This is not a general access-violation handler. See docs/GITHUB_HISTORY_AUDIT_2026-10-27.md.
 #include "common.h"
 #include "hooks.h"
+#include "render_cache_bounds.h"
 #include <atomic>
 #include <stdint.h>
 #include <string.h>
@@ -25,6 +26,30 @@ static const unsigned char sig_node[] = {
 static const unsigned char sig_cache_rebuild[] = {
     0x48,0x8d,0x8f,0x38,0x01,0x00,0x00,0x49,0x8b,0xd0,0xe8,0xeb,0x69,0x00,0x00,0x8b,
     0xd0,0x89,0x55,0x34,
+};
+// The allocator receives renderer+0x138. Its +0x30/+0x3c/+0x40 are therefore the
+// renderer's pool pointer/live count/capacity at +0x168/+0x174/+0x178 respectively.
+// Verify both fresh-slot and free-list paths, plus the vector-growth routine, before
+// trusting those fields in the much cheaper inline guard.
+static const unsigned char sig_cache_allocator[] = {
+    0x48,0x89,0x5c,0x24,0x08,0x48,0x89,0x6c,0x24,0x10,0x48,0x89,0x74,0x24,0x18,0x57,
+    0x48,0x83,0xec,0x20,0x83,0x79,0x24,0x00,0x48,0x8b,0xf2,0x48,0x8b,0xd9,0x75,0x28,
+    0x8b,0x41,0x3c,0x3b,0x41,0x40,0x75,0x15,0x03,0xc0,0xba,0x01,0x00,0x00,0x00,0x3b,
+    0xc2,0x0f,0x47,0xd0,0x48,0x83,0xc1,0x30,0xe8,0xa3,0x06,0x00,0x00,0x8b,0x6b,0x3c,
+    0x8d,0x45,0x01,0x89,0x43,0x3c,0xeb,0x0f,0x8b,0x51,0x24,0x48,0x8b,0x41,0x18,0xff,
+    0xca,0x8b,0x2c,0x90,0x89,0x51,0x24,
+};
+static const unsigned char sig_cache_growth[] = {
+    0x48,0x89,0x5c,0x24,0x10,0x57,0x48,0x83,0xec,0x20,0x48,0x8b,0xd9,0x8b,0xfa,0x3b,
+    0x51,0x10,0x76,0x51,0x8b,0xcf,0x48,0x89,0x74,0x24,0x30,0x48,0xc1,0xe1,0x06,0xba,
+    0x10,0x00,0x00,0x00,0xff,0x15,0xbe,0x88,0x02,0x00,0x48,0x8b,0xf0,0x8b,0x43,0x0c,
+    0x85,0xc0,0x74,0x18,0x83,0x7b,0x14,0x00,0x74,0x12,0x48,0x8b,0x13,0x44,0x8b,0xc0,
+    0x49,0xc1,0xe0,0x06,0x48,0x8b,0xce,0xe8,0xaa,0x61,0x02,0x00,0x48,0x8b,0x0b,0x89,
+    0x7b,0x10,0x48,0x85,0xc9,0x74,0x06,0xff,0x15,0xab,0x88,0x02,0x00,0x48,0x89,0x33,
+    0x48,0x8b,0x74,0x24,
+};
+static const unsigned char sig_cache_inline_site[] = {
+    0x81,0xe2,0xff,0xff,0xff,0x00,0x48,0x8b,0x87,0x68,0x01,0x00,0x00,0x8b,0xca,
 };
 static const unsigned char sig_triangle[] = {
     0x48,0x8b,0xc4,0x48,0x89,0x58,0x18,0x48,0x89,0x70,0x20,0x57,0x41,0x54,0x41,0x57,
@@ -74,6 +99,9 @@ static u8 *g_walk, *g_node, *g_cache, *g_triangle;
 static PVOID g_handler;
 static std::atomic<bool> g_attempted(false);
 static std::atomic<u32> g_node_repairs(0), g_cache_repairs(0), g_geometry_skips(0), g_preflight_faults(0);
+// Updated by the x64 stub's LOCK INC only on a rejected slot. Interlocked reads below
+// use Windows' 32-bit LONG interlocked contract; normal cache writes do not touch it.
+static volatile LONG g_cache_bounds_repairs;
 // One timing sample per 128 calls per renderer thread, excluding the native function. This reports
 // guard cost without two high-resolution clock calls and contended atomics on every geometry call.
 struct GuardSamples { std::atomic<u64> count{0}, ticks{0}; };
@@ -95,7 +123,7 @@ using CacheFn = void (*)(void *, u32, const void *);
 using TriangleFn = int (*)(void *);
 static std::atomic<CacheFn> g_original_cache(nullptr);
 static std::atomic<TriangleFn> g_original_triangle(nullptr);
-static bool g_cache_hooked, g_triangle_hooked;
+static bool g_cache_hooked, g_cache_bounds_hooked, g_triangle_hooked;
 static const u32 cache_missing = 0xfffffffeu;
 
 static bool add_u64(u64 base, u64 off, u64 *out)
@@ -418,6 +446,94 @@ template <typename Fn> static bool install_published_detour(u8 *fn, size_t len, 
     return true;
 }
 
+// Install the narrow inline patch only after the caller verifies the exact image and allocator.
+// The original first matrix write stays at +0x129a2, so the exact write-AV recovery remains valid.
+// Like the existing entry detours, patch publication does not stop other renderer threads.
+static bool install_cache_bounds_patch(u8 *site, u8 *next, u8 *allocate, volatile LONG *counter)
+{
+    const size_t len = sizeof sig_cache_inline_site;
+    if (!site || !next || !allocate || !counter || len != 15 ||
+        memcmp(site, sig_cache_inline_site, len)) return false;
+    u8 *stub = (u8 *)VirtualAlloc(nullptr, render_cache_bounds::k_size,
+                                 MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    if (!stub) return false;
+    if (!render_cache_bounds::build(stub, render_cache_bounds::k_size,
+                                    (uintptr_t)next, (uintptr_t)allocate, (uintptr_t)counter)) {
+        VirtualFree(stub, 0, MEM_RELEASE);
+        return false;
+    }
+    DWORD stub_old;
+    if (!VirtualProtect(stub, render_cache_bounds::k_size, PAGE_EXECUTE_READ, &stub_old) ||
+        !FlushInstructionCache(GetCurrentProcess(), stub, render_cache_bounds::k_size)) {
+        VirtualFree(stub, 0, MEM_RELEASE);
+        return false;
+    }
+    DWORD previous;
+    if (!VirtualProtect(site, len, PAGE_EXECUTE_READWRITE, &previous)) {
+        VirtualFree(stub, 0, MEM_RELEASE);
+        return false;
+    }
+    // Never overwrite a newly installed third-party patch.
+    if (memcmp(site, sig_cache_inline_site, len)) {
+        DWORD ignored;
+        VirtualProtect(site, len, previous, &ignored);
+        VirtualFree(stub, 0, MEM_RELEASE);
+        return false;
+    }
+    u8 patch[15] = { 0xff,0x25,0,0,0,0 };
+    memcpy(patch + 6, &stub, sizeof stub);
+    patch[14] = 0x90;
+    memcpy(site, patch, len);
+    DWORD ignored;
+    if (!VirtualProtect(site, len, previous, &ignored))
+        mp_log("render guard: warning: failed to restore cache code protection");
+    if (!FlushInstructionCache(GetCurrentProcess(), site, len))
+        mp_log("render guard: warning: cache instruction flush failed");
+    return true; // the stub must remain allocated while the patch exists
+}
+
+static bool install_cache_bounds(HMODULE image, u8 *cache)
+{
+    if (!image || cache != (u8 *)image + 0x12925 ||
+        !hook_image_identity("basic_render.codelib", 0x66f2d710, 0x64000) ||
+        !same_code(image, cache, sig_cache_complete, sizeof sig_cache_complete) ||
+        !same_code(image, cache + (0x1298fu - 0x12925u), sig_cache_inline_site, sizeof sig_cache_inline_site) ||
+        !same_code(image, cache + (0x193c0u - 0x12925u), sig_cache_allocator, sizeof sig_cache_allocator) ||
+        !same_code(image, cache + (0x19aa0u - 0x12925u), sig_cache_growth, sizeof sig_cache_growth)) return false;
+    return install_cache_bounds_patch(cache + (0x1298fu - 0x12925u),
+                                      cache + (0x1299eu - 0x12925u),
+                                      cache + (0x129c6u - 0x12925u), &g_cache_bounds_repairs);
+}
+
+// Strict preflight is an explicit opt-in only. In particular, an invalid value must never
+// turn expensive per-call VirtualQuery checks back on silently at the start of a battle.
+static bool strict_cache_requested()
+{
+    char value[24] = {};
+    DWORD n = GetEnvironmentVariableA("MP_RENDER_CACHE_GUARD", value, (DWORD)sizeof value);
+    if (!n) return false;
+    if (n < sizeof value && !lstrcmpiA(value, "strict")) return true;
+    if (n >= sizeof value || lstrcmpiA(value, "fast"))
+        mp_log("render guard: unknown MP_RENDER_CACHE_GUARD value; using fast mode, not strict preflight");
+    return false;
+}
+
+using CacheInstaller = bool (*)(HMODULE, u8 *);
+enum CacheInstallMode { cache_exact_av_only, cache_bounds, cache_strict };
+static bool install_cache_strict(HMODULE image, u8 *cache)
+{
+    return same_code(image, cache, sig_cache_complete, sizeof sig_cache_complete) &&
+           install_published_detour(cache, 15, (void *)hook_render_cache, g_original_cache);
+}
+// Never try strict after a fast-install failure. In that case the already installed, narrow
+// exception handler is the only cache recovery; writable wrong addresses are NOT caught.
+static CacheInstallMode install_selected_cache(bool strict, HMODULE image, u8 *cache,
+                                              CacheInstaller fast, CacheInstaller slow)
+{
+    if (strict) return slow(image, cache) ? cache_strict : cache_exact_av_only;
+    return fast(image, cache) ? cache_bounds : cache_exact_av_only;
+}
+
 static bool checked_layout(HMODULE image, u8 *walk, u8 *node, u8 *cache, u8 *tri)
 {
     return walk && node && cache && tri &&
@@ -439,6 +555,10 @@ void render_guard_install()
     if (!image) return;
     bool expected = false;
     if (!g_attempted.compare_exchange_strong(expected, true)) return;
+    // This module does not import the old sidecar. If something else loads it, its separate
+    // renderer hooks can conflict or add overhead; we cannot safely unload an external DLL.
+    if (GetModuleHandleA("mp_vitals.dll"))
+        mp_log("render guard: WARNING: legacy mp_vitals.dll is loaded by another component; independent hooks may conflict or add FPS cost");
     const HookSig w[] = { { 0x12fd0, sig_walk_node, sizeof sig_walk_node } };
     const HookSig n[] = { { 0x13ab0, sig_node, sizeof sig_node } };
     const HookSig c[] = { { 0x12925, sig_cache_complete, sizeof sig_cache_complete } };
@@ -458,19 +578,28 @@ void render_guard_install()
         mp_log("render guard: could not register exception handler; renderer left unchanged");
         return;
     }
-    // Recheck the bytes immediately before patching in case another component changed them.
-    if (same_code(image, cache, sig_cache_complete, sizeof sig_cache_complete))
-        g_cache_hooked = install_published_detour(cache, 15, (void *)hook_render_cache, g_original_cache);
+    // Choose once per process. The fast inline path and the old entry detour cannot coexist.
+    // An unavailable fast patch leaves exact-AV recovery only; it NEVER turns strict on behind
+    // the user's back. Strict's per-call VirtualQuery cost is incurred only on explicit request.
+    const bool strict = strict_cache_requested();
+    CacheInstallMode mode = install_selected_cache(strict, image, cache, install_cache_bounds, install_cache_strict);
+    g_cache_bounds_hooked = mode == cache_bounds;
+    g_cache_hooked = mode == cache_strict;
+    if (mode == cache_exact_av_only)
+        mp_log("render guard: requested cache preflight unavailable; exact write-AV recovery only; strict preflight not auto-enabled");
     if (same_code(image, tri, sig_triangle, sizeof sig_triangle))
         g_triangle_hooked = install_published_detour(tri, 14, (void *)hook_render_triangle, g_original_triangle);
-    mp_log("render guard: verified exact exception paths active; cache preflight %s, geometry preflight %s",
-           g_cache_hooked ? "installed" : "unavailable", g_triangle_hooked ? "installed" : "unavailable");
+    mp_log("render guard: verified exact exception paths active; cache %s, geometry preflight %s",
+           g_cache_bounds_hooked ? "experimental inline bounds" : g_cache_hooked ? "strict preflight" : "exact-AV only",
+           g_triangle_hooked ? "installed" : "unavailable");
+    if (g_cache_bounds_hooked)
+        mp_log("render guard: set MP_RENDER_CACHE_GUARD=strict before game start to opt in to expensive strict allocation checks");
 }
 
 void render_guard_report(DWORD now)
 {
     static DWORD last;
-    static u32 node, cache, triangle, preflight;
+    static u32 node, cache, bounds, triangle, preflight;
     static u64 cache_count, cache_ticks, triangle_count, triangle_ticks;
     if (!g_handler || now - last < 5000) return;
     last = now;
@@ -486,10 +615,11 @@ void render_guard_report(DWORD now)
     }
     cache_count = cc; cache_ticks = ct; triangle_count = tc; triangle_ticks = tt;
     u32 n = g_node_repairs.load(std::memory_order_relaxed), c = g_cache_repairs.load(std::memory_order_relaxed);
+    u32 b = (u32)InterlockedCompareExchange(&g_cache_bounds_repairs, 0, 0);
     u32 t = g_geometry_skips.load(std::memory_order_relaxed), p = g_preflight_faults.load(std::memory_order_relaxed);
-    if (n != node || c != cache || t != triangle || p != preflight) {
-        mp_log("render guard: total child branches recovered %u, cache repairs %u, geometry queries skipped %u, preflight races %u", n, c, t, p);
-        node = n; cache = c; triangle = t; preflight = p;
+    if (n != node || c != cache || b != bounds || t != triangle || p != preflight) {
+        mp_log("render guard: total child branches recovered %u, cache strict/fault repairs %u, bounds repairs %u, geometry queries skipped %u, preflight races %u", n, c, b, t, p);
+        node = n; cache = c; bounds = b; triangle = t; preflight = p;
     }
 }
 
@@ -534,6 +664,14 @@ LONG render_test_fault(EXCEPTION_POINTERS *p) { return render_fault_guard(p); }
 bool render_test_triangle(void *p) { return render_triangle_bad_input(p); }
 void render_test_cache(void *p, u32 node) { render_cache_preflight(p, node); }
 void render_test_cache_reference(void *p, u32 node) { render_cache_preflight_reference(p, node); }
+bool render_test_install_cache_bounds(void *site, void *next, void *allocate, volatile LONG *counter) {
+    return install_cache_bounds_patch((u8 *)site, (u8 *)next, (u8 *)allocate, counter);
+}
+bool render_test_cache_strict_requested() { return strict_cache_requested(); }
+int render_test_select_cache(bool strict, bool (*fast)(HMODULE, unsigned char *),
+                             bool (*slow)(HMODULE, unsigned char *)) {
+    return (int)install_selected_cache(strict, nullptr, nullptr, fast, slow);
+}
 using TestFn = int (*)();
 static std::atomic<TestFn> g_test_original(nullptr);
 bool render_test_install(void *target, void *hook) {

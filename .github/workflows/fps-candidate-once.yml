@@ -1,0 +1,88 @@
+name: Prepare net+fps candidate (focused, temporary)
+
+# One-shot branch-scoped candidate build. It is NOT a release/full validation; after the archive
+# is added, this temporary write permission and workflow are removed before the final PR gate.
+on:
+  push:
+    branches: ['arena/9c8328a3-miusvitals']
+
+permissions:
+  contents: write
+
+jobs:
+  prepare-candidate:
+    if: contains(github.event.head_commit.message, '[build-fps-candidate]')
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile and execute the focused Windows renderer test
+        shell: cmd
+        run: |
+          if not exist development\net-v21\build mkdir development\net-v21\build
+          call development\net-v21\build.bat render_test > development\net-v21\build\render-focused.log 2>&1
+          set rc=%errorlevel%
+          if not %rc%==0 goto :failed
+          development\net-v21\build\render_test\render_guard_test.exe >> development\net-v21\build\render-focused.log 2>&1
+          set rc=%errorlevel%
+          if not %rc%==0 goto :failed
+          type development\net-v21\build\render-focused.log
+          powershell -NoProfile -Command "$s = Get-Content development/net-v21/build/render-focused.log | Select-String 'cache (bounds|preflight) synthetic|render guard selftest'; Write-Output ('::notice title=Focused renderer checks::' + (($s -join ' | ').Replace('%%','%%25')))"
+          exit /b 0
+          :failed
+          type development\net-v21\build\render-focused.log
+          powershell -NoProfile -Command "$m = ((Get-Content development/net-v21/build/render-focused.log -Tail 40) -join ' | ').Replace('%%','%%25'); Write-Output ('::error title=Focused renderer build or test::' + $m)"
+          exit /b %rc%
+      - name: Build the candidate network module and matching launcher
+        shell: cmd
+        run: |
+          call development\net-v21\build.bat module > development\net-v21\build\candidate-module.log 2>&1
+          set rc=%errorlevel%
+          if not %rc%==0 goto :failed
+          call development\net-v21\build.bat join > development\net-v21\build\candidate-join.log 2>&1
+          set rc=%errorlevel%
+          if not %rc%==0 goto :failed
+          exit /b 0
+          :failed
+          type development\net-v21\build\candidate-module.log
+          if exist development\net-v21\build\candidate-join.log type development\net-v21\build\candidate-join.log
+          powershell -NoProfile -Command "$m = ((Get-Content development/net-v21/build/candidate-module.log,development/net-v21/build/candidate-join.log -ErrorAction SilentlyContinue -Tail 40) -join ' | ').Replace('%%','%%25'); Write-Output ('::error title=Candidate compiler::' + $m)"
+          exit /b %rc%
+      - name: Assemble a separate candidate and check actual one-step install and upgrade
+        shell: cmd
+        env:
+          MIUS_TEST_ARCHIVE: MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip
+          MIUS_TEST_STATE: unified_test_v107_experimental_net_fps
+          MIUS_TEST_UPGRADE_107_EXPERIMENTAL: '1'
+        run: |
+          if exist "%MIUS_TEST_ARCHIVE%" exit /b 1
+          python scripts\package_net_v21_test.py --codelib development\net-v21\build\module\basic_network.codelib --launcher development\net-v21\build\join\mp_join.exe --output "%MIUS_TEST_ARCHIVE%" > development\net-v21\build\candidate-package.log 2>&1
+          set rc=%errorlevel%
+          if not %rc%==0 goto :failed
+          python scripts\package_net_v21_test.py --verify "%MIUS_TEST_ARCHIVE%" --verify-source >> development\net-v21\build\candidate-package.log 2>&1
+          set rc=%errorlevel%
+          if not %rc%==0 goto :failed
+          python tests\test_unified_installer_windows.py UnifiedInstaller.test_one_step_repeat_check_and_uninstall UnifiedInstaller.test_old_107_experimental_then_fps_and_two_step_rollback >> development\net-v21\build\candidate-package.log 2>&1
+          set rc=%errorlevel%
+          if not %rc%==0 goto :failed
+          type development\net-v21\build\candidate-package.log
+          exit /b 0
+          :failed
+          type development\net-v21\build\candidate-package.log
+          powershell -NoProfile -Command "$m = ((Get-Content development/net-v21/build/candidate-package.log -Tail 50) -join ' | ').Replace('%%','%%25'); Write-Output ('::error title=Candidate installer::' + $m)"
+          exit /b %rc%
+      - name: Add the candidate to this branch only
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive='MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip'
+          test "$(git rev-parse HEAD)" = '${{ github.sha }}'
+          test -f "$archive"
+          sha256sum "$archive"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- "$archive"
+          git commit -m 'Add 1.0.7 experimental net+fps candidate installer'
+          git push origin HEAD:refs/heads/arena/9c8328a3-miusvitals

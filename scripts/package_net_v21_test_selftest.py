@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""No-game packaging checks for the unified 1.0.7 installer and preserved archives."""
+"""No-game packaging checks for the unified 1.0.7 experimental net+fps installer and preserved archives."""
 from __future__ import annotations
 import copy
 import hashlib
@@ -81,11 +81,24 @@ class Packaging(unittest.TestCase):
                 pkg.build(ROOT, Path("nonexistent.codelib"), released, Path("nonexistent.exe"))
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
-            archive = repo / "MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip"
-            archive.write_bytes(b"do not replace")
-            with self.assertRaisesRegex(SystemExit, "refusing to overwrite"):
-                pkg.build(repo, Path("nonexistent.codelib"), archive, Path("nonexistent.exe"))
-            self.assertEqual(archive.read_bytes(), b"do not replace")
+            for name in ("MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip",
+                         "MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip"):
+                archive = repo / name
+                archive.write_bytes(b"do not replace")
+                with self.assertRaisesRegex(SystemExit, "refusing to overwrite"):
+                    pkg.build(repo, Path("nonexistent.codelib"), archive, Path("nonexistent.exe"))
+                self.assertEqual(archive.read_bytes(), b"do not replace")
+
+    def test_candidate_does_not_pull_in_the_legacy_render_guard(self):
+        # A warning may mention the DLL in .rdata without importing it; that is allowed.
+        pkg.validate_module(self.tagged_module + b"warning: mp_vitals.dll\0", forbid_legacy_import=True)
+        # Replace an actual import name in place without changing any PE offsets.
+        original = b"api-ms-win-crt-math-l1-1-0.dll\0"
+        replacement = b"mp_vitals.dll\0" + b"\0" * (len(original) - len(b"mp_vitals.dll\0"))
+        self.assertIn(original, self.tagged_module)
+        bad = self.tagged_module.replace(original, replacement, 1)
+        with self.assertRaisesRegex(SystemExit, "legacy mp_vitals.dll sidecar import"):
+            pkg.validate_module(bad, forbid_legacy_import=True)
 
     def test_unified_layout_and_reproducibility(self):
         with tempfile.TemporaryDirectory() as tmp:

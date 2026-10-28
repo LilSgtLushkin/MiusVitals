@@ -4,13 +4,7 @@ name: Test unified installer on Windows
 # The network-module workflow separately tests the real MSVC-built archive before publication.
 on:
   push:
-    paths:
-      - 'development/net-v21-kit/**'
-      - 'scripts/package_net_v21_test*.py'
-      - 'tests/test_unified_installer_windows.py'
-      - 'tests/build_unified_installer_fixture.py'
-      - '.github/workflows/unified-installer-smoke.yml'
-  pull_request:
+    branches-ignore: ['main']
     paths:
       - 'development/net-v21-kit/**'
       - 'scripts/package_net_v21_test*.py'
@@ -37,11 +31,12 @@ jobs:
         shell: cmd
         run: |
           set "MIUS_TEST_ARCHIVE=%RUNNER_TEMP%\mius-installer-fixture.zip"
-          set "MIUS_TEST_STATE=unified_test_v107_experimental"
-          set "MIUS_TEST_UPGRADE=1"
+          set "MIUS_TEST_STATE=unified_test_v107_experimental_net_fps"
+          set "MIUS_TEST_UPGRADE_107_EXPERIMENTAL=1"
           python tests\build_unified_installer_fixture.py "%MIUS_TEST_ARCHIVE%"
           if errorlevel 1 exit /b 1
-          python tests\test_unified_installer_windows.py > "%RUNNER_TEMP%\mius-installer-tests.log" 2>&1
+          rem Partial feedback only; the final workflow runs the complete installer suite once.
+          python tests\test_unified_installer_windows.py UnifiedInstaller.test_one_step_repeat_check_and_uninstall UnifiedInstaller.test_old_107_experimental_then_fps_and_two_step_rollback > "%RUNNER_TEMP%\mius-installer-tests.log" 2>&1
           set rc=%errorlevel%
           type "%RUNNER_TEMP%\mius-installer-tests.log"
           if not %rc%==0 (

@@ -1,9 +1,8 @@
 name: Verify MiusMultiplayer release archives
 
+# The automatic full native checks are part of build-network-module.yml's single final PR
+# workflow. Keep this workflow available for an explicit standalone recheck only.
 on:
-  push:
-    branches: ["main"]
-  pull_request:
   workflow_dispatch:
 
 jobs:

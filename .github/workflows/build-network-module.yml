@@ -1,4 +1,4 @@
-name: Build network module
+name: Final validation (network, installer and native checks)
 
 # M1 and M2 from docs/V20_SOURCE_RECOVERY.md, done the only way that can be trusted: build the tree
 # with the author's own compiler settings on Windows, then measure the result against the two
@@ -10,29 +10,12 @@ name: Build network module
 #
 # A red comparison is information, not a failure: the job prints the numbers and the tables.
 
+# Pushes before a PR get only focused tests. The one full release gate runs on the
+# final, non-draft PR head; a later push invalidates that result and must run it again.
+# Merging to main does not duplicate the full run. Manual dispatch remains available.
 on:
-  push:
-    paths:
-      - "development/net-v21/**"
-      - "development/net-v21-kit/**"
-      - "development/game-build-3598-1/**"
-      - "scripts/package_net_v21_test.py"
-      - "scripts/package_net_v21_test_selftest.py"
-      - "tests/test_unified_installer_windows.py"
-      - "tests/test_switch_pair_windows.py"
-      - "docs/NET_V21_M5_VALIDATION_2026-10-27.md"
-      - ".github/workflows/build-network-module.yml"
   pull_request:
-    paths:
-      - "development/net-v21/**"
-      - "development/net-v21-kit/**"
-      - "development/game-build-3598-1/**"
-      - "scripts/package_net_v21_test.py"
-      - "scripts/package_net_v21_test_selftest.py"
-      - "tests/test_unified_installer_windows.py"
-      - "tests/test_switch_pair_windows.py"
-      - "docs/NET_V21_M5_VALIDATION_2026-10-27.md"
-      - ".github/workflows/build-network-module.yml"
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 permissions:
@@ -45,10 +28,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  native-artifact-and-kit-checks:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify hashes, PE surfaces, archives and native logic
+        run: scripts/verify_release.sh
+      - name: Execute native cache-bounds stub test
+        run: |
+          g++ -std=c++11 -O2 -Wall -Wextra -Werror development/net-v21/tools/render_cache_bounds_native_test.cpp -o /tmp/render-cache-test
+          /tmp/render-cache-test
+
   build-and-compare:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - uses: actions/setup-python@v5
         with:
@@ -100,9 +100,6 @@ jobs:
           python -c "import hashlib,pathlib; p=pathlib.Path('MiusMultiplayer_v1.0.7_TEST_INSTALL.zip'); assert hashlib.sha256(p.read_bytes()).hexdigest()=='65f7a325095577cec98b2bab590f4674b81ad240bc5191adce346ebf8bec5ec6'" >> development\net-v21\build\committed-installer.log 2>&1
           set rc=%errorlevel%
           if not %rc%==0 goto :committed_installer_failed
-          python tests\test_unified_installer_windows.py >> development\net-v21\build\committed-installer.log 2>&1
-          set rc=%errorlevel%
-          if not %rc%==0 goto :committed_installer_failed
           type development\net-v21\build\committed-installer.log
           exit /b 0
           :committed_installer_failed
@@ -126,9 +123,6 @@ jobs:
           python -c "import hashlib,pathlib; p=pathlib.Path('MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip'); assert hashlib.sha256(p.read_bytes()).hexdigest()=='60e7b7a2f2914ae75cf203f48aacc89e9469f71b15b654f70805d50e50736f78'" >> development\net-v21\build\experimental-installer.log 2>&1
           set rc=%errorlevel%
           if not %rc%==0 goto :experimental_installer_failed
-          python tests\test_unified_installer_windows.py >> development\net-v21\build\experimental-installer.log 2>&1
-          set rc=%errorlevel%
-          if not %rc%==0 goto :experimental_installer_failed
           type development\net-v21\build\experimental-installer.log
           exit /b 0
           :experimental_installer_failed
@@ -144,6 +138,8 @@ jobs:
           python development/net-v21/tools/xlate_identity_pe_selftest.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python development/net-v21/tools/xlate_identity_emulation_selftest.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python development/net-v21/tools/render_cache_bounds_selftest.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Fetch the two reference modules (pinned, SHA-256 checked)
@@ -412,9 +408,9 @@ jobs:
             2>&1 | tee development/net-v21/build/battle-report-selftest.log
           exit ${PIPESTATUS[0]}
 
-      # This fixture uses the old kit metadata for regression testing only. It stays in the
-      # ignored build folder and is not a release; 1.0.7 remains byte-for-byte preserved.
-      - name: Package a disposable unified installer fixture
+      # Rebuild a disposable ZIP from this exact PR head. It must equal the committed release
+      # candidate byte-for-byte; the installer test below exercises the actual committed ZIP.
+      - name: Rebuild the candidate installer for an exact comparison
         shell: bash
         run: |
           python scripts/package_net_v21_test.py \
@@ -424,12 +420,22 @@ jobs:
             2>&1 | tee development/net-v21/build/package.log
           exit ${PIPESTATUS[0]}
 
-      - name: Exercise the packaged one-step installer and recovery on Windows
+      - name: Verify the committed net+fps archive equals this build and current kit
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive='MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip'
+          python scripts/package_net_v21_test.py --verify "$archive" --verify-source
+          cmp "$archive" development/net-v21/build/CI_fixture_NOT_RELEASE.zip
+          sha256sum "$archive"
+
+      - name: Exercise the committed one-step installer and both historical upgrades on Windows
         shell: cmd
         env:
-          MIUS_TEST_ARCHIVE: development/net-v21/build/CI_fixture_NOT_RELEASE.zip
-          MIUS_TEST_STATE: unified_test_v107_experimental
+          MIUS_TEST_ARCHIVE: MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip
+          MIUS_TEST_STATE: unified_test_v107_experimental_net_fps
           MIUS_TEST_UPGRADE: '1'
+          MIUS_TEST_UPGRADE_107_EXPERIMENTAL: '1'
         run: |
           python tests\test_unified_installer_windows.py > development\net-v21\build\installer-selftest.log 2>&1
           set rc=%errorlevel%

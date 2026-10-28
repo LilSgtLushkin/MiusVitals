@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the single MiusMultiplayer 1.0.7 TEST archive.
+"""Build the single MiusMultiplayer 1.0.7 EXPERIMENTAL net+fps archive.
 
 The matched net_v21 module and launcher are the actual files installed by Enable_Multiplayer.bat;
 there is no separate patch switch. The archive is experimental and does not claim real-game or
@@ -63,7 +63,7 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def validate_module(data: bytes) -> None:
+def validate_module(data: bytes, *, forbid_legacy_import: bool = False) -> None:
     """Reject a truncated/non-x64/non-DLL payload or one without the engine and Steam exports."""
     def fail(reason: str) -> None:
         raise SystemExit(f"invalid net_v21 module: {reason}")
@@ -126,6 +126,30 @@ def validate_module(data: bytes) -> None:
         names.add(data[at:end])
     if not {b"GetFactory3", b"gtmf_steam_layer"} <= names:
         fail("GetFactory3 or gtmf_steam_layer export is missing")
+    if forbid_legacy_import:
+        # Checking raw strings is insufficient: the module intentionally *mentions* the old
+        # DLL in a conflict warning. Walk the PE import descriptors instead, with bounds checks.
+        if opt_size < 128 or read("<I", opt + 108)[0] < 2:
+            fail("missing import directory")
+        import_rva, import_size = read("<II", opt + 120)
+        if not import_rva or import_size < 20 or import_size > 20 * 1025:
+            fail("invalid import directory")
+        terminated = False
+        for index in range(import_size // 20):
+            descriptor = read("<IIIII", offset(import_rva + index * 20, 20))
+            if not any(descriptor):
+                terminated = True
+                break
+            name_rva = descriptor[3]
+            at = offset(name_rva, 1)
+            end = data.find(b"\0", at, min(len(data), at + 256))
+            if end < 0:
+                fail("unterminated import name")
+            offset(name_rva, end - at + 1)
+            if data[at:end].lower() == b"mp_vitals.dll":
+                fail("legacy mp_vitals.dll sidecar import is not allowed")
+        if not terminated:
+            fail("unterminated import directory")
 
 
 def validate_launcher(data: bytes) -> None:
@@ -191,7 +215,9 @@ def collect(repo: Path, codelib: Path, launcher: Path) -> dict[str, bytes]:
             raise SystemExit(f"collector file is missing: {relative}")
         tree[relative] = source.read_bytes()
     candidate, candidate_launcher = codelib.read_bytes(), launcher.read_bytes()
-    validate_module(candidate)
+    # The historical sidecar has its own expensive renderer guard; importing it as a dependency
+    # would risk reintroducing that cost. Other programs can still load DLLs independently.
+    validate_module(candidate, forbid_legacy_import=True)
     validate_launcher(candidate_launcher)
     if WIRE_TAG not in candidate or WIRE_TAG not in candidate_launcher:
         raise SystemExit("module and launcher must contain the matching net_v21 wire-protocol tag")
@@ -202,7 +228,7 @@ def collect(repo: Path, codelib: Path, launcher: Path) -> dict[str, bytes]:
     runtime = sorted((*SHARED_BINARIES, MODULE_PATH, LAUNCHER_PATH))
     tree[FILES_MANIFEST] = ("\n".join(f"{sha256(tree[name])}  {name}" for name in runtime) + "\n").encode()
     passport = [f"MiusMultiplayer {VERSION} - test archive", "layout: unified",
-                "build status: 1.0.7 EXPERIMENTAL", "",
+                "build status: 1.0.7 EXPERIMENTAL net+fps", "",
                 f"wire protocol: {WIRE_TAG.decode('ascii')}",
                 f"net_v21 sha256: {sha256(candidate)}", f"launcher sha256: {sha256(candidate_launcher)}", "",
                 "Enable_Multiplayer.bat installs the entire test kit, including net_v21; no separate patch switch.",
@@ -420,8 +446,10 @@ def build(repo: Path, codelib: Path, archive_path: Path, launcher: Path) -> None
                  "MiusMultiplayer_v1.0.7_TEST_INSTALL.zip")
     if archive_path.resolve() in {(repo / name).resolve() for name in protected}:
         raise SystemExit("refusing to overwrite a preserved archive")
-    experimental = (repo / "MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip").resolve()
-    if archive_path.resolve() == experimental and archive_path.exists():
+    experimental = {(repo / name).resolve() for name in (
+        "MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip",
+        "MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip")}
+    if archive_path.resolve() in experimental and archive_path.exists():
         raise SystemExit("refusing to overwrite a preserved experimental archive")
     if not codelib.is_file():
         raise SystemExit(f"no module to package: {codelib}")
