@@ -1,6 +1,7 @@
 // No-game, two-process compatibility fixture. Built once with the pinned 1.0.7 shots/xlate
 // sources and once with the current sources. A file carries an actual packet and ACK; it is
-// not a Steam/UDP/game test. The legacy unknown-ID case intentionally demonstrates a risk.
+// not a Steam/UDP/game test. The legacy unknown-ID case intentionally demonstrates a risk;
+// the marked case is a fabricated packet for research, not a production protocol extension.
 #include "common.h"
 #include "netlog.h"
 #include "protocol.h"
@@ -22,7 +23,9 @@ char g_out_dir[MAX_PATH] = ".";
 char g_program[32] = "tacgame";
 static bool sender;
 static unsigned launches;
-static void *last_ammo, *last_weapon;
+static void *last_ammo, *last_weapon, *last_shooter, *last_obj2, *last_desc3, *last_obj5;
+static Object *fixture_unit;
+static unsigned char last_launch_byte;
 static unsigned char correct_ammo[0xc8], wrong_ammo[0xc8], correct_weapon[0xc8], wrong_weapon[0xc8];
 static ShotAck last_ack;
 static bool saw_ack;
@@ -35,7 +38,7 @@ bool session_connected() { return true; }
 int session_role() { return ROLE_HOST; }
 bool session_owns(Object *) { return true; }
 bool session_unit_key(Object *, u64 *) { return false; }
-Object *session_unit(u64) { return nullptr; }
+Object *session_unit(u64 key) { return key >= 0xa001 && key <= 0xa003 ? fixture_unit : nullptr; }
 u64 session_battle_ms() { return 0; }
 bool state_remote_loading() { return false; }
 void trench_received(const ShotRec &) {}
@@ -59,10 +62,15 @@ static void *lookup(ObjMan *, u32 id)
     default: return nullptr;
     }
 }
-static void launch(char *, char *rec, u64, float *, void *, u32)
+static void launch(char *, char *rec, u64, float *, void *obj5, u32)
 {
+    last_obj5 = obj5;
     memcpy(&last_ammo, rec + 0x38, sizeof last_ammo);
     memcpy(&last_weapon, rec + 0x40, sizeof last_weapon);
+    memcpy(&last_shooter, rec + 0x48, sizeof last_shooter);
+    memcpy(&last_obj2, rec + 0x50, sizeof last_obj2);
+    memcpy(&last_desc3, rec + 0x60, sizeof last_desc3);
+    last_launch_byte = (unsigned char)rec[0x20];
     ++launches;
 }
 static void capture(const void *data, int size)
@@ -134,15 +142,17 @@ static ShotRec table(unsigned char kind, const u32 *pairs, u32 count)
 int main(int argc, char **argv)
 {
     if (argc != 5 || (strcmp(argv[1], "send") && strcmp(argv[1], "receive")) ||
-        (strcmp(argv[4], "mapped") && strcmp(argv[4], "unknown"))) return 2;
+        (strcmp(argv[4], "mapped") && strcmp(argv[4], "marked") && strcmp(argv[4], "unknown"))) return 2;
     sender = !strcmp(argv[1], "send");
-    bool mapped = !strcmp(argv[4], "mapped");
+    bool marked = !strcmp(argv[4], "marked");
+    bool mapped = marked || !strcmp(argv[4], "mapped");
 
     alignas(8) unsigned char manager[0x1800] = {}, rows[2 * 0x10] = {};
     void *vtbl[58] = {}; vtbl[57] = (void *)lookup;
     ObjMan *om = (ObjMan *)manager; om->vtbl = vtbl;
     Object local_object = {};
     memcpy(local_object.full, "i_human:test", sizeof "i_human:test");
+    fixture_unit = &local_object;
     Object *objects[] = { &local_object };
     *(Object ***)(manager + 0x150) = objects; *(u32 *)(manager + 0x15c) = 1;
     correct_ammo[0x20] = 0x55; wrong_ammo[0x20] = 0x66; correct_weapon[0] = 0x77;
@@ -163,6 +173,17 @@ int main(int argc, char **argv)
         }
         ShotRec shot = {};
         shot.kind = 0; shot.ammo = 41; shot.weapon = 42; shot.desc3 = 0xffffffffu; shot.ammo_code = code;
+        if (marked) {
+            // This is deliberately fabricated at the fixture's queue seam. Ordinary production
+            // senders still blank these pointer slots and do not send such a marker. The test
+            // characterizes old/current receivers, not a new wire format or negotiation.
+            shot.pad = 0xa7;
+            shot.shooter = 0xa001; shot.obj2 = 0xa002; shot.obj5 = 0xa003;
+            shot.desc3 = 41;  // a mapped, non-null synthetic description; not a claim about game data
+            memset(shot.launch + 0x38, 0xa5, 0x20);
+            memset(shot.launch + 0x60, 0x5a, 8);
+            shot.launch[0x20] = 0x37;  // a non-pointer byte must survive unchanged
+        }
         shots_queue(shot); shots_frame(capture);
         if (!require(!last_packet.empty() && write_atomic(argv[2], last_packet.data(), last_packet.size()), "write real sender packet")) return 1;
         std::vector<unsigned char> ack;
@@ -175,6 +196,20 @@ int main(int argc, char **argv)
 
     std::vector<unsigned char> packet;
     if (!require(read_file(argv[2], packet) && packet.size() >= sizeof(ShotHead), "read actual sender packet")) return 1;
+    if (marked) {
+        ShotHead header = {};
+        memcpy(&header, packet.data(), sizeof header);
+        if (!require(header.h.count == 3 && packet.size() == sizeof(ShotHead) + 3 * sizeof(ShotRec),
+                     "the marked fixture has three records in its actual sender packet")) return 1;
+        ShotRec wire = {};
+        memcpy(&wire, packet.data() + sizeof(ShotHead) + 2 * sizeof(ShotRec), sizeof wire);
+        unsigned char pointers[0x20], desc3[8];
+        memset(pointers, 0xa5, sizeof pointers); memset(desc3, 0x5a, sizeof desc3);
+        if (!require(wire.kind == 0 && wire.pad == 0xa7 && wire.launch[0x20] == 0x37 &&
+                     !memcmp(wire.launch + 0x38, pointers, sizeof pointers) &&
+                     !memcmp(wire.launch + 0x60, desc3, sizeof desc3),
+                     "nonzero marker bytes are present on the wire before the receiver runs")) return 1;
+    }
     shots_on_packet(packet.data(), (int)packet.size(), capture);
     if (!require(saw_ack && last_ack.seq == 0, "receipt alone is not an application ACK")) return 1;
 #ifndef COMPAT_LEGACY
@@ -184,6 +219,9 @@ int main(int argc, char **argv)
     if (mapped) {
         if (!require(launches == 1 && last_ammo == correct_ammo && last_weapon == correct_weapon && last_ack.seq == 3,
                      "contiguous legacy/current tables and shot replay with the expected synthetic pointers")) return 1;
+        if (marked && !require(last_shooter == fixture_unit && last_obj2 == fixture_unit &&
+                               last_desc3 == correct_ammo && last_obj5 == fixture_unit && last_launch_byte == 0x37,
+                               "the receiver reconstructs five non-null pointer fields, obj5 and a non-pointer byte")) return 1;
     } else {
 #ifdef COMPAT_LEGACY
         if (!require(launches == 1 && last_ammo == wrong_ammo && last_weapon == wrong_weapon && last_ack.seq == 1,
@@ -208,6 +246,6 @@ int main(int argc, char **argv)
 #else
            "current",
 #endif
-           mapped ? "mapped" : "unknown-ID");
+           marked ? "marked synthetic" : mapped ? "mapped" : "unknown-ID");
     return 0;
 }

@@ -49,9 +49,9 @@ def main() -> None:
     legacy, current = args.legacy.resolve(strict=True), args.current.resolve(strict=True)
     for sender in (legacy, current):
         for receiver in (legacy, current):
-            for mode in ("mapped", "unknown"):
+            for mode in ("mapped", "marked", "unknown"):
                 case(sender, receiver, mode)
-    print("8 no-game process pairs passed; the old receiver's unsafe fallback remains uncorrected")
+    print("12 no-game process pairs passed; marked packets are synthetic, and the old unsafe fallback remains")
 
 
 if __name__ == "__main__":
