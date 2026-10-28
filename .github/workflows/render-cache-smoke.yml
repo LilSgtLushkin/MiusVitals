@@ -1,0 +1,39 @@
+name: Focused renderer cache checks
+
+# Partial feedback on branch pushes. The complete Windows + Linux gate runs once on the
+# final, non-draft pull request in build-network-module.yml, not on every push and PR.
+on:
+  push:
+    branches-ignore: ['main']
+    paths:
+      - 'development/net-v21/src/render_guard*'
+      - 'development/net-v21/src/render_cache_bounds.h'
+      - 'development/net-v21/tools/render_cache_bounds*'
+      - 'development/game-build-3598-1/**'
+      - 'scripts/package_net_v21_test*.py'
+      - '.github/workflows/render-cache-smoke.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: renderer-cache-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --quiet capstone unicorn==2.1.4
+      - name: Emulate real PE and generated stub
+        run: python development/net-v21/tools/render_cache_bounds_selftest.py
+      - name: Execute the generated x64 stub natively
+        run: |
+          g++ -std=c++11 -O2 -Wall -Wextra -Werror development/net-v21/tools/render_cache_bounds_native_test.cpp -o /tmp/render-cache-test
+          /tmp/render-cache-test
+      - name: Check packaging and preserved archives
+        run: python scripts/package_net_v21_test_selftest.py

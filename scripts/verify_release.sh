@@ -28,6 +28,9 @@ import hashlib, pathlib, sys
 assert hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest() == '60e7b7a2f2914ae75cf203f48aacc89e9469f71b15b654f70805d50e50736f78'
 PY
 fi
+if [ -f "$ROOT/MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip" ]; then
+    python3 "$ROOT/scripts/package_net_v21_test.py" --verify "$ROOT/MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip" --verify-source
+fi
 python3 "$ROOT/scripts/archive_audit_selftest.py"
 python3 "$ROOT/scripts/archive_audit.py" --check
 python3 "$ROOT/development/merged-source/tests/test_ordered_operation_patch.py"

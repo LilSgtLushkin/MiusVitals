@@ -13,6 +13,11 @@ static void check(bool ok, const char *name) {
     if (!ok) { ++failed; printf("FAIL: %s\n", name); }
 }
 static int test_hook() { return render_test_original() + 2; }
+static int fast_installs, strict_installs;
+static bool fake_fast_ok(HMODULE, unsigned char *) { ++fast_installs; return true; }
+static bool fake_fast_fail(HMODULE, unsigned char *) { ++fast_installs; return false; }
+static bool fake_strict_ok(HMODULE, unsigned char *) { ++strict_installs; return true; }
+static bool fake_strict_fail(HMODULE, unsigned char *) { ++strict_installs; return false; }
 using PublishedFn = int (*)();
 static std::atomic<PublishedFn> published_original(nullptr);
 static int published_hook() {
@@ -21,8 +26,102 @@ static int published_hook() {
 }
 
 template<typename T> static void store(void *base, size_t off, T value) { memcpy((char *)base + off, &value, sizeof value); }
+template<typename T> static T load(void *base, size_t off) { T value; memcpy(&value, (char *)base + off, sizeof value); return value; }
+
+// Execute the actual production patch installer + generated x64 stub, not a C++ model.
+// The wrapper stands in for engine code immediately surrounding the verified 15 bytes.
+static void test_cache_bounds(size_t page, void *renderer, void *pool)
+{
+    unsigned char *fn = (unsigned char *)VirtualAlloc(nullptr, page, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    if (!fn) { check(false, "allocate bounds test code"); return; }
+    unsigned char pre[] = {0x57,0x48,0x89,0xcf,0x48,0xb8,0,0,0,0,0,0,0,0};
+    const u64 marker = 0x123456789abcdef0ull;
+    memcpy(pre + 6, &marker, 8); memcpy(fn, pre, sizeof pre);
+    const unsigned char site[] = {0x81,0xe2,0xff,0xff,0xff,0x00,0x48,0x8b,0x87,0x68,0x01,0x00,0x00,0x8b,0xca};
+    memcpy(fn + sizeof pre, site, sizeof site);
+    // Save the displaced MOV results, return one. The allocator branch saves incoming RAX,
+    // returns zero, and both restore the Windows non-volatile RDI used by the wrapper.
+    const unsigned char next[] = {0x48,0x89,0x87,0x00,0x02,0x00,0x00,0x89,0x8f,0x08,0x02,0x00,0x00,0xb8,1,0,0,0,0x5f,0xc3};
+    const unsigned char miss[] = {0x48,0x89,0x87,0x10,0x02,0x00,0x00,0x31,0xc0,0x5f,0xc3};
+    const size_t next_off = sizeof pre + sizeof site, miss_off = next_off + sizeof next;
+    memcpy(fn + next_off, next, sizeof next); memcpy(fn + miss_off, miss, sizeof miss);
+    DWORD old;
+    if (!VirtualProtect(fn, page, PAGE_EXECUTE_READ, &old)) { check(false, "protect bounds test code"); VirtualFree(fn, 0, MEM_RELEASE); return; }
+    FlushInstructionCache(GetCurrentProcess(), fn, page);
+    volatile LONG repairs = 0;
+    // Verify rejection leaves an altered site completely untouched.
+    unsigned char *bad = (unsigned char *)VirtualAlloc(nullptr, page, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    if (!bad) { check(false, "allocate mismatch test"); VirtualFree(fn, 0, MEM_RELEASE); return; }
+    memcpy(bad, site, sizeof site); bad[0] ^= 1;
+    unsigned char saved[sizeof site]; memcpy(saved, bad, sizeof saved);
+    check(!render_test_install_cache_bounds(bad, fn + next_off, fn + miss_off, &repairs) && !memcmp(bad, saved, sizeof saved),
+          "changed inline signature is not patched");
+    VirtualFree(bad, 0, MEM_RELEASE);
+    check(render_test_install_cache_bounds(fn + sizeof pre, fn + next_off, fn + miss_off, &repairs), "production bounds patch installs");
+    using BoundsFn = int (*)(void *, u32);
+    BoundsFn call = (BoundsFn)fn;
+    store(renderer, 0x168, (u64)(uintptr_t)pool);
+    store(renderer, 0x174, (u32)3); store(renderer, 0x178, (u32)4);
+    check(call(renderer, 0) == 1 && load<u64>(renderer, 0x200) == (u64)(uintptr_t)pool && load<u32>(renderer, 0x208) == 0 && repairs == 0,
+          "first live slot preserves displaced registers without repair");
+    check(call(renderer, 2) == 1 && load<u32>(renderer, 0x208) == 2 && repairs == 0, "last live slot accepted");
+    check(call(renderer, 3) == 0 && repairs == 1 && load<u64>(renderer, 0x210) == marker, "count boundary uses native allocator and preserves RAX");
+    store(renderer, 0x174, (u32)5); store(renderer, 0x178, (u32)2);
+    check(call(renderer, 2) == 0 && repairs == 2, "capacity boundary uses native allocator");
+    store(renderer, 0x178, (u32)0);
+    check(call(renderer, 0) == 0 && repairs == 3, "empty capacity rejects slot zero");
+    store(renderer, 0x174, (u32)3); store(renderer, 0x178, (u32)4);
+    check(call(renderer, 0xab000001u) == 1 && load<u32>(renderer, 0x208) == 1, "slot mask matches displaced engine instruction");
+    check(call(renderer, 0xfffffffeu) == 0 && repairs == 4, "large masked slot takes native allocator");
+    // This deliberately demonstrates the accepted tradeoff: bounds do not validate the pool pointer.
+    store(renderer, 0x168, (u64)0x12345000);
+    check(call(renderer, 1) == 1 && load<u64>(renderer, 0x200) == 0x12345000, "bounds alone do not establish pool ownership");
+    store(renderer, 0x168, (u64)(uintptr_t)pool);
+
+    LARGE_INTEGER freq, a, b; QueryPerformanceFrequency(&freq); QueryPerformanceCounter(&a);
+    const unsigned iterations = 1000000;
+    volatile int sink = 0;
+    for (unsigned i = 0; i < iterations; ++i) sink += call(renderer, 1);
+    QueryPerformanceCounter(&b);
+    printf("cache bounds synthetic: %.3f us/call (%u valid calls; wrapper included, not FPS)\n",
+           (b.QuadPart - a.QuadPart) * 1000000.0 / freq.QuadPart / iterations, iterations);
+    check(sink == (int)iterations, "valid bounds benchmark retains expected branch");
+    VirtualFree(fn, 0, MEM_RELEASE);
+}
+
 int main()
 {
+    // Strict cache preflight is installed only for an explicit "strict" environment value.
+    // Unset/invalid/too-long values and fast-install failure must never activate it.
+    char saved_mode[32768] = {};
+    SetLastError(ERROR_SUCCESS);
+    DWORD saved_len = GetEnvironmentVariableA("MP_RENDER_CACHE_GUARD", saved_mode, (DWORD)sizeof saved_mode);
+    bool saved_defined = saved_len != 0 || GetLastError() != ERROR_ENVVAR_NOT_FOUND;
+    check(saved_len < sizeof saved_mode, "cache mode fits saved environment buffer");
+    SetEnvironmentVariableA("MP_RENDER_CACHE_GUARD", nullptr);
+    check(!render_test_cache_strict_requested(), "unset mode defaults to fast");
+    SetEnvironmentVariableA("MP_RENDER_CACHE_GUARD", "fast");
+    check(!render_test_cache_strict_requested(), "fast mode is not strict");
+    SetEnvironmentVariableA("MP_RENDER_CACHE_GUARD", "unexpected");
+    check(!render_test_cache_strict_requested(), "invalid mode never enables strict");
+    SetEnvironmentVariableA("MP_RENDER_CACHE_GUARD", "this-value-is-intentionally-much-too-long");
+    check(!render_test_cache_strict_requested(), "overlong mode never enables strict");
+    SetEnvironmentVariableA("MP_RENDER_CACHE_GUARD", "STRICT");
+    check(render_test_cache_strict_requested(), "explicit strict is case insensitive");
+    SetEnvironmentVariableA("MP_RENDER_CACHE_GUARD", saved_defined ? saved_mode : nullptr);
+    fast_installs = strict_installs = 0;
+    check(render_test_select_cache(false, fake_fast_ok, fake_strict_ok) == 1 && fast_installs == 1 && strict_installs == 0,
+          "default installs fast only");
+    fast_installs = strict_installs = 0;
+    check(render_test_select_cache(false, fake_fast_fail, fake_strict_ok) == 0 && fast_installs == 1 && strict_installs == 0,
+          "fast failure leaves exact-AV recovery, not strict preflight");
+    fast_installs = strict_installs = 0;
+    check(render_test_select_cache(true, fake_fast_ok, fake_strict_ok) == 2 && fast_installs == 0 && strict_installs == 1,
+          "strict is installed only when explicitly requested");
+    fast_installs = strict_installs = 0;
+    check(render_test_select_cache(true, fake_fast_ok, fake_strict_fail) == 0 && fast_installs == 0 && strict_installs == 1,
+          "failed explicit strict attempt leaves exact-AV recovery only");
+
     SYSTEM_INFO info = {}; GetSystemInfo(&info);
     size_t page = info.dwPageSize;
     char *code = (char *)VirtualAlloc(nullptr, 0x50000, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
@@ -55,6 +154,19 @@ int main()
     check(render_test_fault(&xp) == EXCEPTION_CONTINUE_EXECUTION && ctx.Rip == (DWORD64)(uintptr_t)(code + 0x129c6), "exact stale cache write uses native allocator");
     ctx.Rip = (DWORD64)(uintptr_t)(code + 0x129a2); er.ExceptionInformation[1]++;
     check(render_test_fault(&xp) == EXCEPTION_CONTINUE_SEARCH, "other write address is not hidden");
+    store(record, 0x34, (u32)0xab000002u);
+    ctx.Rip = (DWORD64)(uintptr_t)(code + 0x129a2); ctx.Rdx = 2;
+    er.ExceptionInformation[1] = ctx.Rax + (2u << 6);
+    check(render_test_fault(&xp) == EXCEPTION_CONTINUE_EXECUTION && ctx.Rip == (DWORD64)(uintptr_t)(code + 0x129c6),
+          "exact write-AV accepts high record flags after the engine masks RDX");
+    store(record, 0x34, (u32)0xfffffffeu);
+    ctx.Rip = (DWORD64)(uintptr_t)(code + 0x129a2); ctx.Rdx = 0x00fffffeu;
+    er.ExceptionInformation[1] = ctx.Rax + ((u64)ctx.Rdx << 6);
+    check(render_test_fault(&xp) == EXCEPTION_CONTINUE_SEARCH, "sentinel record is not hidden at the write site");
+    store(record, 0x34, (u32)2);
+    ctx.Rip = (DWORD64)(uintptr_t)(code + 0x129a2); ctx.Rdx = 0x01000002u;
+    er.ExceptionInformation[1] = ctx.Rax + (2u << 6);
+    check(render_test_fault(&xp) == EXCEPTION_CONTINUE_SEARCH, "unmasked RDX is not a legitimate write-site state");
 
     alignas(8) unsigned char query[0xa8] = {};
     er.ExceptionInformation[0] = 0;
@@ -134,6 +246,7 @@ int main()
     printf("cache preflight synthetic: queries cached=%u previous=%u; mean us cached=%.2f previous=%.2f (not FPS)\n",
            cached_queries, original_queries, (middle.QuadPart - begin.QuadPart) * 1000000.0 / frequency.QuadPart / iterations,
            (end.QuadPart - middle.QuadPart) * 1000000.0 / frequency.QuadPart / iterations);
+    test_cache_bounds(page, renderer, pool);
     DWORD previous = 0;
     if (!VirtualProtect((char *)pool + page, page, PAGE_EXECUTE_READWRITE, &previous)) return 2;
     store(record, 0x34, (u32)(page / 64));
@@ -142,6 +255,15 @@ int main()
     if (!VirtualProtect((char *)pool + page, page, PAGE_READONLY, &previous)) return 2;
     render_test_cache(renderer, 0); memcpy(&value, record + 0x34, 4);
     check(value == 0xfffffffeu, "non-writable region in the same allocation is still rejected");
+    // Bounds do not query page permissions; the retained exact write-AV handler must still
+    // redirect an inaccessible/read-only matrix write to the native allocator.
+    store(record, 0x34, (u32)(page / 64));
+    er.ExceptionCode = EXCEPTION_ACCESS_VIOLATION; er.NumberParameters = 2; er.ExceptionInformation[0] = 1;
+    er.ExceptionAddress = code + 0x129a2; er.ExceptionInformation[1] = (ULONG_PTR)((char *)pool + page);
+    ctx.Rip = (DWORD64)(uintptr_t)(code + 0x129a2); ctx.Rbp = (DWORD64)(uintptr_t)record;
+    ctx.Rax = (DWORD64)(uintptr_t)pool; ctx.Rdx = (u32)(page / 64);
+    check(render_test_fault(&xp) == EXCEPTION_CONTINUE_EXECUTION && ctx.Rip == (DWORD64)(uintptr_t)(code + 0x129c6),
+          "read-only pool write remains recoverable at the exact exception site");
     store(record, 0x34, stale);
     render_test_cache(renderer, 0);
     memcpy(&value, record + 0x34, 4);
@@ -158,6 +280,11 @@ int main()
     }
     check(cache_same, "cached and original preflights agree for 512 valid, protected and stale entries");
     VirtualFree(pool, 0, MEM_RELEASE);
+    store(record, 0x34, (u32)0);
+    er.ExceptionInformation[1] = (ULONG_PTR)pool; ctx.Rip = (DWORD64)(uintptr_t)(code + 0x129a2);
+    ctx.Rax = (DWORD64)(uintptr_t)pool; ctx.Rdx = 0;
+    check(render_test_fault(&xp) == EXCEPTION_CONTINUE_EXECUTION && ctx.Rip == (DWORD64)(uintptr_t)(code + 0x129c6),
+          "freed pool write remains recoverable at the exact exception site");
     VirtualFree(code, 0, MEM_RELEASE);
 
     unsigned char *function = (unsigned char *)VirtualAlloc(nullptr, page, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);

@@ -215,13 +215,16 @@ void netlog_open(HMODULE self, const char *program, const char *out_dir)
         fclose(image);
     }
 
-    sprintf_s(g_identity, sizeof g_identity, "net_v21 v1.0.7-experimental, %s %s, program %s; image %s, %llu bytes, fnv1a64 %016llx, pe stamp %08lx",
-              __DATE__, __TIME__, program, path, size, hash, pe_stamp(self));
-    write_line("boot", "=== net_v21: our own network module, v1.0.7-experimental ===");
+    // Build time macros made otherwise identical release binaries change on every build. The
+    // actual log has wall-clock timestamps; FNV, image size, PE stamp and compiler identify the
+    // loaded module while allowing the candidate to be independently rebuilt and compared.
+    sprintf_s(g_identity, sizeof g_identity, "net_v21 v1.0.7-experimental-net+fps, program %s; image %s, %llu bytes, fnv1a64 %016llx, pe stamp %08lx",
+              program, path, size, hash, pe_stamp(self));
+    write_line("boot", "=== net_v21: our own network module, v1.0.7-experimental-net+fps ===");
 #ifdef _MSC_VER
-    write_line("boot", "build: compiled %s %s, MSVC %d", __DATE__, __TIME__, (int)_MSC_VER);
+    write_line("boot", "build: compiled with MSVC %d (reproducible build; time omitted)", (int)_MSC_VER);
 #else
-    write_line("boot", "build: compiled %s %s, non-MSVC compiler", __DATE__, __TIME__);
+    write_line("boot", "build: compiled with non-MSVC compiler (reproducible build; time omitted)");
 #endif
     write_line("boot", "image: %s", path);
     write_line("boot", "image: %llu bytes, fnv1a64 %016llx, pe stamp %08lx",

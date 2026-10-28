@@ -4,6 +4,7 @@ rem
 rem   build.bat baseline   the published v12 sources, untouched - the M1 reference build
 rem   build.bat module     the same sources plus the Steam layer - the M2 build
 rem   build.bat selftest   the Steam layer's and the run log's self-tests, no game and no Steam needed
+rem   build.bat render_test  only the renderer guard test (fast feedback)
 rem   build.bat join       the command-line join launcher (mp_join.exe), with Steam
 rem   build.bat all        all three
 rem
@@ -14,9 +15,10 @@ setlocal
 if /i "%~1"=="baseline" goto tools
 if /i "%~1"=="module" goto tools
 if /i "%~1"=="selftest" goto tools
+if /i "%~1"=="render_test" goto tools
 if /i "%~1"=="join" goto tools
 if /i "%~1"=="all" goto tools
-echo usage: build.bat baseline^|module^|selftest^|join^|all
+echo usage: build.bat baseline^|module^|selftest^|render_test^|join^|all
 exit /b 2
 
 :tools
@@ -46,6 +48,7 @@ set BASELINE=%PUBLISHED%\basic_network.cpp %PUBLISHED%\session.cpp %PUBLISHED%\u
 if /i "%~1"=="baseline" goto baseline
 if /i "%~1"=="module" goto module
 if /i "%~1"=="selftest" goto selftest
+if /i "%~1"=="render_test" goto render_test
 if /i "%~1"=="join" goto join
 
 :all
@@ -62,7 +65,7 @@ exit /b %errorlevel%
 
 :module
 if not exist build\module mkdir build\module
-cl /nologo /LD /MD /O1 /EHa /W3 /Brepro /Fo"build\module\\" /Fd"build\module\\" %BASE% %STEAM% /link user32.lib gdi32.lib ws2_32.lib ole32.lib oleaut32.lib /OUT:build\module\basic_network.codelib /IMPLIB:build\module\basic_network.lib /MAP:build\module\basic_network.map
+cl /nologo /LD /MD /O1 /EHa /W3 /Brepro /Fo"build\module\\" /Fd"build\module\\" %BASE% %STEAM% /link /Brepro user32.lib gdi32.lib ws2_32.lib ole32.lib oleaut32.lib /OUT:build\module\basic_network.codelib /IMPLIB:build\module\basic_network.lib /MAP:build\module\basic_network.map
 exit /b %errorlevel%
 
 :selftest
@@ -160,9 +163,14 @@ if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\session.cpp src\vitals.cpp src\hooks.cpp src\steam.cpp src\steam_module.cpp src\shots.cpp src\hit_sync.cpp src\anim_sync.cpp src\session_event_peer.cpp /link ws2_32.lib ole32.lib oleaut32.lib user32.lib /OUT:build\selftest\session_event_peer.exe
 exit /b %errorlevel%
 
+:render_test
+if not exist build\render_test mkdir build\render_test
+cl /nologo /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\render_test\\" /Fd"build\render_test\\" src\render_guard.cpp src\hooks.cpp src\render_guard_test.cpp /link /OUT:build\render_test\render_guard_test.exe
+exit /b %errorlevel%
+
 :join
 rem The launcher the same way the author builds it (/MT), plus the Steam layer, so joining by
 rem "steam:<id>" works from the command line as well as from the menu.
 if not exist build\join mkdir build\join
-cl /nologo /MT /O1 /EHsc /W3 /Fo"build\join\\" /Fd"build\join\\" src\mp_join.cpp src\steam.cpp src\steam_logger.cpp /link ws2_32.lib /OUT:build\join\mp_join.exe
+cl /nologo /MT /O1 /EHsc /W3 /Brepro /Fo"build\join\\" /Fd"build\join\\" src\mp_join.cpp src\steam.cpp src\steam_logger.cpp /link /Brepro ws2_32.lib /OUT:build\join\mp_join.exe
 exit /b %errorlevel%
