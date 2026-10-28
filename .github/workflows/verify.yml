@@ -12,11 +12,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify hashes, PE surface, exact kit and native logic
         run: scripts/verify_release.sh
-      - name: Upload current unified Steam + FPS installer
+      - name: Upload current experimental net+fps installer
         uses: actions/upload-artifact@v4
         with:
-          name: MiusMultiplayer_v1.0.1_INSTALL
-          path: MiusMultiplayer_v1.0.1_INSTALL.zip
+          name: MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET_FPS_INSTALL
+          path: MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip
           if-no-files-found: error
       - name: Upload outdated rollback installer
         uses: actions/upload-artifact@v4

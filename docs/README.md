@@ -21,7 +21,7 @@
 | [`V20_NETWORK_LAYER.md`](V20_NETWORK_LAYER.md) | транспорт v20: UDP 1943, UPnP через COM (`UPnPNAT`, два GUID'а), маркер Steam-пира `sa_family=0x5354` | **действует** |
 | [`SOURCE_REBUILD_REQUIREMENTS.md`](SOURCE_REBUILD_REQUIREMENTS.md) | границы нашего процесса: что можно менять, что снято решением 2026-10-26, сверка Steam ABI по присланной DLL | **действует** |
 | [`VITALS_CPP_PORT_PLAN.md`](VITALS_CPP_PORT_PLAN.md) | поэтапный перенос логики `mp_vitals` в C++: модули, инварианты, точки отката, E0–E8 | **действует** |
-| [`TWO_PC_TEST_PLAN_2026-10-26.md`](TWO_PC_TEST_PLAN_2026-10-26.md) | план двух-ПК прогона v1.0.1: сценарии S1–S7, что сохранять, критерии приёмки | **действует** |
+| [`TWO_PC_TEST_PLAN_2026-10-26.md`](TWO_PC_TEST_PLAN_2026-10-26.md) | план двух-ПК прогона v1.0.1: сценарии S1–S7, что сохранять, критерии приёмки | исторический; архив 1.0.1 удалён из текущего дерева |
 | [`NETWORK_LIMITATIONS.md`](NETWORK_LIMITATIONS.md) | карта точных сайтов в релизном модуле и известные ограничения сетевого кода (G1–G7) | **действует** |
 | [`MIUSPLAYER_ANALYSIS.md`](MIUSPLAYER_ANALYSIS.md) | независимый разбор MiusPlayer v20: нативный надёжный поток, зачем изменён Vitals-поток | **действует** |
 

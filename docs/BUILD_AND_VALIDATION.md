@@ -1,5 +1,12 @@
 # Сборка и проверка MiusMultiplayer v1.0.1
 
+> Историческая схема: архивы 1.0.1–1.0.6 удалены из текущего дерева. Текущий экспериментальный
+> установщик описан в [NET_V21_107_EXPERIMENTAL_NET_FPS.md](NET_V21_107_EXPERIMENTAL_NET_FPS.md).
+> Проверка старого FPS kit теперь использует `python3 scripts/verify_legacy_fps_fixture.py`.
+> Windows-тест перехода с 1.0.6 читает подлинный архив из закреплённого Git-коммита и сверяет
+> SHA-256. Для shallow clone перед этим тестом нужна команда:
+> `git fetch --no-tags --depth=1 origin 047195f1b16f034cf06f4a204402e6e800ca05ea`.
+
 ## Воспроизводимые входы и артефакты
 
 `development/kit-source/src/build_release.sh` принимает только оригинальный MiusPlayer v20 `basic_network.codelib`; SHA-256 входа проверяется до всех изменений.
@@ -115,7 +122,7 @@ sha256sum MiusMultiplayer_v1.0.1_INSTALL.zip
 
 - `scripts/build_steam_compatible_fps_candidate.py` начинает с exact verified Steam 3598/1 module (`485b655…102a3`) и добавляет отдельную executable `.fpsfix` PE section; её 23-byte trampoline пропускает исходный `session_sim_step` только когда `on_ctrl_tick` получает zero-ms step, а non-zero path вызывает original function без изменения;
 - checked-in кандидат лежит в `development/fps-candidate/basic_network.codelib`;
-- workflow `.github/workflows/verify-fps-codelib.yml` заново собирает его, сравнивает byte-for-byte с checked-in файлом и затем проверяет v1.0.1 archive через `scripts/package_unified_fps_mod.py --verify`;
+- workflow `.github/workflows/verify-fps-codelib.yml` заново собирает его, сравнивает byte-for-byte с checked-in файлом и проверяет временную копию исторического kit по хешам всех 13 файлов через `scripts/verify_legacy_fps_fixture.py`;
 - `scripts/package_unified_fps_mod.py` по-прежнему допускает только exact transformation: base hash, original call signature, redirected call, `.fpsfix` code, retained Vitals import и Steam runtime markers `MP_STEAM_PEER`, `+gtmf_join=`, SteamFriends, SteamUser, SteamNetworking, `SendP2PPacket`, `ReadP2PPacket`, `JoinRequested`.
 
 Retained binary surface не заменяет live evidence: до Windows Steam two-peer regression (rich presence host, friends Join Game, P2P lobby, tactical session, reconnect, обе стороны host) candidate остаётся FPS test candidate, не gameplay-certified compatibility release.

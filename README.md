@@ -8,8 +8,9 @@ SHA-256: `d733efa9f085f65d1f5db36bf8b004e5945329625d0bb6b468590d936b490bb8`.
 
 Это отдельный экспериментальный архив на основе 1.0.7 EXPERIMENTAL со всеми её сетевыми
 изменениями и новым быстрым контролем кэша рендера. Используйте один и тот же архив на обоих ПК;
-установщик сразу включает `net_v21`. Предыдущие архивы и резервные копии не заменяются.
-Реальная игра, Steam, FPS и отсутствие вылетов не проверены; заранее сохраните профили и операции.
+установщик сразу включает `net_v21`. Сохранённые резервные копии не заменяются; архивы
+1.0.1–1.0.6 удалены из текущего дерева. Реальная игра, Steam, FPS и отсутствие вылетов не
+проверены; заранее сохраните профили и операции.
 
 По умолчанию строгая дорогостоящая проверка кэша не включается. Она возможна только при явно
 заданном `MP_RENDER_CACHE_GUARD=strict`. Если быстрый перехват не установлен, строгий режим сам
@@ -36,7 +37,8 @@ SHA-256: `60e7b7a2f2914ae75cf203f48aacc89e9469f71b15b654f70805d50e50736f78`.
    оба игрока завершают его штатными средствами игры.
 4. Для отката после закрытия игры запустите `Disable_Multiplayer.bat`. Если EXPERIMENTAL стоял
    поверх прежнего мода, этот шаг вернёт его файлы; для возврата к исходной игре затем распакуйте
-   архив прежней версии и выполните её `Disable_Multiplayer.bat`, сохраняя каталог `state`.
+   сохранённый архив прежней версии и выполните её `Disable_Multiplayer.bat`, сохраняя `state`.
+   Архивы 1.0.1–1.0.6 в текущем дереве удалены, но остаются в истории Git.
 
 Протокол остаётся 17. Именное сопоставление выстрелов используется только при выполнении его
 проверок; иначе остаётся рискованная старая эвристика. Старый приёмник 1.0.7 не получает защиту
@@ -51,11 +53,12 @@ SHA-256: `60e7b7a2f2914ae75cf203f48aacc89e9469f71b15b654f70805d50e50736f78`.
 
 Единый multiplayer-мод для **Graviteam Tactics: Mius-Front** (Steam game build 3598/1). v1.0.1 объединяет Steam-compatible FPS candidate, MiusPlayer runtime и проверенный MiusVitals sidecar в одном устанавливаемом наборе.
 
-## Скачать и установить v1.0.1
+## Историческое описание v1.0.1 — не для установки
 
-**Основной установщик:** [`MiusMultiplayer_v1.0.1_INSTALL.zip`](MiusMultiplayer_v1.0.1_INSTALL.zip). Отдельно доступен [тестовый архив 1.0.3](MiusMultiplayer_v1.0.3_TEST_INSTALL.zip): по умолчанию он ставит те же файлы v1.0.1, а собственный модуль `net_v21` включается вручную и ещё не проверен в игре.
+Архивы 1.0.1–1.0.6 удалены из текущего дерева репозитория. Описание этого старого
+установщика сохранено для истории и не является инструкцией для текущей версии.
 
-Основной архив содержит единый корень `MiusMultiplayer/` и имеет SHA-256 `13dd5b317f05ee9f6852cb75671af0f3c847b040e622799b7afb19efe07479b6`. Распакуйте его в корень игры рядом со `starter_x64.exe`, затем выполните `MiusMultiplayer\\Check_Install.bat` и `MiusMultiplayer\\Enable_Multiplayer.bat` на обоих ПК. Не устанавливайте отдельно старые `mpmod1`, `MiusVitals` или архив `MiusMultiplayer_OUTDATED_INSTALL.zip`.
+Архив v1.0.1 содержал единый корень `MiusMultiplayer/` и имел SHA-256 `13dd5b317f05ee9f6852cb75671af0f3c847b040e622799b7afb19efe07479b6`. Для текущей установки используйте раздел 1.0.7 EXPERIMENTAL net+fps выше.
 
 Внутри v1.0.1 находится `basic_network.codelib` SHA-256 `7b42a69abe58deb1583d2f5320eebbecd9718ffa27ea08933613e67df1901f67`: это Steam-capable 3598/1 module с проверенным `.fpsfix` trampoline. Он пропускает `session_sim_step` только при zero-ms `ctrl_tick` и оставляет original path для non-zero steps. Steam Friends, rich presence, Join Game, SteamNetworking P2P, Vitals import/signature surface и остальные текущие runtime fixes остаются в том же codelib.
 
@@ -65,11 +68,11 @@ SHA-256: `60e7b7a2f2914ae75cf203f48aacc89e9469f71b15b654f70805d50e50736f78`.
 
 | Архив | Назначение |
 |---|---|
-| [`MiusMultiplayer_v1.0.1_INSTALL.zip`](MiusMultiplayer_v1.0.1_INSTALL.zip) | основной установщик |
-| [`MiusMultiplayer_v1.0.3_TEST_INSTALL.zip`](MiusMultiplayer_v1.0.3_TEST_INSTALL.zip) | прежний тест собственного `net_v21`, тогда включавшийся отдельно |
+| [`MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip`](MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET%2BFPS_INSTALL.zip) | текущий экспериментальный установщик |
+| [`MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip`](MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip), [`MiusMultiplayer_v1.0.7_TEST_INSTALL.zip`](MiusMultiplayer_v1.0.7_TEST_INSTALL.zip) | предыдущие сборки 1.0.7 |
 | [`MiusMultiplayer_v1.0.0_TEST_INSTALL_known_good.zip`](MiusMultiplayer_v1.0.0_TEST_INSTALL_known_good.zip) | сохранённая контрольная копия для отката |
-| [`MiusMultiplayer_v1.0.0_TEST_INSTALL.zip`](MiusMultiplayer_v1.0.0_TEST_INSTALL.zip), [`MiusMultiplayer_v1.0.2_TEST_INSTALL.zip`](MiusMultiplayer_v1.0.2_TEST_INSTALL.zip) | разные прежние тестовые сборки `net_v21` |
-| [`GTMP_alpha_INSTALL.zip`](GTMP_alpha_INSTALL.zip) | эксперимент с другой `mp_vitals.dll` |
+| [`MiusMultiplayer_v1.0.0_TEST_INSTALL.zip`](MiusMultiplayer_v1.0.0_TEST_INSTALL.zip) | прежняя тестовая сборка `net_v21` |
+| [`GTMP_alpha_INSTALL.zip`](GTMP_alpha_INSTALL.zip) | исторический эксперимент с другой `mp_vitals.dll` |
 | [`MiusMultiplayer_OUTDATED_INSTALL.zip`](MiusMultiplayer_OUTDATED_INSTALL.zip) | прежний установщик v1.0.0, только для отката и истории |
 
 У этих архивов есть различия в составе или бинарных файлах; одинаковый базовый установщик внутри тестовых ZIP не делает их одинаковыми сборками. Результат проверки и удалённый дубликат — в [инвентаре архивов](docs/ARCHIVE_INVENTORY_2026-10-27.md).
@@ -80,17 +83,17 @@ SHA-256: `60e7b7a2f2914ae75cf203f48aacc89e9469f71b15b654f70805d50e50736f78`.
 
 [`GTMP_alpha_INSTALL.zip`](GTMP_alpha_INSTALL.zip) — это копия v1.0.1, в которой заменён только `mp_vitals.dll` (пересобранная из исходника с мелкими исправлениями) и перемаркированы установщики. `basic_network.codelib` и остальные runtime-файлы побайтово совпадают с v1.0.1, поэтому alpha не может привезти другой модуль. SHA-256 архива `aacfe7dfd0cca82c0ed771e5a9088faa75565f3bf7d5757ceef8d3f532955924`, alpha-DLL `808e1d5f6cb301ac971700e0aba6e78d1df1b13b02e748b8d01dd4bfc8a9881c`.
 
-Alpha нужна для проверки исправлений DLL на живой паре ПК; она не заменяет v1.0.1 как стабильную сборку. Признак загрузки alpha в логе — строка `vitals: GTMP_alpha-1 experimental build (bugfix series 1)`.
+Alpha — исторический эксперимент и не является текущим установщиком 1.0.7. Признак загрузки alpha в логе — строка `vitals: GTMP_alpha-1 experimental build (bugfix series 1)`.
 
 После прогона запустите `MiusMultiplayer\Collect_Logs.bat` — он соберёт один файл `MiusMultiplayer\GTMP_alpha_log.txt` (система, версия игры, хеши установленных файлов, переменные `MP_*`, отчёт Check_Install, выжимка по событиям и полные логи). Для разбора достаточно этого файла с каждого ПК. Подробности, список исправлений и откат — [`development/gtmp-alpha/README.md`](development/gtmp-alpha/README.md) и `ALPHA.txt` внутри архива.
 
-Если в игре остался withdrawn beta module `78e271…2916e` или установка `beta_FPS_fix`, просто запустите `MiusMultiplayer\\Enable_Multiplayer.bat` из v1.0.1: он заменяет codelib и program packs безусловно.
+Исторически для замены withdrawn beta module использовали установщик v1.0.1; этот архив удалён из текущего дерева.
 
 Перед campaign/FPS comparison обязателен Steam two-PC regression: rich-presence host → friend Join Game → P2P lobby → tactical session → reconnect/exit, в обеих host directions. До этой живой проверки Steam/FPS результат не следует считать gameplay-certified.
 
 > Не устанавливайте [`development/`](development/). Это расширенная рабочая область: source MiusPlayer/MiusVitals, manifests и проверки. Для старой v1.0.1 использовался `MiusMultiplayer_v1.0.1_INSTALL.zip`; для редактирования/полной source rebuild цепочки см. [`development/merged-source/`](development/merged-source/). Переданная папка игры `x64` сохранена как справочный снимок в [`development/game-build-3598-1/`](development/game-build-3598-1/) и не является установщиком.
 
-Оба игрока должны установить один и тот же v1.0.1 archive. Откат: после закрытия игры запустите `MiusMultiplayer\\Disable_Multiplayer.bat`; если нужен именно прежний v1.0.0, распакуйте `MiusMultiplayer_OUTDATED_INSTALL.zip` и выполните его `Enable_Multiplayer.bat`.
+Для обоих игроков нужен один и тот же архив; инструкции для текущей сборки и отката приведены в начале этого файла.
 
 ## Кнопка MULTIPLAYER в главном меню
 

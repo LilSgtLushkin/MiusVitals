@@ -57,11 +57,6 @@ class Packaging(unittest.TestCase):
     def test_preserved_archives_are_protected_and_verifiable(self):
         for name in ("MiusMultiplayer_v1.0.0_TEST_INSTALL.zip",
                      "MiusMultiplayer_v1.0.0_TEST_INSTALL_known_good.zip",
-                     "MiusMultiplayer_v1.0.2_TEST_INSTALL.zip",
-                     "MiusMultiplayer_v1.0.3_TEST_INSTALL.zip",
-                     "MiusMultiplayer_v1.0.4_TEST_INSTALL.zip",
-                     "MiusMultiplayer_v1.0.5_TEST_INSTALL.zip",
-                     "MiusMultiplayer_v1.0.6_TEST_INSTALL.zip",
                      "MiusMultiplayer_v1.0.7_TEST_INSTALL.zip"):
             archive = ROOT / name
             with self.subTest(name=name):
@@ -70,6 +65,16 @@ class Packaging(unittest.TestCase):
                 with self.assertRaisesRegex(SystemExit, "refusing to overwrite"):
                     pkg.build(ROOT, Path("nonexistent.codelib"), archive, Path("nonexistent.exe"))
                 self.assertEqual(before, hashlib.sha256(archive.read_bytes()).digest())
+
+    def test_retired_archive_names_remain_reserved(self):
+        for name in ("MiusMultiplayer_v1.0.1_INSTALL.zip",
+                     "MiusMultiplayer_v1.0.2_TEST_INSTALL.zip",
+                     "MiusMultiplayer_v1.0.3_TEST_INSTALL.zip",
+                     "MiusMultiplayer_v1.0.4_TEST_INSTALL.zip",
+                     "MiusMultiplayer_v1.0.5_TEST_INSTALL.zip",
+                     "MiusMultiplayer_v1.0.6_TEST_INSTALL.zip"):
+            with self.subTest(name=name), self.assertRaisesRegex(SystemExit, "refusing to overwrite"):
+                pkg.build(ROOT, Path("nonexistent.codelib"), ROOT / name, Path("nonexistent.exe"))
 
     def test_existing_experimental_archive_is_protected(self):
         released = ROOT / "MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip"
