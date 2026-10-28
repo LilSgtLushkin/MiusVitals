@@ -125,6 +125,8 @@ cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\sta
 if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\statesync.cpp src\statesync_legacy.cpp src\statesync_integration_test.cpp /link /OUT:build\selftest\statesync_integration_test.exe
 if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\state.cpp src\hooks.cpp src\state_memory_test.cpp /link /OUT:build\selftest\state_memory_test.exe
+if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\shots.cpp src\hooks.cpp src\shots_integration_test.cpp /link /OUT:build\selftest\shots_integration_test.exe
 if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\shots.cpp src\xlate.cpp src\hooks.cpp src\shots_xlate_characterization_test.cpp /link /OUT:build\selftest\shots_xlate_characterization_test.exe

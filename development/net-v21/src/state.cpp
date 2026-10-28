@@ -26,12 +26,26 @@ static void *g_msg_vtbl[4] = { (void *)msg_dtor, (void *)msg_dtor, (void *)msg_d
 // so the memory stays ours.
 static const size_t k_scratch = 8u << 20;
 static unsigned char *g_scratch;
+#ifdef NETV21_TEST_HOOKS
+static bool g_test_fail_scratch_allocation;
+void state_test_fail_scratch_allocation(bool fail) { g_test_fail_scratch_allocation = fail; }
+#endif
 
 bool state_save(Object *o, std::vector<unsigned char> &out)
 {
     Handler save = engine_lookup(o, "save");
     if (!save) return false;
-    if (!g_scratch) g_scratch = (unsigned char *)malloc(k_scratch);
+    if (!g_scratch) {
+#ifdef NETV21_TEST_HOOKS
+        if (!g_test_fail_scratch_allocation)
+#endif
+            g_scratch = (unsigned char *)malloc(k_scratch);
+        if (!g_scratch) {
+            static bool reported;
+            if (!reported) { mp_log("state: could not allocate save buffer; state was not requested from the engine"); reported = true; }
+            return false;
+        }
+    }
     Stream s = { g_scratch, g_scratch, g_scratch + k_scratch, 0, 0 };
     StateMsg m = { g_msg_vtbl, "save", &s };
     save(o, &m);
