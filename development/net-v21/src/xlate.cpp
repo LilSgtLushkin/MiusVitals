@@ -28,8 +28,18 @@ static std::unordered_map<u32, u32> g_desc, g_obj;          // the other game's 
 static std::vector<std::pair<u32, u32>> g_their_desc, g_their_obj;      // (number, fingerprint) as received
 static std::vector<std::pair<u32, u32>> g_last_desc, g_last_obj;        // last tables actually queued
 static u32 g_expect_desc, g_expect_obj, g_sent_desc, g_sent_obj;
+static bool g_seen_desc, g_seen_obj; // an empty table is different from a table not received at all
 static bool g_ready, g_hooked, g_hook_tried, g_send_due;
 static void *g_vtbl_copy[97];
+
+// A partial, invalid or newly negotiated table must never expose mappings from the old peer.
+// Clearing them does not make an unmapped numeric ID safe: unchecked callers still fall back.
+static void invalidate_maps()
+{
+    g_ready = false;
+    g_desc.clear();
+    g_obj.clear();
+}
 
 static u32 text_hash(const char *s, size_t max)
 {
@@ -137,7 +147,7 @@ static void match(const std::vector<std::pair<u32, u32>> &theirs, const std::vec
         size_t ai = none;
         for (size_t n = 0; n < theirs.size(); n++) {
             size_t i = pass ? theirs.size() - 1 - n : n;
-            if (to[i] != none && (pass || true)) {
+            if (to[i] != none) {
                 // only true anchors and earlier results carry on a run
                 ai = i;
                 continue;
@@ -162,6 +172,16 @@ static void match(const std::vector<std::pair<u32, u32>> &theirs, const std::vec
            theirs.size(), what, same, moved, lost, anchors, by_place, by_place_same);
 }
 
+#ifdef NETV21_TEST_HOOKS
+// Exercise the actual two-pass matcher without treating positional inference as proof of identity.
+void xlate_test_match(const std::vector<std::pair<u32, u32>> &theirs,
+                      const std::vector<std::pair<u32, u32>> &mine,
+                      std::unordered_map<u32, u32> &out)
+{
+    match(theirs, mine, out, "test descriptions");
+}
+#endif
+
 void xlate_received(const ShotRec &s, ObjMan *om)
 {
     if (s.kind != 3 && s.kind != 4) return;
@@ -174,20 +194,25 @@ void xlate_received(const ShotRec &s, ObjMan *om)
     const bool starting = t.size() >= expect;
     if (total > limit || n > 17 || n > total || (total && !n) ||
         (!starting && total != expect) || (!starting && n > expect - t.size())) {
-        g_ready = false;
+        invalidate_maps();
         g_their_desc.clear(); g_their_obj.clear();
         g_expect_desc = g_expect_obj = 0;
+        g_seen_desc = g_seen_obj = false;
         mp_log("numbers: invalid or inconsistent remote table; full-state loading remains off");
         return;
     }
-    if (starting) { t.clear(); g_ready = false; expect = total; }  // a new table begins
+    if (starting) {
+        t.clear(); invalidate_maps(); expect = total;
+        (s.kind == 3 ? g_seen_desc : g_seen_obj) = true;
+    }  // a new table begins
     for (u32 i = 0; i < n; i++) {
         u32 id, hash;
         memcpy(&id, s.launch + 8 + i * 8, 4);
         memcpy(&hash, s.launch + 12 + i * 8, 4);
         t.push_back({ id, hash });
     }
-    if (g_their_desc.size() >= g_expect_desc && g_their_obj.size() >= g_expect_obj && g_expect_obj) {
+    if (g_seen_desc && g_seen_obj && g_their_desc.size() >= g_expect_desc &&
+        g_their_obj.size() >= g_expect_obj && g_expect_obj) {
         std::vector<std::pair<u32, u32>> desc, obj;
         local_tables(om, desc, obj);
         match(g_their_desc, desc, g_desc, "descriptions");
@@ -197,7 +222,7 @@ void xlate_received(const ShotRec &s, ObjMan *om)
 }
 
 // Tables alone cannot make remote object-state loads safe: the checked vtable hooks must also
-// be installed. Shots may still use the tables separately via xlate_desc().
+// be installed. Shots may still use completed tables separately via xlate_desc_checked().
 bool xlate_ready(void) { return g_ready && g_hooked; }
 u32 xlate_desc(u32 theirs) { auto it = g_desc.find(theirs); return it == g_desc.end() ? theirs : it->second; }
 bool xlate_desc_checked(u32 theirs, u32 *local)
@@ -223,7 +248,14 @@ static void *desc_by_num_hook(ObjMan *om, u32 num)
     return g_desc_by_num(om, num);
 }
 
-void xlate_resend(void) { g_send_due = true; g_ready = false; g_their_desc.clear(); g_their_obj.clear(); g_expect_desc = g_expect_obj = 0; }
+void xlate_resend(void)
+{
+    g_send_due = true;
+    invalidate_maps();
+    g_their_desc.clear(); g_their_obj.clear();
+    g_expect_desc = g_expect_obj = 0;
+    g_seen_desc = g_seen_obj = false;
+}
 
 static void send_changed_tables(ObjMan *om)
 {

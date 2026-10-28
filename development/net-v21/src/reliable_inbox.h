@@ -9,6 +9,31 @@
 #include <deque>
 
 namespace reliable {
+// Bound one unresolved head event, not the age of an entire queue. The caller must still
+// decide whether a timeout is an explicit terminal refusal and log it before committing.
+class HeadWait {
+public:
+    HeadWait() : epoch_(0), seq_(0), since_(0), active_(false) {}
+
+    bool expired(uint32_t epoch, uint32_t seq, uint32_t now, uint32_t limit_ms) {
+        if (!active_ || epoch_ != epoch || seq_ != seq) {
+            epoch_ = epoch;
+            seq_ = seq;
+            since_ = now;
+            active_ = true;
+            return limit_ms == 0;
+        }
+        // Unsigned subtraction also works across a GetTickCount wrap for short deadlines.
+        return uint32_t(now - since_) >= limit_ms;
+    }
+
+    void reset() { active_ = false; }
+
+private:
+    uint32_t epoch_, seq_, since_;
+    bool active_;
+};
+
 template <class Record, size_t Capacity = 1024>
 class Inbox {
 public:

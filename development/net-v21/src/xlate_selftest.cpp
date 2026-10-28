@@ -4,11 +4,16 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 u32 xlate_test_fingerprint(const void *p);
 bool xlate_test_tables_complete();
 void xlate_test_send_changed(ObjMan *);
+void xlate_test_match(const std::vector<std::pair<u32, u32>> &theirs,
+                      const std::vector<std::pair<u32, u32>> &mine,
+                      std::unordered_map<u32, u32> &out);
 void mp_log(const char *, ...) {}
 bool session_connected() { return true; }
 int session_role() { return ROLE_JOIN; }
@@ -31,6 +36,44 @@ static void check(bool ok, const char *label) {
 }
 int main()
 {
+    using Table = std::vector<std::pair<u32, u32>>;
+    std::unordered_map<u32, u32> mapping;
+    const Table forward_theirs = { {10, 101}, {11, 0}, {12, 0}, {13, 202} };
+    const Table forward_mine = { {20, 202}, {21, 77}, {22, 77}, {23, 101}, {24, 77}, {25, 77} };
+    xlate_test_match(forward_theirs, forward_mine, mapping);
+    check(mapping.size() == 4 && mapping[10] == 23 && mapping[11] == 24 && mapping[12] == 25 && mapping[13] == 20,
+          "forward pass preserves the existing anchor and positional inference");
+    // This asserts the algorithm's output, not the truth of an ambiguous positional match.
+    const Table leading_theirs = { {30, 0}, {31, 303}, {32, 0}, {33, 404} };
+    const Table leading_mine = { {40, 0}, {41, 303}, {42, 0}, {43, 404} };
+    xlate_test_match(leading_theirs, leading_mine, mapping);
+    check(mapping.size() == 4 && mapping[30] == 40 && mapping[31] == 41 && mapping[32] == 42 && mapping[33] == 43,
+          "backward pass covers leading positions before the first anchor");
+    xlate_test_match(Table{{50, 505}}, Table{{60, 505}, {61, 505}}, mapping);
+    check(mapping.empty(), "a fingerprint unique on only one side is not an anchor");
+    xlate_test_match(Table{{70, 0}, {71, 0}}, Table{{80, 0}, {81, 0}}, mapping);
+    check(mapping.empty(), "zero fingerprints alone do not create anchors");
+    // Fixture ground truth swaps two indistinguishable entries between the anchors. The matcher
+    // cannot observe that fact: no unmatched entries does not establish that the pairs are right.
+    xlate_test_match(Table{{1, 101}, {2, 0}, {3, 0}, {4, 202}},
+                     Table{{11, 101}, {12, 0}, {13, 0}, {14, 202}}, mapping);
+    check(mapping.size() == 4 && mapping[2] == 12 && mapping[3] == 13 &&
+          mapping[2] != 13 && mapping[3] != 12,
+          "KNOWN LIMITATION: fully placed ambiguous entries can disagree with fixture identity");
+    // The supplied engine can register copied weapon records under numbered names. Equal
+    // nonzero fingerprints do not distinguish those variants either; position is still a guess.
+    xlate_test_match(Table{{1, 101}, {2, 505}, {3, 505}, {4, 202}},
+                     Table{{11, 101}, {12, 505}, {13, 505}, {14, 202}}, mapping);
+    check(mapping.size() == 4 && mapping[2] == 12 && mapping[3] == 13,
+          "KNOWN LIMITATION: duplicate nonzero fingerprints are positioned, not unique anchors");
+    // An inserted/deleted element can leave a hole, but an inferred position must not reuse
+    // a slot already taken by an anchor or a prior positional match.
+    xlate_test_match(Table{{10, 101}, {11, 0}, {12, 0}, {13, 202}},
+                     Table{{20, 101}, {21, 0}, {22, 202}}, mapping);
+    check(mapping.size() == 3 && mapping[10] == 20 && mapping[11] == 21 &&
+          mapping.find(12) == mapping.end() && mapping[13] == 22,
+          "an occupied local slot is not used for a second remote description");
+
     SYSTEM_INFO info = {};
     GetSystemInfo(&info);
     size_t page = info.dwPageSize;
@@ -70,7 +113,6 @@ int main()
     *(u32 *)(manager + 0x15c) = 1;
     ShotRec empty_desc = {};
     empty_desc.kind = 3;
-    xlate_received(empty_desc, (ObjMan *)manager);
     ShotRec one_object = {};
     one_object.kind = 4;
     u32 total = 1, count = 1, pair[2] = {0, 123};
@@ -78,14 +120,49 @@ int main()
     memcpy(one_object.launch + 4, &count, 4);
     memcpy(one_object.launch + 8, pair, sizeof pair);
     xlate_received(one_object, (ObjMan *)manager);
-    check(xlate_test_tables_complete(), "fixture completed number tables");
+    check(!xlate_test_tables_complete(), "object table alone cannot stand in for a missing description table");
+    xlate_received(empty_desc, (ObjMan *)manager);
+    check(xlate_test_tables_complete(), "explicit empty description and complete object tables are ready");
     check(!xlate_ready(), "tables alone never enable full-state loading without verified hooks");
+
+    // Produce a real, unique description mapping without installing any engine hooks. A peer
+    // reset or a malformed new table must not leave the previous map accessible to legacy callers.
+    alignas(8) unsigned char mapped_desc[0x60] = {}, mapped_row[0x10] = {};
+    const u32 remote_id = 41, local_id = 7;
+    memcpy(mapped_row, &local_id, 4);
+    void *mapped_pointer = mapped_desc;
+    memcpy(mapped_row + 8, &mapped_pointer, sizeof mapped_pointer);
+    *(void **)(manager + 0x1748) = mapped_row;
+    *(u32 *)(manager + 0x1754) = 1;
+    ShotRec one_desc = {};
+    one_desc.kind = 3;
+    total = count = 1;
+    pair[0] = remote_id; pair[1] = xlate_test_fingerprint(mapped_desc);
+    memcpy(one_desc.launch, &total, 4);
+    memcpy(one_desc.launch + 4, &count, 4);
+    memcpy(one_desc.launch + 8, pair, sizeof pair);
+    xlate_received(one_desc, (ObjMan *)manager);
+    u32 translated = 0;
+    check(xlate_desc_checked(remote_id, &translated) && translated == local_id &&
+          xlate_desc(remote_id) == local_id, "fixture formed a real description mapping");
+    xlate_resend();
+    check(!xlate_ready() && !xlate_test_tables_complete(), "new table disables stale mappings");
+    check(!xlate_desc_checked(remote_id, &translated) && xlate_desc(remote_id) == remote_id,
+          "peer reset clears the old map even for legacy unchecked callers");
+
+    // Restore both tables and then feed an invalid table header; it must invalidate the map too.
+    xlate_received(one_object, (ObjMan *)manager);
+    check(!xlate_test_tables_complete(), "peer reset forgets that the prior peer sent a description table");
+    xlate_received(one_desc, (ObjMan *)manager);
+    check(xlate_desc(remote_id) == local_id, "mapping is rebuilt after a fresh exchange");
     total = 1000001;
     memcpy(one_object.launch, &total, 4);
     xlate_received(one_object, (ObjMan *)manager);
-    check(!xlate_test_tables_complete() && !xlate_ready(), "oversized remote table invalidates stale mappings");
+    check(!xlate_test_tables_complete() && !xlate_ready() && xlate_desc(remote_id) == remote_id,
+          "oversized remote table invalidates and clears stale mappings");
     xlate_resend();
-    check(!xlate_ready() && !xlate_test_tables_complete(), "new table disables stale mappings");
+    *(void **)(manager + 0x1748) = nullptr;
+    *(u32 *)(manager + 0x1754) = 0;
 
     // Drive the real sender without waiting for the three-second clock or installing game hooks.
     xlate_test_send_changed((ObjMan *)manager);
@@ -110,6 +187,13 @@ int main()
     xlate_test_send_changed((ObjMan *)manager);
     check(queued_kinds.size() == 1 && queued_kinds[0] == 3, "only changed description table is queued");
     queued_kinds.clear();
+    // The supplied game can alter shell +0x20 without changing the number of descriptions.
+    // This is a characterization, not a claim that continuously resending would be safe.
+    u32 before_change = xlate_test_fingerprint(raw_desc);
+    raw_desc[0x20] = 1;
+    check(xlate_test_fingerprint(raw_desc) != before_change, "the fixture really changed its fingerprint");
+    xlate_test_send_changed((ObjMan *)manager);
+    check(queued_kinds.empty(), "KNOWN LIMITATION: unchanged counts hide a changed descriptor fingerprint");
     xlate_resend();
     xlate_test_send_changed((ObjMan *)manager);
     check(queued_kinds.size() == 2 && queued_kinds[0] == 3 && queued_kinds[1] == 4,

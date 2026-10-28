@@ -21,6 +21,17 @@ static ShotRec record(unsigned seq)
 
 int main()
 {
+    reliable::HeadWait wait;
+    const uint32_t start = 0xffffff00u;
+    check(!wait.expired(7, 1, start, 10000), "a new head starts its own deadline");
+    check(!wait.expired(7, 1, start + 9999u, 10000), "head still waits just before the deadline, across clock wrap");
+    check(wait.expired(7, 1, start + 10000u, 10000), "head expires at the deadline across clock wrap");
+    check(!wait.expired(7, 2, start + 10000u, 10000), "the next sequence gets a fresh deadline");
+    check(!wait.expired(9, 2, start + 20000u, 10000), "a different epoch gets a fresh deadline");
+    wait.reset();
+    check(!wait.expired(9, 2, start + 30000u, 10000), "reset clears a pending head deadline");
+    check(wait.expired(9, 2, start + 40000u, 10000), "same head eventually expires after reset");
+
     typedef reliable::Inbox<ShotRec, 2> Small;
     Small q;
     check(!q.epoch(0, 1), "zero epoch is invalid");

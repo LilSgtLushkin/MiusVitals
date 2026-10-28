@@ -26,12 +26,26 @@ static void *g_msg_vtbl[4] = { (void *)msg_dtor, (void *)msg_dtor, (void *)msg_d
 // so the memory stays ours.
 static const size_t k_scratch = 8u << 20;
 static unsigned char *g_scratch;
+#ifdef NETV21_TEST_HOOKS
+static bool g_test_fail_scratch_allocation;
+void state_test_fail_scratch_allocation(bool fail) { g_test_fail_scratch_allocation = fail; }
+#endif
 
 bool state_save(Object *o, std::vector<unsigned char> &out)
 {
     Handler save = engine_lookup(o, "save");
     if (!save) return false;
-    if (!g_scratch) g_scratch = (unsigned char *)malloc(k_scratch);
+    if (!g_scratch) {
+#ifdef NETV21_TEST_HOOKS
+        if (!g_test_fail_scratch_allocation)
+#endif
+            g_scratch = (unsigned char *)malloc(k_scratch);
+        if (!g_scratch) {
+            static bool reported;
+            if (!reported) { mp_log("state: could not allocate save buffer; state was not requested from the engine"); reported = true; }
+            return false;
+        }
+    }
     Stream s = { g_scratch, g_scratch, g_scratch + k_scratch, 0, 0 };
     StateMsg m = { g_msg_vtbl, "save", &s };
     save(o, &m);
@@ -89,6 +103,13 @@ bool state_is_unit(Object *o)
 typedef void (*BaseLoad)(char *, void *);
 static BaseLoad g_base_load;
 static int g_remote_load;
+
+// A C++ unwind from an engine load must not leave subsequent local lookups in remote mode.
+// This guard cannot undo partial engine side effects or fix cross-thread use of the flag.
+struct RemoteLoadGuard {
+    RemoteLoadGuard() { ++g_remote_load; }
+    ~RemoteLoadGuard() { --g_remote_load; }
+};
 
 static void base_load_hook(char *o, void *msg)
 {
@@ -260,9 +281,11 @@ int state_load_keep_motion(Object *o, const unsigned char *data, size_t size, bo
         }
 
     install_part_guard();
-    g_remote_load++;
-    int r = state_load(o, data, size);
-    g_remote_load--;
+    int r;
+    {
+        RemoteLoadGuard loading;
+        r = state_load(o, data, size);
+    }
     if (human) memcpy((char *)o + 0x1d60, anim, 8);
     if (techn)
         for (int k = 0; k < 2; k++) {

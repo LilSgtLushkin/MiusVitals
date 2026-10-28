@@ -21,6 +21,7 @@
 #include "env_value.h"
 #include "netlog.h"
 #include "protocol.h"
+#include "named_shots.h"
 #include "vitals.h"
 #include "reliable_inbox.h"
 #include "hooks.h"
@@ -43,10 +44,11 @@ static DWORD g_main_thread;
 static bool g_injecting, g_install_done, g_enabled = true;
 static FILE *g_file;
 static u32 g_seq, g_epoch, g_dumped;
-static u64 g_stat_own, g_stat_dropped, g_stat_injected, g_stat_refused, g_stat_free, g_stat_sent_bytes, g_stat_repeats;
+static u64 g_stat_own, g_stat_dropped, g_stat_injected, g_stat_refused, g_stat_wait_refused, g_stat_free, g_stat_sent_bytes, g_stat_repeats;
 struct Pending { ShotRec rec; DWORD sent; unsigned char tries; };
 static std::deque<Pending> g_out;               // launched here, not yet acknowledged by the other game
 static reliable::Inbox<ShotRec> g_in;           // receipt is separate from completion / acknowledgement
+static reliable::HeadWait g_head_wait;          // only the first unfinished gameplay event is timed
 // Non-tactical processes never run shots_sim_step, but preserve their old receive/ACK semantics.
 static std::vector<ShotRec> g_in_legacy;
 static u32 g_epoch_in_legacy, g_last_seq_in_legacy;
@@ -55,6 +57,57 @@ static void (*g_ack_send)(const void *, int);
 // launch record: pointers at +0x38 (ammunition), +0x40 (weapon), +0x48 (firing object), +0x50 (object),
 // +0x60 (description)
 enum { L_AMMO = 0x38, L_WEAPON = 0x40, L_SHOOTER = 0x48, L_OBJ2 = 0x50, L_DESC3 = 0x60, L_SIZE = 0x90 };
+
+// These offsets are layout-sensitive, not a new detour. Refuse the experimental name path on
+// another image or vtable rather than guessing. The regular number path remains available.
+static HMODULE g_named_image;
+static bool g_named_probed;
+static void **g_named_vtable;
+#ifdef NETV21_TEST_HOOKS
+static bool g_named_test_override;
+static void *g_named_test_registry;
+void shots_test_name_registry(void *registry) { g_named_test_override = true; g_named_test_registry = registry; }
+#endif
+
+static void *named_registry(ObjMan *om)
+{
+#ifdef NETV21_TEST_HOOKS
+    if (g_named_test_override) return g_named_test_registry;
+#endif
+    HMODULE image = GetModuleHandleA("adv_game.codelib");
+    if (!image) return nullptr; // it may be loaded later
+    if (image != g_named_image) { g_named_image = image; g_named_probed = false; g_named_vtable = nullptr; }
+    if (!g_named_probed) {
+        g_named_probed = true;
+        if (!hook_image_identity("adv_game.codelib", 0x66f2d3a9, 0x178000)) {
+            mp_log("named shots: unknown adv_game layout; using the ordinary number path");
+            return nullptr;
+        }
+        static const unsigned char weapon_sig[] = {
+            0x48,0x89,0x5c,0x24,0x08,0x57,0x48,0x83,0xec,0x60,0x48,0x85,
+            0xd2,0x4c,0x8d,0x05,0x41,0xa4,0x0a,0x00,0x48,0x8b,0xf9,0x48
+        };
+        static const unsigned char ammo_sig[] = {
+            0x48,0x89,0x5c,0x24,0x08,0x57,0x48,0x83,0xec,0x60,0x48,0x85,
+            0xd2,0x4c,0x8d,0x05,0x91,0xa3,0x0a,0x00,0x48,0x8b,0xf9,0x48
+        };
+        const HookSig weapon_where[] = { { 0x6c6e0, weapon_sig, sizeof weapon_sig } };
+        const HookSig ammo_where[] = { { 0x6c790, ammo_sig, sizeof ammo_sig } };
+        char *weapon = hook_resolve_checked("adv_game.codelib", weapon_where, 1, "named weapon lookup");
+        char *ammo = hook_resolve_checked("adv_game.codelib", ammo_where, 1, "named ammunition lookup");
+        if (weapon && ammo) {
+            const HookVtableMember slots[] = { { 3, weapon }, { 4, ammo } };
+            g_named_vtable = hook_vtable_checked("adv_game.codelib", 0x12e180, slots, 2, "i_weapons");
+        }
+        mp_log("named shots: %s (experimental; not all descriptors have usable names)",
+               g_named_vtable ? "verified game image and i_weapons table" : "game identity could not be verified");
+    }
+    if (!g_named_vtable || !hook_image_identity("adv_game.codelib", 0x66f2d3a9, 0x178000) ||
+        !readable(g_named_vtable, 5 * sizeof(void *)) || !readable(om, sizeof *om) ||
+        !readable(om->vtbl, 10 * sizeof(void *)) || !om->vtbl[9]) return nullptr;
+    Object *registry = engine_find(om, "i_weapons", "weapons");
+    return readable(registry, 0x148) && registry->vtbl == g_named_vtable ? registry : nullptr;
+}
 
 static u32 desc_id(void *p) { return p ? ((u32 (*)(ObjMan *, void *))g_om->vtbl[56])(g_om, p) : 0xffffffffu; }
 static void *desc_ptr(u32 id) { return id == 0xffffffffu ? 0 : ((void *(*)(ObjMan *, u32))g_om->vtbl[57])(g_om, id); }
@@ -74,13 +127,14 @@ static u64 object_key(void *p)
 }
 
 // what identifies an ammunition description besides its id: its first two numbers and its type code
-static void ammo_check(void *ammo, float *two, u32 *code)
+static bool ammo_check(void *ammo, float *two, u32 *code)
 {
     two[0] = two[1] = 0;
     *code = 0;
-    if (!readable(ammo, 0xc8)) return;
+    if (!readable(ammo, 0xc8)) return false;
     memcpy(two, ammo, 8);
     memcpy(code, (char *)ammo + 0xc4, 4);
+    return true;
 }
 
 static const char *name_of(void *p)
@@ -148,6 +202,17 @@ static void queue_shot(char kind, const char *rec, u64 flags, const float *pos, 
         memcpy(s.launch, rec, L_SIZE);
         memset(s.launch + L_AMMO, 0, 0x20);         // the four pointers
         memset(s.launch + L_DESC3, 0, 8);
+        // Experimental, additive identity: exact short names and selected game-used fields fit
+        // in these otherwise blank slots. A 1.0.7 receiver ignores them and restores pointers.
+        void *registry = named_registry(g_om);
+        named_shots::Name ammo_name = {}, weapon_name = {};
+        void *weapon = *(void **)(rec + L_WEAPON);
+        if (registry && named_shots::name_for(registry, named_shots::AMMO, ammo, &ammo_name) &&
+            named_shots::name_for(registry, named_shots::WEAPON, weapon, &weapon_name) &&
+            named_shots::encode(s, ammo_name, weapon_name, ammo, weapon))
+            netlog_count("shot_named_sent");
+        else
+            netlog_count("shot_named_fallback");
     } else {
         s.desc3 = 0xffffffffu;
         memcpy(s.launch, rec, 0x40);                // an explosion is a place and the two descriptions
@@ -297,6 +362,36 @@ static void shots_ack(void (*send)(const void *, int))
     send(&ack, sizeof ack);
 }
 
+#ifdef NETV21_TEST_HOOKS
+static bool g_test_wait_time_set;
+static DWORD g_test_wait_time;
+void shots_test_wait_time(DWORD now) { g_test_wait_time_set = true; g_test_wait_time = now; }
+void shots_test_wait_real_time() { g_test_wait_time_set = false; }
+#endif
+
+static DWORD shots_wait_now()
+{
+#ifdef NETV21_TEST_HOOKS
+    if (g_test_wait_time_set) return g_test_wait_time;
+#endif
+    return GetTickCount();
+}
+
+// A timeout is a terminal refusal, not successful replay. ACK can then pass the refused
+// event; a retransmission must never apply it later. Only runs on the simulation thread.
+static bool shots_refuse_expired(const ShotRec &s, const char *reason)
+{
+    const DWORD limit_ms = 10000;
+    if (!g_head_wait.expired(g_in.current_epoch(), s.seq, shots_wait_now(), limit_ms)) return false;
+    ++g_stat_refused;
+    ++g_stat_wait_refused;
+    netlog_count("shot_wait_refused");
+    mp_log("shots: event %u (kind %u, epoch %u) refused without replay after waiting %lu ms: %s",
+           s.seq, (unsigned)s.kind, g_in.current_epoch(), (unsigned long)limit_ms, reason);
+    g_head_wait.reset();
+    return true;
+}
+
 void shots_on_packet(const unsigned char *data, int size, void (*send)(const void *, int))
 {
     if (!data || size < (int)sizeof(Head)) return;
@@ -318,8 +413,18 @@ void shots_on_packet(const unsigned char *data, int size, void (*send)(const voi
     u32 old_epoch = g_in.current_epoch();
     size_t old_pending = g_in.pending();
     if (!g_in.epoch(h->epoch, recs[0].seq)) return;
-    if (old_epoch && old_epoch != h->epoch && old_pending)
-        mp_log("shots: peer restarted its event stream; %zu unfinished events from the old epoch were discarded", old_pending);
+    if (old_epoch != h->epoch) {
+        g_head_wait.reset();
+        if (old_epoch) {
+            // Sequence numbers can restart while the enclosing tactical process epochs stay the
+            // same. Never use the old stream's number tables or handler deadlines for new events.
+            xlate_resend();
+            hits_reset_peer();
+            anim_reset_wait();
+            trench_forget_peer();
+            mp_log("shots: peer restarted its event stream; number tables invalidated, %zu unfinished events discarded", old_pending);
+        }
+    }
     g_ack_send = send;
     unsigned long long fresh = 0;
     for (unsigned i = 0; i < head->count; i++)
@@ -361,6 +466,7 @@ void shots_on_packet_legacy(const unsigned char *data, int size, void (*send)(co
 void shots_reset(void)
 {
     g_in.reset();
+    g_head_wait.reset();
     g_in_legacy.clear();
     g_ack_send = 0;
     g_out.clear();
@@ -368,6 +474,7 @@ void shots_reset(void)
     g_epoch = (GetTickCount() ^ (GetCurrentProcessId() << 16) ^ (g_epoch * 2654435761u)) | 1;
     hits_reset_peer();
     anim_reset_peer();
+    trench_forget_peer();
     trench_resend();
     xlate_resend();
 }
@@ -389,21 +496,24 @@ void shots_sim_step(ObjMan *om)
             item.complete = true;
         }
     }
-    if (g_launch && g_enabled && !g_shellphys)
+    if (g_launch && g_enabled && !g_shellphys && readable(om, sizeof *om) &&
+        readable(om->vtbl, 10 * sizeof(void *)) && om->vtbl[9])
         g_shellphys = (char *)engine_find(om, "i_shellphys", "shellphys");
     g_om = om;
     for (auto &item : g_in.items()) {
         if (item.complete) continue;
         const ShotRec &s = item.record;
         if (s.kind == 7 || s.kind == 8) {
+            // A false return must have no engine side effects: it means "try again".
             bool done = s.kind == 7 ? hits_received(s, om) : anim_received(s, om);
-            if (!done) break; // do not replay a later shot ahead of a waiting hit/snapshot
+            if (!done && !shots_refuse_expired(s, s.kind == 7 ? "hit not ready" : "animation not ready")) break;
+            g_head_wait.reset();
             item.complete = true;
             continue;
         }
         if (s.kind != 0) continue;
         if (!g_install_done || (g_launch && g_enabled && !g_shellphys)) {
-            // The engine may appear on a later simulation step. Do not clear or acknowledge it.
+            if (shots_refuse_expired(s, "shell manager not ready")) { item.complete = true; continue; }
             static DWORD last_wait;
             DWORD now = GetTickCount();
             if (!last_wait || now - last_wait >= 5000) {
@@ -415,17 +525,71 @@ void shots_sim_step(ObjMan *om)
         if (!g_launch || !g_enabled) {
             // This build explicitly refused/disabled its hook; do not pretend the shot was played.
             g_stat_refused++;
+            mp_log("shots: event %u refused without replay: launch hook unavailable", s.seq);
+            g_head_wait.reset();
             item.complete = true;
             continue;
         }
-        void *ammo = desc_ptr(xlate_desc(s.ammo)), *weapon = desc_ptr(xlate_desc(s.weapon));
+        const bool named = s.pad == named_shots::k_marker;
+        named_shots::Proof proof = {};
+        if (named && !named_shots::decode(s, &proof)) {
+            ++g_stat_refused;
+            mp_log("shots: event %u refused without replay: malformed experimental name proof", s.seq);
+            g_head_wait.reset(); item.complete = true; continue;
+        }
+        u32 ammo_id = 0xffffffffu, weapon_id = 0xffffffffu, desc3_id = 0xffffffffu;
+        if ((!named && (!xlate_desc_checked(s.ammo, &ammo_id) || !xlate_desc_checked(s.weapon, &weapon_id))) ||
+            !xlate_desc_checked(s.desc3, &desc3_id)) {
+            if (shots_refuse_expired(s, "description table incomplete or ID not matched")) { item.complete = true; continue; }
+            break;
+        }
+        if (!readable(om, sizeof *om) || !readable(om->vtbl, 58 * sizeof(void *)) || !om->vtbl[57]) {
+            if (shots_refuse_expired(s, "description lookup unavailable")) { item.complete = true; continue; }
+            break;
+        }
+        void *ammo = nullptr, *weapon = nullptr;
+        if (named) {
+            void *registry = named_registry(om);
+            ammo = (void *)named_shots::pointer_for(registry, named_shots::AMMO, proof.ammo);
+            weapon = (void *)named_shots::pointer_for(registry, named_shots::WEAPON, proof.weapon);
+            if (!ammo || !weapon || !om->vtbl[56]) {
+                if (shots_refuse_expired(s, "experimental name unavailable or ambiguous")) { item.complete = true; continue; }
+                break;
+            }
+            // The named array element must also be registered with this object manager now.
+            // This round trip reduces stale-pointer risk but is not a lifetime/thread guarantee.
+            u32 named_ammo_id = desc_id(ammo), named_weapon_id = desc_id(weapon);
+            if (named_ammo_id == 0xffffffffu || named_weapon_id == 0xffffffffu ||
+                desc_ptr(named_ammo_id) != ammo || desc_ptr(named_weapon_id) != weapon) {
+                if (shots_refuse_expired(s, "named description not registered locally")) { item.complete = true; continue; }
+                break;
+            }
+            if (!named_shots::fields_match(proof, ammo, weapon)) {
+                ++g_stat_refused;
+                mp_log("shots: event %u refused without replay: named description fields differ", s.seq);
+                g_head_wait.reset(); item.complete = true; continue;
+            }
+            netlog_count("shot_named_resolved");
+        } else {
+            ammo = desc_ptr(ammo_id); weapon = desc_ptr(weapon_id);
+        }
+        void *desc3 = desc_ptr(desc3_id);
         float two[2];
         u32 code;
-        ammo_check(ammo, two, &code);
+        bool ammo_readable = ammo_check(ammo, two, &code);
         Object *shooter = s.shooter ? session_unit(s.shooter) : 0;
-        // not the same ammunition here, or a unit this game does not have: no shot rather than a wrong one
-        if (!ammo || !weapon || memcmp(two, s.ammo_check, 8) || code != s.ammo_code || (s.shooter && !shooter)) {
+        Object *obj2 = s.obj2 ? session_unit(s.obj2) : 0;
+        Object *obj5 = s.obj5 ? session_unit(s.obj5) : 0;
+        // Never replace an identified but absent local object with a null pointer, or use an
+        // unreadable mapped description. A fingerprint match is still only a heuristic.
+        if (!ammo_readable || !readable(weapon, 0x60) ||
+            (s.desc3 != 0xffffffffu && (desc3_id == 0xffffffffu || !readable(desc3, 0x60))) ||
+            memcmp(two, s.ammo_check, 8) || code != s.ammo_code ||
+            (s.shooter && !readable(shooter, sizeof(Object))) || (s.obj2 && !readable(obj2, sizeof(Object))) ||
+            (s.obj5 && !readable(obj5, sizeof(Object)))) {
             g_stat_refused++;
+            mp_log("shots: event %u refused without replay: description or unit unavailable/mismatched", s.seq);
+            g_head_wait.reset();
             item.complete = true;
             continue;
         }
@@ -434,15 +598,16 @@ void shots_sim_step(ObjMan *om)
         *(void **)(rec + L_AMMO) = ammo;
         *(void **)(rec + L_WEAPON) = weapon;
         *(void **)(rec + L_SHOOTER) = shooter;
-        *(void **)(rec + L_OBJ2) = s.obj2 ? session_unit(s.obj2) : 0;
-        *(void **)(rec + L_DESC3) = desc_ptr(xlate_desc(s.desc3));
+        *(void **)(rec + L_OBJ2) = obj2;
+        *(void **)(rec + L_DESC3) = desc3;
         float pos[4];
         memcpy(pos, s.pos, 16);
         log_launch("received", 'L', rec, s.flags, 0, 0);
         g_injecting = true;
-        g_launch(g_shellphys, rec, s.flags & ~2u, s.has_pos ? pos : 0, s.obj5 ? session_unit(s.obj5) : 0, s.arg6);
+        g_launch(g_shellphys, rec, s.flags & ~2u, s.has_pos ? pos : 0, obj5, s.arg6);
         g_injecting = false;
         g_stat_injected++;
+        g_head_wait.reset();
         item.complete = true;
     }
     u32 before = g_in.committed();
@@ -450,6 +615,8 @@ void shots_sim_step(ObjMan *om)
 }
 
 #ifdef NETV21_TEST_HOOKS
+// Test only: exercise the same producer after a synthetic local launch.
+void shots_test_queue_launch(const char *rec) { queue_shot('L', rec, 0, nullptr, nullptr, 0); }
 // The Windows no-game integration test supplies a fake shell manager; none of these seams is
 // compiled into the game module.
 void shots_test_engine(ObjMan *om, char *shell, Launch launch)
@@ -468,7 +635,7 @@ u32 shots_test_epoch() { return g_epoch; }
 void shots_report(void)
 {
     if (!g_stat_own && !g_stat_dropped && !g_stat_injected && !g_stat_refused) return;
-    mp_log("shots: 5 s: %llu fired by this game's units and sent (%.1f KB/s, %llu repeats, %zu waiting for an answer), %llu received and fired here, %llu local ones for the other player's units dropped, %llu refused (ammunition or unit not matched)",
-           g_stat_own, g_stat_sent_bytes / 5120.0, g_stat_repeats, g_out.size(), g_stat_injected, g_stat_dropped, g_stat_refused);
-    g_stat_own = g_stat_dropped = g_stat_injected = g_stat_refused = g_stat_sent_bytes = g_stat_repeats = 0;
+    mp_log("shots: 5 s: %llu fired by this game's units and sent (%.1f KB/s, %llu repeats, %zu waiting for an answer), %llu received and fired here, %llu local ones for the other player's units dropped, %llu refused without replay (%llu timed out)",
+           g_stat_own, g_stat_sent_bytes / 5120.0, g_stat_repeats, g_out.size(), g_stat_injected, g_stat_dropped, g_stat_refused, g_stat_wait_refused);
+    g_stat_own = g_stat_dropped = g_stat_injected = g_stat_refused = g_stat_wait_refused = g_stat_sent_bytes = g_stat_repeats = 0;
 }

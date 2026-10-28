@@ -22,17 +22,20 @@
 #include "protocol.h"
 #include "hooks.h"
 #include "detour.h"
+#include <atomic>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <vector>
 
 typedef u64 (*Dig)(char *trencher, int squad, float *pos);
-static Dig g_dig;
+// The trampoline is published before the detour can expose the hook to another thread.
+static std::atomic<Dig> g_dig{nullptr};
 static char *g_trencher;
 static bool g_injecting, g_enabled = true, g_trace;
 static DWORD g_main_thread;
-static u64 g_stat_own, g_stat_dropped, g_stat_applied, g_stat_missing;
+static u64 g_stat_own, g_stat_dropped, g_stat_applied, g_stat_missing, g_stat_queue_full, g_stat_unavailable, g_stat_retired;
+static std::atomic<u64> g_stat_off_thread{0};
 static std::vector<ShotRec> g_wait;         // received, carried out before the next simulation step
 static std::vector<ShotRec> g_mine;         // squads this game's player has placed, for a player who connects later
 static std::vector<ShotRec> g_all;          // tests: every dig of this player's squads
@@ -60,9 +63,18 @@ static char *squad_record(char *trencher, u32 squad)
 
 static u64 dig_hook(char *trencher, int squad, float *pos)
 {
+    // Acquire also publishes the owner thread set before the detour was installed.
+    Dig original = g_dig.load(std::memory_order_acquire);
+    if (!original) return 0; // the hook is not exposed before the trampoline is published
+    // A foreign engine thread must neither publish a manager pointer nor read session-owned
+    // state. Its engine call remains untouched; this does not prove the engine is single-threaded.
+    if (GetCurrentThreadId() != g_main_thread) {
+        g_stat_off_thread.fetch_add(1, std::memory_order_relaxed);
+        return original(trencher, squad, pos);
+    }
     g_trencher = trencher;
     bool connected = session_connected() && g_enabled;      // (hooked for the log only: each game digs for itself)
-    if (g_injecting || session_role() == ROLE_NONE || GetCurrentThreadId() != g_main_thread) return g_dig(trencher, squad, pos);
+    if (g_injecting || session_role() == ROLE_NONE) return original(trencher, squad, pos);
     char *sq = squad_record(trencher, (u32)squad);
     if (connected && !session_owns_squad((u32)squad)) {
         g_stat_dropped++;
@@ -87,7 +99,7 @@ static u64 dig_hook(char *trencher, int squad, float *pos)
             for (int row = 0; row < 3; row++) memcpy(r.lrot + row * 3, rot + row * 4, 12);
         }
     }
-    u64 result = g_dig(trencher, squad, pos);
+    u64 result = original(trencher, squad, pos);
     g_stat_own++;
     if (g_trace) mp_log("trench: squad %08x dug in (kind %u, settings %x, %s), %s", r.squad, r.type, r.flags,
                         pos ? "at a given place" : "where it stands", connected ? "queued for peer" : "local only");
@@ -103,10 +115,45 @@ static u64 dig_hook(char *trencher, int squad, float *pos)
     return result;
 }
 
+#ifdef NETV21_TEST_HOOKS
+// Exercise the production hook on two real threads without patching the game's code.
+void trench_test_engine(Dig original)
+{
+    g_main_thread = GetCurrentThreadId();
+    g_trencher = nullptr;
+    g_injecting = false;
+    g_dig.store(original, std::memory_order_release);
+}
+u64 trench_test_dig(char *trencher, int squad, float *pos) { return dig_hook(trencher, squad, pos); }
+char *trench_test_current() { return g_trencher; }
+size_t trench_test_pending() { return g_wait.size(); }
+u64 trench_test_queue_full() { return g_stat_queue_full; }
+u64 trench_test_unavailable() { return g_stat_unavailable; }
+u64 trench_test_retired() { return g_stat_retired; }
+bool trench_test_install(void *target)
+{
+    g_main_thread = GetCurrentThreadId();
+    g_trencher = nullptr;
+    g_injecting = false;
+    g_dig.store(nullptr, std::memory_order_release);
+    return install_published_detour(target, 14, dig_hook, g_dig);
+}
+#endif
+
+// These digs were ACKed when handed off, but have not yet run in the engine. Retiring
+// their stream must not replay them against a different peer or restarted battle.
+void trench_forget_peer(void)
+{
+    if (g_wait.empty()) return;
+    g_stat_retired += (u64)g_wait.size();
+    mp_log("trench: %zu handed-off digs refused without application when the peer stream was retired", g_wait.size());
+    g_wait.clear();
+}
+
 // A player has connected (again): he gets this game's digs of its own player's squads.
 void trench_resend(void)
 {
-    if (!g_enabled || !g_dig) return;
+    if (!g_enabled || !g_dig.load(std::memory_order_acquire)) return;
     for (ShotRec s : g_mine) {
         TrenchRec r;
         memcpy(&r, s.launch, sizeof r);
@@ -136,17 +183,22 @@ static void apply(const TrenchRec &r)
     float pos[4];
     memcpy(pos, r.pos, 16);
     g_injecting = true;
-    g_dig(g_trencher, (int)r.squad, r.has_pos ? pos : 0);
+    g_dig.load(std::memory_order_acquire)(g_trencher, (int)r.squad, r.has_pos ? pos : 0);
     g_injecting = false;
     g_stat_applied++;
     if (g_trace) mp_log("trench: squad %08x of the other player dug in here from his values (kind %u, settings %x)", r.squad, r.type, r.flags);
     netlog_count("trench_applied");
 }
 
-// A dig of the other game has arrived (called in order, before a simulation step).
+// A dig of the other game has arrived. The shot-channel ACK covers this handoff, not
+// application by the engine; a full local queue is an explicit loss, not successful replay.
 void trench_received(const ShotRec &s)
 {
     if (g_wait.size() < 4096) g_wait.push_back(s);
+    else {
+        ++g_stat_queue_full;
+        if (g_stat_queue_full == 1) mp_log("trench: incoming digs refused: local queue is full (ACK does not mean application)");
+    }
 }
 
 // Tests: "dig <n> <metres>" - this game's player puts n of his squads somewhere else during deployment.
@@ -160,7 +212,7 @@ static void test_move(void)
 {
     int n = g_test_squads, moved = 0;
     g_test_squads = 0;
-    if (!g_dig || !g_trencher) return;
+    if (!g_dig.load(std::memory_order_acquire) || !g_trencher) return;
     std::vector<ShotRec> mine = g_all;          // the hook appends to it
     std::vector<u32> seen;
     for (const ShotRec &s : mine) {
@@ -183,7 +235,12 @@ void trench_sim_step(ObjMan *om)
 {
     if (g_test_squads) test_move();
     if (g_wait.empty()) return;
-    if (!g_dig || !g_enabled) { g_wait.clear(); return; }
+    if (!g_dig.load(std::memory_order_acquire) || !g_enabled) {
+        g_stat_unavailable += (u64)g_wait.size();
+        mp_log("trench: %zu incoming digs refused: local hook unavailable (they were not applied)", g_wait.size());
+        g_wait.clear();
+        return;
+    }
     if (!g_trencher) g_trencher = (char *)engine_find(om, "i_trencher", "trencher");
     if (!g_trencher) return;
     for (const ShotRec &s : g_wait) {
@@ -210,16 +267,19 @@ void trench_install(void)
     const HookSig where[] = { { 0xdbc20, sig, sizeof sig } };
     char *dig = hook_resolve_checked("adv_game.codelib", where, 1, "trench digging");
     if (!dig) { mp_log("trench: digging hook refused, each game digs for itself"); g_enabled = false; return; }
-    g_dig = (Dig)install_detour(dig, 14, dig_hook);
-    mp_log("trench: %s", !g_dig ? "could not be hooked" : g_enabled ? "a squad's trenches are its owner's: dug there, sent, and dug the same here"
-                                                                     : "each game digs for itself (MP_SYNC_TRENCH=0); digs are logged");
-    if (!g_dig) g_enabled = false;
+    // Publishing the trampoline first avoids entering the hook with a null original. The code
+    // bytes themselves are still patched without suspending engine threads (see detour.h).
+    bool installed = install_published_detour(dig, 14, dig_hook, g_dig);
+    mp_log("trench: %s", !installed ? "could not be hooked" : g_enabled ? "a squad's trenches are its owner's: dug there, sent, and dug the same here"
+                                                                       : "each game digs for itself (MP_SYNC_TRENCH=0); digs are logged");
+    if (!installed) g_enabled = false;
 }
 
 void trench_report(void)
 {
-    if (!g_stat_own && !g_stat_dropped && !g_stat_applied && !g_stat_missing) return;
-    mp_log("trench: %llu squads of this player dug in and sent, %llu of the other player dug in here from his values, %llu local digs for his squads dropped, %llu for squads this game does not have",
-           g_stat_own, g_stat_applied, g_stat_dropped, g_stat_missing);
-    g_stat_own = g_stat_dropped = g_stat_applied = g_stat_missing = 0;
+    u64 off_thread = g_stat_off_thread.exchange(0, std::memory_order_relaxed);
+    if (!g_stat_own && !g_stat_dropped && !g_stat_applied && !g_stat_missing && !g_stat_queue_full && !g_stat_unavailable && !g_stat_retired && !off_thread) return;
+    mp_log("trench: %llu squads of this player dug in and sent, %llu of the other player dug in here from his values, %llu local digs for his squads dropped, %llu for squads this game does not have, %llu refused for a full queue, %llu refused for an unavailable hook, %llu refused from retired streams, %llu other-thread calls passed through",
+           g_stat_own, g_stat_applied, g_stat_dropped, g_stat_missing, g_stat_queue_full, g_stat_unavailable, g_stat_retired, off_thread);
+    g_stat_own = g_stat_dropped = g_stat_applied = g_stat_missing = g_stat_queue_full = g_stat_unavailable = g_stat_retired = 0;
 }

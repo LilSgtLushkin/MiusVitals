@@ -45,7 +45,7 @@ class UnifiedInstaller(unittest.TestCase):
         os.chmod(self.readonly, stat.S_IREAD)
         self.sentinel = self.game / "untouched.txt"
         self.sentinel.write_bytes(b"unrelated user data")
-        self.state = self.kit / "state/unified_test_v107"
+        self.state = self.kit / "state" / os.environ.get("MIUS_TEST_STATE", "unified_test_v107")
         self.baseline = self.state / "baseline"
         self.pending = self.state / "pending"
 
@@ -298,6 +298,31 @@ class UnifiedInstaller(unittest.TestCase):
         self.assertEqual(self.snapshot(), before)
         self.assertEqual(referent.read_bytes(), b"data behind a link")
         self.assertFalse(self.baseline.exists())
+
+    @unittest.skipUnless(os.environ.get("MIUS_TEST_UPGRADE") == "1", "experimental upgrade fixture only")
+    def test_old_107_then_experimental_and_two_step_rollback(self):
+        old = ROOT / "MiusMultiplayer_v1.0.7_TEST_INSTALL.zip"
+        if not old.exists():
+            self.skipTest("the preserved 1.0.7 archive is not available")
+        with zipfile.ZipFile(old) as archive:
+            archive.extractall(self.game)
+        self.succeed(self.bat("Enable_Multiplayer.bat"))
+        installed_old = {relative: (self.game / relative).read_bytes() for relative in FILES}
+        old_state = self.kit / "state/unified_test_v107"
+        self.assertTrue((old_state / "active.txt").exists())
+        with zipfile.ZipFile(ARCHIVE) as archive:
+            archive.extractall(self.game)
+        self.succeed(self.bat("Enable_Multiplayer.bat"))
+        self.assertTrue((self.state / "active.txt").exists())
+        self.assertTrue((old_state / "active.txt").exists())
+        self.check_installed()
+        self.succeed(self.bat("Disable_Multiplayer.bat"))
+        for relative in FILES:
+            self.assertEqual((self.game / relative).read_bytes(), installed_old[relative], relative)
+        with zipfile.ZipFile(old) as archive:
+            archive.extractall(self.game)
+        self.succeed(self.bat("Disable_Multiplayer.bat"))
+        self.check_original()
 
     def test_damaged_backup_prevents_uninstall_without_any_change(self):
         self.succeed(self.bat("Enable_Multiplayer.bat"))

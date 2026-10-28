@@ -18,6 +18,7 @@ void hits_test_expire_wait();
 void anim_test_engine(ObjMan *, Object *);
 uintptr_t anim_test_slot4(Object *, u32, u32);
 void anim_test_stale(u64);
+void anim_test_expire_wait();
 
 char g_out_dir[MAX_PATH] = ".";
 char g_program[32] = "tacgame";
@@ -152,6 +153,8 @@ int main()
     check(hits_received(h, om) && hit_calls == 4, "hit targeting our own unit refused"); soldier_owned = false;
     missing = soldier;
     check(!hits_received(h, om) && hit_calls == 4, "missing target is retained, not acknowledged");
+    hits_test_expire_wait(); hits_reset_peer();
+    check(!hits_received(h, om) && hit_calls == 4, "stream restart resets a hit's old wait deadline");
     hits_test_expire_wait();
     check(hits_received(h, om) && hit_calls == 4, "missing target is explicitly refused after timeout"); missing = nullptr;
     DWORD old = 0, ignored = 0;
@@ -191,7 +194,14 @@ int main()
     put32(remote + 0xa8, 99); put32(remote + 0x104, 1); put32(remote + 0x10c, 2);
     putf(remote + 0xd4, 0.75f); putf(remote + 0x11c, 1.25f); put32(human_values + 0x1e70, 3); putf(human_values + 0x1210, 4.f);
     ShotRec a; anim_wire::encode(a, (2ull << 32) | 18, remote, "walk", human_values); a.seq = 1;
-    check(anim_received(a, om) && group_calls == 1, "remote group found through original checked setter");
+    missing = other;
+    check(!anim_received(a, om), "missing animation target is retained");
+    anim_test_expire_wait(); anim_reset_wait();
+    check(!anim_received(a, om), "stream restart resets only the animation wait deadline");
+    anim_test_expire_wait();
+    check(anim_received(a, om) && group_calls == 0, "missing animation target is eventually refused");
+    missing = nullptr; a.seq = 2; // a new snapshot, not a retry of the refused event
+    check(anim_received(a, om) && group_calls == 1, "remote group found through original checked setter without clearing cached indices");
     u32 applied_scalar = 0, applied_frame = 0, applied_state = 0;
     memcpy(&applied_scalar, instances + 0x140 + 0xa8, 4); memcpy(&applied_frame, instances + 0x140 + 0x10c, 4);
     memcpy(&applied_state, (char *)other + 0x1e70, 4);

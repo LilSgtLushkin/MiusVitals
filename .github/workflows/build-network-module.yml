@@ -36,11 +36,10 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write    # the test installer is committed back into the branch, see the last steps
+  contents: read
   pull-requests: write
 
-# A new push makes the previous run's installer stale, and two runs committing the same file would
-# race each other; the newest run wins.
+# A new push makes the previous run's validation stale; the newest run wins.
 concurrency:
   group: network-module-${{ github.ref }}
   cancel-in-progress: true
@@ -94,7 +93,11 @@ jobs:
         run: |
           if not exist MiusMultiplayer_v1.0.7_TEST_INSTALL.zip goto :no_committed_installer
           if not exist development\net-v21\build mkdir development\net-v21\build
-          python scripts\package_net_v21_test.py --verify MiusMultiplayer_v1.0.7_TEST_INSTALL.zip --verify-source > development\net-v21\build\committed-installer.log 2>&1
+          rem The released archive is historical; verify its passport and pinned hash, not against the new experimental source.
+          python scripts\package_net_v21_test.py --verify MiusMultiplayer_v1.0.7_TEST_INSTALL.zip > development\net-v21\build\committed-installer.log 2>&1
+          set rc=%errorlevel%
+          if not %rc%==0 goto :committed_installer_failed
+          python -c "import hashlib,pathlib; p=pathlib.Path('MiusMultiplayer_v1.0.7_TEST_INSTALL.zip'); assert hashlib.sha256(p.read_bytes()).hexdigest()=='65f7a325095577cec98b2bab590f4674b81ad240bc5191adce346ebf8bec5ec6'" >> development\net-v21\build\committed-installer.log 2>&1
           set rc=%errorlevel%
           if not %rc%==0 goto :committed_installer_failed
           python tests\test_unified_installer_windows.py >> development\net-v21\build\committed-installer.log 2>&1
@@ -109,8 +112,39 @@ jobs:
           :no_committed_installer
           echo First build: no committed 1.0.7 archive yet.
 
-      - name: Install the disassembler the comparison needs
-        run: python -m pip install --quiet capstone
+      - name: Verify the committed experimental installer and rollback
+        shell: cmd
+        env:
+          MIUS_TEST_ARCHIVE: MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip
+          MIUS_TEST_STATE: unified_test_v107_experimental
+          MIUS_TEST_UPGRADE: '1'
+        run: |
+          if not exist development\net-v21\build mkdir development\net-v21\build
+          python scripts\package_net_v21_test.py --verify "%MIUS_TEST_ARCHIVE%" > development\net-v21\build\experimental-installer.log 2>&1
+          set rc=%errorlevel%
+          if not %rc%==0 goto :experimental_installer_failed
+          python -c "import hashlib,pathlib; p=pathlib.Path('MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip'); assert hashlib.sha256(p.read_bytes()).hexdigest()=='60e7b7a2f2914ae75cf203f48aacc89e9469f71b15b654f70805d50e50736f78'" >> development\net-v21\build\experimental-installer.log 2>&1
+          set rc=%errorlevel%
+          if not %rc%==0 goto :experimental_installer_failed
+          python tests\test_unified_installer_windows.py >> development\net-v21\build\experimental-installer.log 2>&1
+          set rc=%errorlevel%
+          if not %rc%==0 goto :experimental_installer_failed
+          type development\net-v21\build\experimental-installer.log
+          exit /b 0
+          :experimental_installer_failed
+          type development\net-v21\build\experimental-installer.log
+          powershell -NoProfile -Command "$m = ((Get-Content development/net-v21/build/experimental-installer.log -Tail 100) -join ' | ').Replace('%%','%%25'); Write-Output ('::error title=Experimental installer verification::' + $m)"
+          exit /b %rc%
+
+      - name: Install the disassembler and offline x64 emulator
+        run: python -m pip install --quiet capstone unicorn==2.1.4
+
+      - name: Check description identity evidence against the supplied PE images
+        run: |
+          python development/net-v21/tools/xlate_identity_pe_selftest.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python development/net-v21/tools/xlate_identity_emulation_selftest.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Fetch the two reference modules (pinned, SHA-256 checked)
         run: python development/net-v21/tools/fetch_references.py
@@ -255,6 +289,10 @@ jobs:
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log
           if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\state_memory_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
           development\net-v21\build\selftest\hooks_selftest.exe >> development\net-v21\build\selftest.log 2>&1
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log
@@ -267,7 +305,23 @@ jobs:
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log
           if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\trench_thread_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
           development\net-v21\build\selftest\shots_integration_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\named_shots_integration_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\shots_xlate_characterization_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          python development\net-v21\tools\shots_compat_pair.py --legacy development\net-v21\build\selftest\shots_compat_107.exe --current development\net-v21\build\selftest\shots_compat_current.exe >> development\net-v21\build\selftest.log 2>&1
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log
           if not %rc%==0 exit /b %rc%
@@ -358,18 +412,24 @@ jobs:
             2>&1 | tee development/net-v21/build/battle-report-selftest.log
           exit ${PIPESTATUS[0]}
 
-      - name: Package the unified test installer (net_v21 and launcher included)
+      # This fixture uses the old kit metadata for regression testing only. It stays in the
+      # ignored build folder and is not a release; 1.0.7 remains byte-for-byte preserved.
+      - name: Package a disposable unified installer fixture
         shell: bash
         run: |
           python scripts/package_net_v21_test.py \
             --codelib development/net-v21/build/module/basic_network.codelib \
             --launcher development/net-v21/build/join/mp_join.exe \
-            --output MiusMultiplayer_v1.0.7_TEST_INSTALL.zip \
+            --output development/net-v21/build/CI_fixture_NOT_RELEASE.zip \
             2>&1 | tee development/net-v21/build/package.log
           exit ${PIPESTATUS[0]}
 
       - name: Exercise the packaged one-step installer and recovery on Windows
         shell: cmd
+        env:
+          MIUS_TEST_ARCHIVE: development/net-v21/build/CI_fixture_NOT_RELEASE.zip
+          MIUS_TEST_STATE: unified_test_v107_experimental
+          MIUS_TEST_UPGRADE: '1'
         run: |
           python tests\test_unified_installer_windows.py > development\net-v21\build\installer-selftest.log 2>&1
           set rc=%errorlevel%
@@ -379,25 +439,8 @@ jobs:
             exit /b %rc%
           )
 
-      # A documentation/packaging-only commit can validate the build without replacing the
-      # separately preserved installer. Normal source builds continue to publish as before.
-      - name: Publish the test installer into the branch
-        if: success() && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/arena/') && !contains(github.event.head_commit.message, '[no-installer]')
-        shell: bash
-        run: |
-          # The archive has to be reachable without the Actions API (artifact downloads are blocked
-          # where this build is checked), so it is committed into the branch it was built from and
-          # travels to main with the pull request.
-          archive=MiusMultiplayer_v1.0.7_TEST_INSTALL.zip
-          if [ ! -f "$archive" ]; then echo "no archive was built; nothing to publish"; exit 0; fi
-          git config user.name "net-v21 build"
-          git config user.email "net-v21-build@users.noreply.github.com"
-          git add "$archive"
-          # The archive is deterministic: the same module produces the same bytes, so an
-          # unchanged source tree does not add a commit every run.
-          if git diff --cached --quiet; then echo "the archive has not changed"; exit 0; fi
-          git commit -m "build: refresh the net_v21 test installer [skip ci]"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+      # Released archives are preserved; new candidates require a separately named archive and
+      # explicit validation. The workflow never publishes or replaces one automatically.
 
       - name: Put the numbers in the job summary
         if: always()
@@ -447,11 +490,15 @@ jobs:
             fi
             echo
             if [ -f MiusMultiplayer_v1.0.7_TEST_INSTALL.zip ]; then
-              echo "test installer: MiusMultiplayer_v1.0.7_TEST_INSTALL.zip, sha256 $(sha256sum MiusMultiplayer_v1.0.7_TEST_INSTALL.zip | cut -d' ' -f1)"
-            else
-              echo "test installer: not built"
+              echo "preserved 1.0.7 installer (not the current build): sha256 $(sha256sum MiusMultiplayer_v1.0.7_TEST_INSTALL.zip | cut -d' ' -f1)"
             fi
-            for name in committed-installer baseline module selftest join launcher-selftest installer-selftest battle-report-selftest package compare-m1 compare-m2; do
+            if [ -f MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip ]; then
+              echo "preserved 1.0.7 EXPERIMENTAL installer: sha256 $(sha256sum MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip | cut -d' ' -f1)"
+            fi
+            if [ -f development/net-v21/build/CI_fixture_NOT_RELEASE.zip ]; then
+              echo "current build: disposable installer fixture only, not a release"
+            fi
+            for name in committed-installer experimental-installer baseline module selftest join launcher-selftest installer-selftest battle-report-selftest package compare-m1 compare-m2; do
               log="development/net-v21/build/$name.log"
               echo
               echo "<details><summary>$name log</summary>"
@@ -472,6 +519,6 @@ jobs:
           name: network-module
           path: |
             development/net-v21/build/**
-            MiusMultiplayer_v1.0.7_TEST_INSTALL.zip
+            !development/net-v21/build/CI_fixture_NOT_RELEASE.zip
           if-no-files-found: warn
           retention-days: 14

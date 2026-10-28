@@ -25,6 +25,7 @@ void session_test_disable_upnp(bool);
 void session_test_owned(u64);
 void session_test_event_faults();
 void session_test_event_disconnect();
+bool session_test_event_capability_reorder();
 unsigned session_test_event_dropped();
 unsigned session_test_event_duplicates();
 unsigned session_test_event_ack_dropped();
@@ -64,6 +65,7 @@ void trench_install() {}
 void trench_sim_step(ObjMan *) {}
 void trench_report() {}
 void trench_received(const ShotRec &) {}
+void trench_forget_peer() {}
 void trench_resend() {}
 static Object *find_nothing(ObjMan *, Dep *) { return nullptr; }
 static u32 desc_id(ObjMan *, void *) { return 0xffffffffu; }
@@ -169,12 +171,20 @@ int main(int argc, char **argv)
     auto signalled = [](HANDLE event) { return WaitForSingleObject(event, 0) == WAIT_OBJECT_0; };
     bool first_sent = false, interrupted = false, reconnected = false, first_ok = false;
     bool changed = false, rekeyed = false, second_sent = false, local_ok = false;
+    bool capability_tested = false, capability_risk_seen = false;
     u32 first_local = 0, first_peer = 0, first_stream = 0;
     DWORD started = GetTickCount(), first_stable = 0, second_stable = 0;
     while ((DWORD)(GetTickCount() - started) < 21000) {
         DWORD now = GetTickCount();
         session_frame(om); session_test_owned(my_key); session_sim_step(om, 16);
         bool features = session_connected() && (session_peer_features() & PEER_FEATURES) == PEER_FEATURES && session_unit(my_key);
+        if (host && features && !capability_tested) {
+            capability_tested = true;
+            capability_risk_seen = session_test_event_capability_reorder();
+            // Wait for the next real Hello to restore the peer's current advertisement.
+            features = false;
+            printf("capability reordering characterization: stale OFF/ON accepted=%d (risk remains OPEN)\n", (int)capability_risk_seen);
+        }
         if (!first_sent && features) {
             first_local = vitals_epoch(); first_peer = vitals_peer_epoch(); first_stream = shots_test_epoch();
             emit_hit(); first_sent = true;
@@ -214,12 +224,12 @@ int main(int argc, char **argv)
         Sleep(10);
     }
     bool both = signalled(host_done) && signalled(join_done);
-    bool ok = local_ok && both && remote_hits == 2;
+    bool ok = local_ok && both && remote_hits == 2 && (!host || (capability_tested && capability_risk_seen));
     u32 animation = 0; memcpy(&animation, instances + remote * 0x140 + 0xa8, 4);
-    printf("EVENT_%s_RESULT %s ok=%d hit=%u replay=%d anim=%u drop=%u duplicate=%u ack_drop=%u reconnect=%d rekey=%d second=%d waiting=%zu\n",
+    printf("EVENT_%s_RESULT %s ok=%d hit=%u replay=%d anim=%u drop=%u duplicate=%u ack_drop=%u reconnect=%d rekey=%d second=%d stale_capability=%d waiting=%zu\n",
            steam ? "STEAM" : "IP", host ? "host" : "join", (int)ok, remote_hits, (int)replay_valid, animation,
            session_test_event_dropped(), session_test_event_duplicates(), session_test_event_ack_dropped(),
-           (int)(!host || reconnected), (int)rekeyed, (int)second_sent, shots_test_outstanding());
+           (int)(!host || reconnected), (int)rekeyed, (int)second_sent, (int)(host && capability_risk_seen), shots_test_outstanding());
     session_stop(); steam_shutdown();
     CloseHandle(ready); CloseHandle(first_host); CloseHandle(first_join); CloseHandle(rekey_host); CloseHandle(rekey_join);
     CloseHandle(host_done); CloseHandle(join_done);

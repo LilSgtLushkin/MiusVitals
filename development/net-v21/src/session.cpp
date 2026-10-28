@@ -2852,6 +2852,27 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
 }
 
 #ifdef NETV21_TEST_HOOKS
+// Characterize the real Hello handler under reordering. Identical-epoch messages carry no
+// capability generation, so an old value can overwrite a newer one in either direction.
+bool session_test_event_capability_reorder()
+{
+    if (!g_tactical || g_role != ROLE_HOST || !g_connected || !g_have_peer ||
+        (g_peer_features & PEER_FEATURES) != PEER_FEATURES || !vitals_peer_epoch()) return false;
+    Hello hello = { make_head(PKT_HELLO) };
+    memcpy(hello.proto, k_protocol, sizeof k_protocol);
+    hello.version = k_version; hello.phase = 2; hello.lobby_ready = 1;
+    hello.ready = (unsigned char)g_peer_ready;
+    hello.vitals_epoch = vitals_peer_epoch();
+    on_packet(g_peer, (const unsigned char *)&hello, sizeof hello, GetTickCount());
+    bool old_off_accepted = session_peer_features() == 0;
+    hello.h.flags = PEER_FEATURES;
+    on_packet(g_peer, (const unsigned char *)&hello, sizeof hello, GetTickCount());
+    bool old_on_accepted = (session_peer_features() & PEER_FEATURES) == PEER_FEATURES;
+    hello.h.flags = 0;
+    on_packet(g_peer, (const unsigned char *)&hello, sizeof hello, GetTickCount());
+    return old_off_accepted && old_on_accepted && session_peer_features() == 0;
+}
+
 // The no-game fixture substitutes save/load only; packet/transport and identity checks are real.
 bool session_test_map_seed(const std::vector<unsigned char> &source, bool refresh)
 {

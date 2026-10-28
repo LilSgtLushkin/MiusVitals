@@ -37,6 +37,8 @@ jobs:
         shell: cmd
         run: |
           set "MIUS_TEST_ARCHIVE=%RUNNER_TEMP%\mius-installer-fixture.zip"
+          set "MIUS_TEST_STATE=unified_test_v107_experimental"
+          set "MIUS_TEST_UPGRADE=1"
           python tests\build_unified_installer_fixture.py "%MIUS_TEST_ARCHIVE%"
           if errorlevel 1 exit /b 1
           python tests\test_unified_installer_windows.py > "%RUNNER_TEMP%\mius-installer-tests.log" 2>&1
