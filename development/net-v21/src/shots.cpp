@@ -43,10 +43,11 @@ static DWORD g_main_thread;
 static bool g_injecting, g_install_done, g_enabled = true;
 static FILE *g_file;
 static u32 g_seq, g_epoch, g_dumped;
-static u64 g_stat_own, g_stat_dropped, g_stat_injected, g_stat_refused, g_stat_free, g_stat_sent_bytes, g_stat_repeats;
+static u64 g_stat_own, g_stat_dropped, g_stat_injected, g_stat_refused, g_stat_wait_refused, g_stat_free, g_stat_sent_bytes, g_stat_repeats;
 struct Pending { ShotRec rec; DWORD sent; unsigned char tries; };
 static std::deque<Pending> g_out;               // launched here, not yet acknowledged by the other game
 static reliable::Inbox<ShotRec> g_in;           // receipt is separate from completion / acknowledgement
+static reliable::HeadWait g_head_wait;          // only the first unfinished gameplay event is timed
 // Non-tactical processes never run shots_sim_step, but preserve their old receive/ACK semantics.
 static std::vector<ShotRec> g_in_legacy;
 static u32 g_epoch_in_legacy, g_last_seq_in_legacy;
@@ -297,6 +298,36 @@ static void shots_ack(void (*send)(const void *, int))
     send(&ack, sizeof ack);
 }
 
+#ifdef NETV21_TEST_HOOKS
+static bool g_test_wait_time_set;
+static DWORD g_test_wait_time;
+void shots_test_wait_time(DWORD now) { g_test_wait_time_set = true; g_test_wait_time = now; }
+void shots_test_wait_real_time() { g_test_wait_time_set = false; }
+#endif
+
+static DWORD shots_wait_now()
+{
+#ifdef NETV21_TEST_HOOKS
+    if (g_test_wait_time_set) return g_test_wait_time;
+#endif
+    return GetTickCount();
+}
+
+// A timeout is a terminal refusal, not successful replay. ACK can then pass the refused
+// event; a retransmission must never apply it later. Only runs on the simulation thread.
+static bool shots_refuse_expired(const ShotRec &s, const char *reason)
+{
+    const DWORD limit_ms = 10000;
+    if (!g_head_wait.expired(g_in.current_epoch(), s.seq, shots_wait_now(), limit_ms)) return false;
+    ++g_stat_refused;
+    ++g_stat_wait_refused;
+    netlog_count("shot_wait_refused");
+    mp_log("shots: event %u (kind %u, epoch %u) refused without replay after waiting %lu ms: %s",
+           s.seq, (unsigned)s.kind, g_in.current_epoch(), (unsigned long)limit_ms, reason);
+    g_head_wait.reset();
+    return true;
+}
+
 void shots_on_packet(const unsigned char *data, int size, void (*send)(const void *, int))
 {
     if (!data || size < (int)sizeof(Head)) return;
@@ -318,8 +349,17 @@ void shots_on_packet(const unsigned char *data, int size, void (*send)(const voi
     u32 old_epoch = g_in.current_epoch();
     size_t old_pending = g_in.pending();
     if (!g_in.epoch(h->epoch, recs[0].seq)) return;
-    if (old_epoch && old_epoch != h->epoch && old_pending)
-        mp_log("shots: peer restarted its event stream; %zu unfinished events from the old epoch were discarded", old_pending);
+    if (old_epoch != h->epoch) {
+        g_head_wait.reset();
+        if (old_epoch) {
+            // Sequence numbers can restart while the enclosing tactical process epochs stay the
+            // same. Never use the old stream's number tables or handler deadlines for new events.
+            xlate_resend();
+            hits_reset_peer();
+            anim_reset_wait();
+            mp_log("shots: peer restarted its event stream; number tables invalidated, %zu unfinished events discarded", old_pending);
+        }
+    }
     g_ack_send = send;
     unsigned long long fresh = 0;
     for (unsigned i = 0; i < head->count; i++)
@@ -361,6 +401,7 @@ void shots_on_packet_legacy(const unsigned char *data, int size, void (*send)(co
 void shots_reset(void)
 {
     g_in.reset();
+    g_head_wait.reset();
     g_in_legacy.clear();
     g_ack_send = 0;
     g_out.clear();
@@ -389,21 +430,24 @@ void shots_sim_step(ObjMan *om)
             item.complete = true;
         }
     }
-    if (g_launch && g_enabled && !g_shellphys)
+    if (g_launch && g_enabled && !g_shellphys && readable(om, sizeof *om) &&
+        readable(om->vtbl, 10 * sizeof(void *)) && om->vtbl[9])
         g_shellphys = (char *)engine_find(om, "i_shellphys", "shellphys");
     g_om = om;
     for (auto &item : g_in.items()) {
         if (item.complete) continue;
         const ShotRec &s = item.record;
         if (s.kind == 7 || s.kind == 8) {
+            // A false return must have no engine side effects: it means "try again".
             bool done = s.kind == 7 ? hits_received(s, om) : anim_received(s, om);
-            if (!done) break; // do not replay a later shot ahead of a waiting hit/snapshot
+            if (!done && !shots_refuse_expired(s, s.kind == 7 ? "hit not ready" : "animation not ready")) break;
+            g_head_wait.reset();
             item.complete = true;
             continue;
         }
         if (s.kind != 0) continue;
         if (!g_install_done || (g_launch && g_enabled && !g_shellphys)) {
-            // The engine may appear on a later simulation step. Do not clear or acknowledge it.
+            if (shots_refuse_expired(s, "shell manager not ready")) { item.complete = true; continue; }
             static DWORD last_wait;
             DWORD now = GetTickCount();
             if (!last_wait || now - last_wait >= 5000) {
@@ -415,17 +459,38 @@ void shots_sim_step(ObjMan *om)
         if (!g_launch || !g_enabled) {
             // This build explicitly refused/disabled its hook; do not pretend the shot was played.
             g_stat_refused++;
+            mp_log("shots: event %u refused without replay: launch hook unavailable", s.seq);
+            g_head_wait.reset();
             item.complete = true;
             continue;
         }
-        void *ammo = desc_ptr(xlate_desc(s.ammo)), *weapon = desc_ptr(xlate_desc(s.weapon));
+        u32 ammo_id, weapon_id, desc3_id;
+        if (!xlate_desc_checked(s.ammo, &ammo_id) || !xlate_desc_checked(s.weapon, &weapon_id) ||
+            !xlate_desc_checked(s.desc3, &desc3_id)) {
+            if (shots_refuse_expired(s, "description table incomplete or ID not matched")) { item.complete = true; continue; }
+            break;
+        }
+        if (!readable(om, sizeof *om) || !readable(om->vtbl, 58 * sizeof(void *)) || !om->vtbl[57]) {
+            if (shots_refuse_expired(s, "description lookup unavailable")) { item.complete = true; continue; }
+            break;
+        }
+        void *ammo = desc_ptr(ammo_id), *weapon = desc_ptr(weapon_id), *desc3 = desc_ptr(desc3_id);
         float two[2];
         u32 code;
         ammo_check(ammo, two, &code);
         Object *shooter = s.shooter ? session_unit(s.shooter) : 0;
-        // not the same ammunition here, or a unit this game does not have: no shot rather than a wrong one
-        if (!ammo || !weapon || memcmp(two, s.ammo_check, 8) || code != s.ammo_code || (s.shooter && !shooter)) {
+        Object *obj2 = s.obj2 ? session_unit(s.obj2) : 0;
+        Object *obj5 = s.obj5 ? session_unit(s.obj5) : 0;
+        // Never replace an identified but absent local object with a null pointer, or use an
+        // unreadable mapped description. A fingerprint match is still only a heuristic.
+        if (!readable(ammo, 0xc8) || !readable(weapon, 0x60) ||
+            (s.desc3 != 0xffffffffu && (desc3_id == 0xffffffffu || !readable(desc3, 0x60))) ||
+            memcmp(two, s.ammo_check, 8) || code != s.ammo_code ||
+            (s.shooter && !readable(shooter, sizeof(Object))) || (s.obj2 && !readable(obj2, sizeof(Object))) ||
+            (s.obj5 && !readable(obj5, sizeof(Object)))) {
             g_stat_refused++;
+            mp_log("shots: event %u refused without replay: description or unit unavailable/mismatched", s.seq);
+            g_head_wait.reset();
             item.complete = true;
             continue;
         }
@@ -434,15 +499,16 @@ void shots_sim_step(ObjMan *om)
         *(void **)(rec + L_AMMO) = ammo;
         *(void **)(rec + L_WEAPON) = weapon;
         *(void **)(rec + L_SHOOTER) = shooter;
-        *(void **)(rec + L_OBJ2) = s.obj2 ? session_unit(s.obj2) : 0;
-        *(void **)(rec + L_DESC3) = desc_ptr(xlate_desc(s.desc3));
+        *(void **)(rec + L_OBJ2) = obj2;
+        *(void **)(rec + L_DESC3) = desc3;
         float pos[4];
         memcpy(pos, s.pos, 16);
         log_launch("received", 'L', rec, s.flags, 0, 0);
         g_injecting = true;
-        g_launch(g_shellphys, rec, s.flags & ~2u, s.has_pos ? pos : 0, s.obj5 ? session_unit(s.obj5) : 0, s.arg6);
+        g_launch(g_shellphys, rec, s.flags & ~2u, s.has_pos ? pos : 0, obj5, s.arg6);
         g_injecting = false;
         g_stat_injected++;
+        g_head_wait.reset();
         item.complete = true;
     }
     u32 before = g_in.committed();
@@ -468,7 +534,7 @@ u32 shots_test_epoch() { return g_epoch; }
 void shots_report(void)
 {
     if (!g_stat_own && !g_stat_dropped && !g_stat_injected && !g_stat_refused) return;
-    mp_log("shots: 5 s: %llu fired by this game's units and sent (%.1f KB/s, %llu repeats, %zu waiting for an answer), %llu received and fired here, %llu local ones for the other player's units dropped, %llu refused (ammunition or unit not matched)",
-           g_stat_own, g_stat_sent_bytes / 5120.0, g_stat_repeats, g_out.size(), g_stat_injected, g_stat_dropped, g_stat_refused);
-    g_stat_own = g_stat_dropped = g_stat_injected = g_stat_refused = g_stat_sent_bytes = g_stat_repeats = 0;
+    mp_log("shots: 5 s: %llu fired by this game's units and sent (%.1f KB/s, %llu repeats, %zu waiting for an answer), %llu received and fired here, %llu local ones for the other player's units dropped, %llu refused without replay (%llu timed out)",
+           g_stat_own, g_stat_sent_bytes / 5120.0, g_stat_repeats, g_out.size(), g_stat_injected, g_stat_dropped, g_stat_refused, g_stat_wait_refused);
+    g_stat_own = g_stat_dropped = g_stat_injected = g_stat_refused = g_stat_wait_refused = g_stat_sent_bytes = g_stat_repeats = 0;
 }

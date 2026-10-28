@@ -34,7 +34,7 @@ static std::atomic<Dig> g_dig{nullptr};
 static char *g_trencher;
 static bool g_injecting, g_enabled = true, g_trace;
 static DWORD g_main_thread;
-static u64 g_stat_own, g_stat_dropped, g_stat_applied, g_stat_missing;
+static u64 g_stat_own, g_stat_dropped, g_stat_applied, g_stat_missing, g_stat_queue_full, g_stat_unavailable;
 static std::atomic<u64> g_stat_off_thread{0};
 static std::vector<ShotRec> g_wait;         // received, carried out before the next simulation step
 static std::vector<ShotRec> g_mine;         // squads this game's player has placed, for a player who connects later
@@ -126,6 +126,9 @@ void trench_test_engine(Dig original)
 }
 u64 trench_test_dig(char *trencher, int squad, float *pos) { return dig_hook(trencher, squad, pos); }
 char *trench_test_current() { return g_trencher; }
+size_t trench_test_pending() { return g_wait.size(); }
+u64 trench_test_queue_full() { return g_stat_queue_full; }
+u64 trench_test_unavailable() { return g_stat_unavailable; }
 bool trench_test_install(void *target)
 {
     g_main_thread = GetCurrentThreadId();
@@ -176,10 +179,15 @@ static void apply(const TrenchRec &r)
     netlog_count("trench_applied");
 }
 
-// A dig of the other game has arrived (called in order, before a simulation step).
+// A dig of the other game has arrived. The shot-channel ACK covers this handoff, not
+// application by the engine; a full local queue is an explicit loss, not successful replay.
 void trench_received(const ShotRec &s)
 {
     if (g_wait.size() < 4096) g_wait.push_back(s);
+    else {
+        ++g_stat_queue_full;
+        if (g_stat_queue_full == 1) mp_log("trench: incoming digs refused: local queue is full (ACK does not mean application)");
+    }
 }
 
 // Tests: "dig <n> <metres>" - this game's player puts n of his squads somewhere else during deployment.
@@ -216,7 +224,12 @@ void trench_sim_step(ObjMan *om)
 {
     if (g_test_squads) test_move();
     if (g_wait.empty()) return;
-    if (!g_dig.load(std::memory_order_acquire) || !g_enabled) { g_wait.clear(); return; }
+    if (!g_dig.load(std::memory_order_acquire) || !g_enabled) {
+        g_stat_unavailable += (u64)g_wait.size();
+        mp_log("trench: %zu incoming digs refused: local hook unavailable (they were not applied)", g_wait.size());
+        g_wait.clear();
+        return;
+    }
     if (!g_trencher) g_trencher = (char *)engine_find(om, "i_trencher", "trencher");
     if (!g_trencher) return;
     for (const ShotRec &s : g_wait) {
@@ -254,8 +267,8 @@ void trench_install(void)
 void trench_report(void)
 {
     u64 off_thread = g_stat_off_thread.exchange(0, std::memory_order_relaxed);
-    if (!g_stat_own && !g_stat_dropped && !g_stat_applied && !g_stat_missing && !off_thread) return;
-    mp_log("trench: %llu squads of this player dug in and sent, %llu of the other player dug in here from his values, %llu local digs for his squads dropped, %llu for squads this game does not have, %llu other-thread calls passed through",
-           g_stat_own, g_stat_applied, g_stat_dropped, g_stat_missing, off_thread);
-    g_stat_own = g_stat_dropped = g_stat_applied = g_stat_missing = 0;
+    if (!g_stat_own && !g_stat_dropped && !g_stat_applied && !g_stat_missing && !g_stat_queue_full && !g_stat_unavailable && !off_thread) return;
+    mp_log("trench: %llu squads of this player dug in and sent, %llu of the other player dug in here from his values, %llu local digs for his squads dropped, %llu for squads this game does not have, %llu refused for a full queue, %llu refused for an unavailable hook, %llu other-thread calls passed through",
+           g_stat_own, g_stat_applied, g_stat_dropped, g_stat_missing, g_stat_queue_full, g_stat_unavailable, off_thread);
+    g_stat_own = g_stat_dropped = g_stat_applied = g_stat_missing = g_stat_queue_full = g_stat_unavailable = 0;
 }

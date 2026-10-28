@@ -114,6 +114,7 @@ bool anim_available(void);
 void anim_frame(ObjMan *om, DWORD now);
 bool anim_received(const ShotRec &s, ObjMan *om);
 void anim_report(void);
+void anim_reset_wait(void);             // discard only a pending event deadline on stream restart
 void anim_reset_peer(void);
 void anim_stop(void);
 

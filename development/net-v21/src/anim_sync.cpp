@@ -281,9 +281,11 @@ void anim_report(void)
     sent = applied = held = refused = full = 0;
 }
 
+void anim_reset_wait(void) { wait_seq = 0; wait_at = 0; }
+
 void anim_reset_peer(void)
 {
-    wait_seq = 0; wait_at = last_scan = 0;
+    anim_reset_wait(); last_scan = 0;
     by_index.clear(); local.clear(); received_at.clear();
 }
 
@@ -301,6 +303,7 @@ void anim_test_engine(ObjMan *om, Object *object)
 }
 uintptr_t anim_test_slot4(Object *o, u32 index, u32 value) { return slot4(o, index, value); }
 void anim_test_stale(u64 key) { received_at[key] = GetTickCount() - 3001; }
+void anim_test_expire_wait() { wait_at = GetTickCount() - 5001; }
 #endif
 
 void anim_stop(void)

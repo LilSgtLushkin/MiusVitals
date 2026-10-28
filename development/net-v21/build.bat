@@ -131,6 +131,12 @@ cl /nologo /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build
 if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\shots.cpp src\xlate.cpp src\hooks.cpp src\shots_xlate_characterization_test.cpp /link /OUT:build\selftest\shots_xlate_characterization_test.exe
 if errorlevel 1 exit /b %errorlevel%
+python tools\extract_legacy_shots_fixture.py build\selftest\compat107
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /DCOMPAT_LEGACY /Isrc /Fo"build\selftest\\" /Fd"build\selftest\\" build\selftest\compat107\shots.cpp build\selftest\compat107\xlate.cpp src\hooks.cpp src\shots_compat_peer.cpp /link /OUT:build\selftest\shots_compat_107.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Isrc /Fo"build\selftest\\" /Fd"build\selftest\\" src\shots.cpp src\xlate.cpp src\hooks.cpp src\shots_compat_peer.cpp /link /OUT:build\selftest\shots_compat_current.exe
+if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\hooks.cpp src\hooks_selftest.cpp /link /OUT:build\selftest\hooks_selftest.exe
 if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\xlate.cpp src\hooks.cpp src\xlate_selftest.cpp /link /OUT:build\selftest\xlate_selftest.exe

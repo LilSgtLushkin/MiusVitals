@@ -222,7 +222,7 @@ void xlate_received(const ShotRec &s, ObjMan *om)
 }
 
 // Tables alone cannot make remote object-state loads safe: the checked vtable hooks must also
-// be installed. Shots may still use the tables separately via xlate_desc().
+// be installed. Shots may still use completed tables separately via xlate_desc_checked().
 bool xlate_ready(void) { return g_ready && g_hooked; }
 u32 xlate_desc(u32 theirs) { auto it = g_desc.find(theirs); return it == g_desc.end() ? theirs : it->second; }
 bool xlate_desc_checked(u32 theirs, u32 *local)

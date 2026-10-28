@@ -11,6 +11,9 @@ using TestDig = u64 (*)(char *, int, float *);
 void trench_test_engine(TestDig original);
 u64 trench_test_dig(char *trencher, int squad, float *pos);
 char *trench_test_current();
+size_t trench_test_pending();
+u64 trench_test_queue_full();
+u64 trench_test_unavailable();
 bool trench_test_install(void *target);
 
 static DWORD owner;
@@ -92,6 +95,18 @@ int main()
               "installed worker hook passes through the published trampoline without touching session state");
     }
     VirtualFree(code, 0, MEM_RELEASE);
+
+    // The reliable channel ACKs a handoff, not an applied dig. Refusals at the local
+    // capacity/hook boundaries must be visible instead of silently disappearing.
+    trench_test_engine(nullptr);
+    ShotRec incoming = {}; incoming.kind = 2;
+    for (unsigned i = 0; i < 4097; ++i) trench_received(incoming);
+    check(trench_test_pending() == 4096 && trench_test_queue_full() == 1,
+          "full trench queue records the refused dig without exceeding its capacity");
+    trench_sim_step(nullptr);
+    check(trench_test_pending() == 0 && trench_test_unavailable() == 4096,
+          "an unavailable hook records the handed-off digs it cannot apply");
+
     printf("trench thread selftest: %d checks, %d failed\n", checks, failed);
     return failed ? 1 : 0;
 }
