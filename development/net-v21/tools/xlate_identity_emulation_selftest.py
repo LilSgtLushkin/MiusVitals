@@ -15,7 +15,9 @@ import unittest
 from pe_scan import PE
 from unicorn import Uc, UcError, UC_ARCH_X86, UC_MODE_64, UC_HOOK_CODE, UC_ERR_READ_UNMAPPED
 from unicorn.x86_const import UC_X86_REG_RAX, UC_X86_REG_RBX, UC_X86_REG_RCX, UC_X86_REG_RDX
-from unicorn.x86_const import UC_X86_REG_R8, UC_X86_REG_RIP, UC_X86_REG_RSP, UC_X86_REG_XMM1
+from unicorn.x86_const import UC_X86_REG_R8, UC_X86_REG_R10, UC_X86_REG_R13, UC_X86_REG_R14
+from unicorn.x86_const import UC_X86_REG_RBP, UC_X86_REG_RDI, UC_X86_REG_RSI
+from unicorn.x86_const import UC_X86_REG_RIP, UC_X86_REG_RSP, UC_X86_REG_XMM1
 
 GAME = Path(__file__).resolve().parents[2] / "game-build-3598-1" / "x64" / "adv_game.codelib"
 EXPECTED_SHA256 = "8f53c9018e7fc30a7e08daa16be5952a6aaec115412fa48245c2ee13046d1975"
@@ -162,6 +164,73 @@ class DescriptionIndexEmulation(unittest.TestCase):
         second = f.call(0x6c6e0, "cannon1")
         self.assertNotEqual(first, second)
         self.assertEqual(bytes(f.uc.mem_read(first, 0x130)), bytes(f.uc.mem_read(second, 0x130)))
+
+    def test_divisions_named_descriptors_reach_one_launch_path(self):
+        # This stitches together real instruction slices from i_divisions' configuration
+        # and launch routines, with fabricated objects and names. It neither executes the
+        # whole routine nor proves that every launch in a real battle uses these arrays.
+        f = Fixture([("alpha", 0), ("bravo", 1)])
+        division, carriers, fire = 0x18000000, 0x19000000, 0x1a000000
+        shellphys, shell_vtable = 0x1b000000, 0x1c000000
+        for address in (division, carriers, fire, shellphys, shell_vtable):
+            f.uc.mem_map(address, 0x1000)
+        f.write64(division + 0x118, OWNER)       # i_weapons dependency
+        f.write64(division + 0x120, shellphys)   # i_shellphys dependency
+        f.write64(division + 0x3e0, carriers)   # 0xa0-byte division records
+        f.write64(shellphys, shell_vtable)
+        f.write64(shell_vtable + 0x18, RETURN)
+        row = carriers + 0xa0  # use a nonzero record index
+        f.uc.reg_write(UC_X86_REG_RSP, STACK + 0x8000)
+        f.uc.reg_write(UC_X86_REG_RBP, STACK + 0x7000)
+        f.uc.reg_write(UC_X86_REG_R13, division)
+
+        def run_slice(begin, end):
+            f.uc.emu_start(f.base + begin, f.base + end, count=20000)
+            self.assertEqual(f.uc.reg_read(UC_X86_REG_RIP), f.base + end)
+
+        run_slice(0x83906, 0x83911)
+        f.uc.reg_write(UC_X86_REG_RDX, 0xa0)
+        run_slice(0x83930, 0x83936)  # select the synthetic configuration row
+        self.assertEqual(f.uc.reg_read(UC_X86_REG_RDI), row)
+
+        # The two actual i_weapons methods return entries from the synthetic named maps.
+        f.uc.mem_write(TEXT, b"bravo\0")
+        f.uc.reg_write(UC_X86_REG_RDX, TEXT)
+        run_slice(0x839fb, 0x83a0c)  # lookup weapon by name -> carrier + 0x20
+        f.uc.mem_write(TEXT, b"alpha\0")
+        f.uc.reg_write(UC_X86_REG_RDX, TEXT)
+        run_slice(0x83a1a, 0x83a2b)  # lookup shell by name -> carrier + 0x28
+        self.assertEqual(struct.unpack("<Q", f.uc.mem_read(row + 0x20, 8))[0], WEAPONS + 0x130)
+        self.assertEqual(struct.unpack("<Q", f.uc.mem_read(row + 0x28, 8))[0], SHELLS)
+        # The alternative-shell loop looks up a name through a pointer and stores it in
+        # another slot; give it a different synthetic shell to exercise the indexed path.
+        f.uc.mem_write(TEXT + 0x100, b"bravo\0")
+        f.write64(TEXT + 0x200, TEXT + 0x100)
+        f.uc.reg_write(UC_X86_REG_RDX, TEXT + 0x200)
+        f.uc.reg_write(UC_X86_REG_RBX, row + 0x30)
+        run_slice(0x83afd, 0x83b10)
+        self.assertEqual(struct.unpack("<Q", f.uc.mem_read(row + 0x30, 8))[0], SHELLS + 0x170)
+
+        # Follow the separate firing path's record selection and its launch-record stores.
+        f.write32(fire + 0x94, 1)  # synthetic carrier index
+        f.write32(fire + 0x38, 1)  # synthetic shell choice
+        f.uc.reg_write(UC_X86_REG_R14, division)
+        f.uc.reg_write(UC_X86_REG_RDI, fire)
+        run_slice(0x42dd1, 0x42de6)  # carrier = division + selected 0xa0-byte row
+        self.assertEqual(f.uc.reg_read(UC_X86_REG_R13), row)
+        run_slice(0x43443, 0x4345a)  # shell pointer from the selected row
+        self.assertEqual(f.uc.reg_read(UC_X86_REG_RSI), SHELLS + 0x170)
+        rbp = STACK + 0x7000
+        f.uc.reg_write(UC_X86_REG_RBP, rbp)
+        run_slice(0x438f5, 0x43901)
+        record = rbp + 0x10
+        self.assertEqual(struct.unpack("<Q", f.uc.mem_read(record + 0x38, 8))[0], SHELLS + 0x170)
+        self.assertEqual(struct.unpack("<Q", f.uc.mem_read(record + 0x40, 8))[0], WEAPONS + 0x130)
+        f.uc.reg_write(UC_X86_REG_R8, 0)
+        run_slice(0x43954, 0x4398a)  # stop before calling slot 3: do not invoke a game function
+        self.assertEqual(f.uc.reg_read(UC_X86_REG_RCX), shellphys)
+        self.assertEqual(f.uc.reg_read(UC_X86_REG_RDX), record)
+        self.assertEqual(f.uc.reg_read(UC_X86_REG_R10), shell_vtable)
 
     def test_weapon_enumerator_returns_separate_inline_names(self):
         f = Fixture([("cannon", 0), ("cannon1", 1)])

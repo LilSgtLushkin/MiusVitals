@@ -173,6 +173,55 @@ class DescriptionIdentityEvidence(unittest.TestCase):
             (0x6cbb7, "movups", "xmmword ptr [rcx + 0x20], xmm0"),
         ])
 
+    def test_named_divisions_records_feed_one_launch_path(self):
+        # i_divisions.generate loads named descriptors from i_weapons into 0xa0-byte
+        # rows; one ctrl_tick path later pulls those pointers into the launch record.
+        # This is evidence for that path, not all other callers or cross-install identity.
+        self.assertEqual(self.rip_string("adv_game", 0x81ccf), b"i_divisions")
+        self.assertEqual(self.rip_string("adv_game", 0x82079), b"generate")
+        self.assertEqual(self.rip_string("adv_game", 0x82091), b"ctrl_tick")
+        self.assertEqual(self.rip_string("adv_game", 0x82289), b"i_weapons")
+        self.assertEqual(self.rip_string("adv_game", 0x822c5), b"i_shellphys")
+        self.instructions("adv_game", [
+            (0x82085, "lea", "rax, [rip - 0xc1c]"),  # generate -> 0x81470
+            (0x8209d, "lea", "rax, [rip - 0xba4]"),  # ctrl_tick -> 0x81500
+            (0x822a5, "lea", "rax, [rdi + 0x118]"),
+            (0x822e1, "lea", "rax, [rdi + 0x120]"),
+            (0x81470, "jmp", "0x82a30"),
+            (0x82bd0, "call", "0x82bf0"),
+            (0x8150e, "jmp", "0x85b00"),
+            (0x8614b, "call", "0x42d40"),
+            (0x82c56, "mov", "r13, rcx"),
+            (0x837a1, "lea", "rcx, [r9 + r9*4]"),
+            (0x837a5, "shl", "rcx, 5"),  # allocate count * 0xa0
+            (0x83906, "lea", "r10, [r13 + 0x3e0]"),
+            (0x83930, "mov", "rdi, qword ptr [r10]"),
+            (0x83933, "add", "rdi, rdx"),
+            (0x839fb, "mov", "rcx, qword ptr [r13 + 0x118]"),
+            (0x83a05, "call", "qword ptr [rax + 0x18]"),  # named weapon lookup
+            (0x83a08, "mov", "qword ptr [rdi + 0x20], rax"),
+            (0x83a1a, "mov", "rcx, qword ptr [r13 + 0x118]"),
+            (0x83a24, "call", "qword ptr [rax + 0x20]"),  # named shell lookup
+            (0x83a27, "mov", "qword ptr [rdi + 0x28], rax"),
+            (0x83a2e, "lea", "rbx, [rdi + 0x28]"),
+            (0x83b0a, "call", "qword ptr [rax + 0x20]"),
+            (0x83b0d, "mov", "qword ptr [rbx], rax"),
+            (0x83b22, "add", "rbx, 8"),
+            (0x83b2a, "cmp", "r15d, 5"),
+            (0x42dae, "mov", "r14, rcx"),
+            (0x42dd1, "mov", "ecx, dword ptr [rdi + 0x94]"),
+            (0x42dd7, "lea", "r13, [rcx + rcx*4]"),
+            (0x42ddb, "shl", "r13, 5"),
+            (0x42ddf, "add", "r13, qword ptr [r14 + 0x3e0]"),
+            (0x4344f, "mov", "rsi, qword ptr [r13 + rax*8 + 0x28]"),
+            (0x438f5, "mov", "qword ptr [rbp + 0x48], rsi"),  # rec + 0x38
+            (0x438f9, "mov", "rax, qword ptr [r13 + 0x20]"),
+            (0x438fd, "mov", "qword ptr [rbp + 0x50], rax"),  # rec + 0x40
+            (0x43954, "mov", "rcx, qword ptr [r14 + 0x120]"),
+            (0x43986, "lea", "rdx, [rbp + 0x10]"),
+            (0x4398a, "call", "qword ptr [r10 + 0x18]"),
+        ])
+
     def test_launch_uses_fields_outside_existing_fingerprint_and_ammo_check(self):
         self.instructions("basic_physic", [
             (0x185c8, "mov", "rdi, qword ptr [rdx + 0x40]"),
