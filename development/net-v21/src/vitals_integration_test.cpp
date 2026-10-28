@@ -48,9 +48,21 @@ static Object *vehicle(ObjMan *om, unsigned id) {
 }
 static void deliver(const vitals::Entry *entries, unsigned n, uint32_t &seq) {
     std::vector<unsigned char> bytes(sizeof(vitals::PacketHead) + n * sizeof(vitals::Entry));
-    vitals::PacketHead h = { make_head(PKT_VITALS, n), 777, ++seq };
+    vitals::PacketHead h = { make_head(PKT_VITALS, n), 777, vitals_epoch(), ++seq };
     memcpy(bytes.data(), &h, sizeof h); memcpy(bytes.data() + sizeof h, entries, n * sizeof(*entries));
     vitals_on_packet(bytes.data(), (int)bytes.size(), capture);
+}
+static bool sent_transition(uint32_t id, unsigned bit) {
+    for (const auto &bytes : output) {
+        if (bytes.size() < sizeof(vitals::PacketHead)) continue;
+        vitals::PacketHead h; memcpy(&h, bytes.data(), sizeof h);
+        if (h.h.type != PKT_VITALS || bytes.size() != sizeof h + h.h.count * sizeof(vitals::Entry)) continue;
+        for (unsigned i = 0; i < h.h.count; ++i) {
+            vitals::Entry e; memcpy(&e, bytes.data() + sizeof h + i * sizeof e, sizeof e);
+            if ((e.flags & vitals::vehicle) && e.id == id && (e.flags & (1u << (16 + bit)))) return true;
+        }
+    }
+    return false;
 }
 int main() {
     vitals_test_mock_layout(true);
@@ -74,10 +86,12 @@ int main() {
     ready = true; deliver(incoming, 4, seq);
     uint8_t status[vitals::vehicle_bytes] = {}; status[2] = 7;
     vitals::Entry veh = vitals::machine(vid, status); deliver(&veh, 1, seq);
-    expect(output.size() >= before + 2, "accepted records acknowledged");
+    expect(output.size() == before, "number exchange alone does not ACK before startup validation");
     for (unsigned step = 1; step <= 30; ++step) vitals_frame(om, now + step * 100, capture);
-    expect(get<float>(one.human, 0x7c8) == 1.f && get<float>(two.human, 0x7c8) == 1.f,
-           "state not applied before startup validation finishes");
+    expect(get<float>(one.human, 0x7c8) == 1.f && get<float>(two.human, 0x7c8) == 1.f && output.empty(),
+           "state is neither sent nor applied before startup validation finishes");
+    deliver(incoming, 4, seq); deliver(&veh, 1, seq);
+    expect(output.size() >= before + 2, "validated records acknowledged");
     vitals_frame(om, now + 3200, capture);
     expect(get<float>(one.human, 0x7c8) == 0.3f && get<unsigned>(one.record, 0x2c) == 5,
            "validated death updates health and owned squad record");
@@ -89,16 +103,19 @@ int main() {
     expect(get<float>(duplicate_a.human, 0x7c8) == 1.f && get<float>(duplicate_b.human, 0x7c8) == 1.f,
            "ambiguous local IDs are never applied");
     expect(*((unsigned char *)machine + 0xd09) == 7, "vehicle status transition applied after baseline");
+    output.clear(); *((unsigned char *)machine + 0xd09) = 0; vitals_frame(om, now + 3300, capture);
+    *((unsigned char *)machine + 0xd09) = 7; vitals_frame(om, now + 3400, capture);
+    expect(sent_transition(vid, 2), "observed vehicle zero-to-one is explicitly marked in the wire state");
     vitals::Entry heal = vitals::soldier(2, 0.9f); deliver(&heal, 1, seq);
-    vitals_frame(om, now + 3400, capture);
+    vitals_frame(om, now + 3600, capture);
     expect(get<float>(two.human, 0x7c8) == 0.6f, "later higher peer health cannot heal");
     // A readable but read-only human must be skipped, not written.
     DWORD previous; expect(VirtualProtect(two.human, 0x3000, PAGE_READONLY, &previous) != 0, "protect fake human");
     vitals::Entry worse = vitals::soldier(2, 0.55f); deliver(&worse, 1, seq);
-    vitals_frame(om, now + 3600, capture);
+    vitals_frame(om, now + 3800, capture);
     expect(get<float>(two.human, 0x7c8) == 0.6f, "read-only health is not written");
     DWORD ignored; VirtualProtect(two.human, 0x3000, previous, &ignored);
-    vitals_frame(om, now + 3800, capture);
+    vitals_frame(om, now + 4000, capture);
     expect(get<float>(two.human, 0x7c8) == 0.55f, "pending health applies when writable again");
     alignas(8) unsigned char statistics[0x140] = {};
     put<unsigned>(statistics, 0x130, 0x12345678);
@@ -114,6 +131,19 @@ int main() {
     vitals_peer(888); expect(vitals_test_peer_epoch() == 888 && vitals_test_outstanding() == 0, "new peer clears state and transmissions");
     before = output.size(); deliver(&worse, 1, seq); expect(output.size() == before, "old peer epoch is not acknowledged");
     vitals_peer(777); expect(vitals_test_peer_epoch() == 888, "retired handshake cannot roll peer identity back");
+
+    // Some plausible values must not leak to the peer when the rest of the layout sanity check
+    // fails. No early ACK should make the peer believe its state was retained either.
+    vitals_start(); vitals_peer(777); output.clear();
+    put<float>(one.human, 0x7c8, 0.7f);
+    for (Person p : { two, invalid, duplicate_a, duplicate_b }) put<float>(p.human, 0x7c8, 3.f);
+    now = GetTickCount(); vitals_frame(om, now, capture);
+    for (unsigned step = 1; step <= 40; ++step) vitals_frame(om, now + step * 100, capture);
+    expect(output.empty(), "failed health sanity emits neither early states nor retries");
+    before = output.size(); deliver(&worse, 1, seq);
+    expect(output.size() == before, "failed health sanity does not ACK incoming state");
+    put<unsigned>(statistics, 0x130, 0x12345678); vitals_test_stat_invoke(statistics, fake_stat);
+    expect(get<unsigned>(statistics, 0x130) == 0x12345678, "failed health sanity does not change statistics");
     vitals_pause();
     for (Person p : { one, two, invalid, duplicate_a, duplicate_b }) { release(p.human); release(p.squad); release(p.record); }
     release(machine);

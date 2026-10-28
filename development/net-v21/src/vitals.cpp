@@ -29,13 +29,20 @@ const unsigned char stat_sig[] = { 0x48,0x8b,0xc4,0x44,0x88,0x40,0x18,0x48,0x89,
 const unsigned char stat_rng[] = { 0x30,0x01,0,0,0x0d,0x66,0x19,0 };
 
 struct LocalSoldier { float sent = 1.f; uint32_t last_sent = 0; bool told_dead = false; };
-struct LocalVehicle { uint8_t sent[vitals::vehicle_bytes] = {}; uint32_t last_sent = 0; };
+struct LocalVehicle {
+    uint8_t sent[vitals::vehicle_bytes] = {}, observed[vitals::vehicle_bytes] = {};
+    uint16_t transitions = 0;
+    uint32_t last_sent = 0;
+};
 struct Candidate { Object *obj; uint32_t id; bool machine; };
 static vitals::Channel channel;
 static std::unordered_map<uint32_t, LocalSoldier> soldiers;
 static std::unordered_map<uint32_t, LocalVehicle> vehicles;
 static uint32_t next_nonce, since, last_scan, last_report, scan_no, sanity_seen, sanity_good;
+static uint32_t last_refused_peer, last_refused_at;
 static uint16_t baseline_mask;
+static double scan_us_total, scan_us_max;
+static unsigned scan_samples;
 static bool on, waiting, baseline_checked, start_checked, broken;
 static int layout_state; // 0 not tried, 1 verified, -1 unknown; retry only while module absent
 static void *member_fn;
@@ -114,6 +121,7 @@ static bool event_log() { int v; return env_integer("MP_LOG_VITALS", &v) && v !=
 static void clear_local() {
     soldiers.clear(); vehicles.clear(); since = last_scan = last_report = scan_no = sanity_seen = sanity_good = 0;
     baseline_mask = 0; on = waiting = baseline_checked = start_checked = broken = false;
+    scan_us_total = scan_us_max = 0; scan_samples = 0;
     stats_enabled.store(false, std::memory_order_release);
 }
 static bool name_and_kind(Object *o, ObjMan *om, bool *machine, uint32_t *id) {
@@ -224,7 +232,6 @@ static void frame(ObjMan *om, uint32_t now, vitals::Send send, bool force) {
         stats_enabled.store(false, std::memory_order_release); return;
     }
     if (!ensure_layout()) { stats_enabled.store(false, std::memory_order_release); return; }
-    try_stat_hook();
     if (!xlate_ready()) {
         stats_enabled.store(false, std::memory_order_release);
         if (!waiting) { waiting = true; mp_log("vitals: waiting for the checked object-number exchange"); }
@@ -237,10 +244,18 @@ static void frame(ObjMan *om, uint32_t now, vitals::Send send, bool force) {
     }
     stats_thread.store(frame_thread, std::memory_order_release);
     stats_last_active.store(now, std::memory_order_relaxed);
-    stats_enabled.store(!broken && start_checked && current_mode() >= 2, std::memory_order_release);
-    channel.tick(now, send);
+    bool stat_ready = !broken && start_checked && current_mode() >= 2 && stats_mode();
+    // Avoid patching game code before connection, number exchange and initial validation, or
+    // at all when statistics synchronisation is disabled.
+    if (stat_ready) try_stat_hook();
+    stats_enabled.store(stat_ready, std::memory_order_release);
+    // A failed or unfinished layout sanity check must neither emit new state nor replay an
+    // already queued state. ACK processing itself remains available in the packet handler.
+    if (start_checked && !broken) channel.tick(now, send);
     if (broken || (!force && (uint32_t)(now - last_scan) < 100)) return;
     last_scan = now; ++scan_no;
+    LARGE_INTEGER scan_begin = {}, scan_end = {};
+    bool timing = QueryPerformanceCounter(&scan_begin) != 0;
     if (!readable(om, 0x100)) return;
     uint32_t count; Object **all;
     memcpy(&count, (char *)om + 0xfc, 4); memcpy(&all, (char *)om + 0xf0, sizeof all);
@@ -286,9 +301,18 @@ static void frame(ObjMan *om, uint32_t now, vitals::Send send, bool force) {
             }
             if (!vehicles.count(c.id) && vehicles.size() >= vitals::max_vehicles) { ++refused; continue; }
             LocalVehicle &local = vehicles[c.id];
+            bool any = false;
+            for (int b = 0; b < vitals::vehicle_bytes; ++b) {
+                uint16_t bit = (uint16_t)(1u << b);
+                if (values[b]) {
+                    any = true;
+                    if (!local.observed[b]) local.transitions |= bit;
+                } else local.transitions &= (uint16_t)~bit;
+                local.observed[b] = values[b];
+            }
             bool changed = memcmp(local.sent, values, sizeof values) != 0;
-            bool any = false; for (uint8_t b : values) if (b) any = true;
-            if (changed || (any && (uint32_t)(now - local.last_sent) >= 2000)) pending.push_back(vitals::machine(c.id, values));
+            if (changed || local.transitions || (any && (uint32_t)(now - local.last_sent) >= 2000))
+                pending.push_back(vitals::machine(c.id, values, local.transitions));
             continue;
         }
         if (!readable(p + H_SELF, 4)) continue;
@@ -314,11 +338,15 @@ static void frame(ObjMan *om, uint32_t now, vitals::Send send, bool force) {
                                 (uint32_t)(now - local.last_sent) >= 2000))
             pending.push_back(vitals::soldier(c.id, health));
     }
-    size_t retained = pending.empty() ? 0 : channel.enqueue(pending.data(), pending.size(), now, send);
+    size_t retained = (!start_checked || broken || pending.empty()) ? 0 : channel.enqueue(pending.data(), pending.size(), now, send);
     for (size_t i = 0; i < retained; ++i) {
         const Entry &e = pending[i];
         if (e.flags & vitals::vehicle) {
-            auto it = vehicles.find(e.id); if (it != vehicles.end()) { vitals::machine_bytes(e, it->second.sent); it->second.last_sent = now; }
+            auto it = vehicles.find(e.id); if (it != vehicles.end()) {
+                vitals::machine_bytes(e, it->second.sent);
+                it->second.transitions &= (uint16_t)~(e.flags >> 16);
+                it->second.last_sent = now;
+            }
         } else {
             auto it = soldiers.find(e.id); if (it != soldiers.end()) {
                 it->second.sent = vitals::value(e.a); it->second.told_dead = (e.flags & vitals::dead) != 0; it->second.last_sent = now;
@@ -337,11 +365,19 @@ static void frame(ObjMan *om, uint32_t now, vitals::Send send, bool force) {
             if (veh_nonzero[b] * 100 > veh_seen * 20) baseline_mask |= (uint16_t)(1u << b);
         mp_log("vitals: %u initial vehicles; baseline status mask %03x is excluded", veh_seen, baseline_mask);
     }
+    static LARGE_INTEGER frequency = {};
+    if (timing && QueryPerformanceCounter(&scan_end) && scan_end.QuadPart >= scan_begin.QuadPart &&
+        (frequency.QuadPart || QueryPerformanceFrequency(&frequency)) && frequency.QuadPart > 0) {
+        double us = (double)(scan_end.QuadPart - scan_begin.QuadPart) * 1000000.0 / (double)frequency.QuadPart;
+        scan_us_total += us; if (us > scan_us_max) scan_us_max = us; ++scan_samples;
+    }
     if ((uint32_t)(now - last_report) >= 5000 || (force && event_log())) {
         const vitals::Counters &n = channel.counters();
         mp_log("vitals: soldiers %u dead %u, vehicles %u, applied %u refused %u ambiguous %u; channel sent %llu acked %llu rx %llu retry %llu rejected %llu pending %zu",
                seen, dead, veh_seen, applied, refused, duplicates, n.sent, n.acked, n.received, n.retries, n.rejected, channel.outstanding());
-        last_report = now;
+        if (scan_samples) mp_log("vitals: %u scans, average %.2f us, maximum %.2f us (wall time; not FPS)",
+                                 scan_samples, scan_us_total / scan_samples, scan_us_max);
+        scan_us_total = scan_us_max = 0; scan_samples = 0; last_report = now;
     }
 }
 } // namespace
@@ -351,15 +387,26 @@ void vitals_start() {
     uint32_t epoch = GetTickCount() ^ (GetCurrentProcessId() * 2654435761u) ^ next_nonce;
     if (!epoch) epoch = 1;
     channel.start(epoch); clear_local(); last_om = active_om = nullptr; last_send = nullptr;
+    last_refused_peer = last_refused_at = 0;
 }
 void vitals_pause() { stats_enabled.store(false, std::memory_order_release); }
 uint32_t vitals_epoch() { return channel.epoch(); }
 void vitals_peer(uint32_t epoch) {
-    if (channel.set_peer(epoch)) { clear_local(); mp_log("vitals: peer process identity changed; local state will be republished"); }
+    if (channel.set_peer(epoch)) {
+        clear_local(); last_refused_peer = last_refused_at = 0;
+        mp_log("vitals: peer process identity changed; local state will be republished");
+    } else if (epoch && epoch != channel.peer_epoch()) {
+        uint32_t now = GetTickCount();
+        if (epoch != last_refused_peer || (uint32_t)(now - last_refused_at) >= 5000) {
+            last_refused_peer = epoch; last_refused_at = now;
+            mp_log("vitals: refused retired peer identity or too many process changes; restart if the current peer cannot connect");
+        }
+    }
 }
 void vitals_on_packet(const unsigned char *data, int size, void (*send)(const void *, int)) {
     if (!data || size < 0) return;
-    bool ready = session_connected() && session_role() != ROLE_NONE && current_mode() > 0 && ensure_layout() && xlate_ready();
+    bool ready = session_connected() && session_role() != ROLE_NONE && current_mode() > 0 &&
+                 ensure_layout() && xlate_ready() && start_checked && !broken;
     channel.packet(data, (size_t)size, ready, send);
 }
 void vitals_frame(ObjMan *om, uint32_t now, void (*send)(const void *, int)) {

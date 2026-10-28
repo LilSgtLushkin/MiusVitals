@@ -1,11 +1,12 @@
 // Portable, bounded Vitals state channel. Adapted from the monotonic state exchange in
 // development/kit-source/src/mp_vitals.c, not from the old DLL's v20 hooks.
 //
-// Only the session thread calls this class. The session authenticates the peer address and
-// supplies an epoch learned from the versioned Hello/Welcome before accepting any data. Receipt
+// Only the session thread calls this class. The session checks the peer address (not a
+// cryptographic identity) and supplies an epoch learned from the versioned Hello/Welcome. Receipt
 // and validation precede the ACK; a full table or an unavailable number exchange is never ACKed.
 // Packet loss, reordering and duplicates are normal. Soldiers merge by minimum health/death;
-// vehicle flags use per-vehicle sequence numbers and accumulate pending nonzero transitions.
+// vehicle flags use per-vehicle sequence numbers plus explicit nonzero-transition bits, so a
+// later 0->1 transition survives even when the intervening zero packet arrives out of order.
 #pragma once
 #include "protocol.h"
 #include <stdint.h>
@@ -18,13 +19,14 @@
 
 namespace vitals {
 enum { dead = 1, hurt = 2, record = 4, vehicle = 8, vehicle_bytes = 9 };
-enum { per_packet = 70, max_packets = 32, max_soldiers = 6144, max_vehicles = 3072, retry_ms = 400 };
+enum { per_packet = 70, max_packets = 32, max_soldiers = 6144, max_vehicles = 3072, max_retired = 64, retry_ms = 400 };
 
 #pragma pack(push, 1)
-struct PacketHead { Head h; uint32_t epoch, seq; };
+// Data identifies both process incarnations. ACK echoes both epochs and the exact sequence.
+struct PacketHead { Head h; uint32_t epoch, target, seq; };
 struct Entry { uint32_t id, flags, a, b; };
 #pragma pack(pop)
-static_assert(sizeof(PacketHead) == 16 && sizeof(Entry) == 16, "vitals wire layout");
+static_assert(sizeof(PacketHead) == 20 && sizeof(Entry) == 16, "vitals wire layout");
 static_assert(sizeof(PacketHead) + per_packet * sizeof(Entry) <= 1200, "vitals datagram MTU");
 
 inline uint32_t bits(float value) { uint32_t b; memcpy(&b, &value, sizeof b); return b; }
@@ -33,15 +35,21 @@ inline Entry soldier(uint32_t id, float health) {
     Entry e = { id, (uint32_t)(hurt | (health < 0.5f ? dead : 0)), bits(health), 0 };
     return e;
 }
-inline Entry machine(uint32_t id, const uint8_t b[vehicle_bytes]) {
-    Entry e = { id, (uint32_t)(vehicle | ((uint32_t)b[8] << 8)), 0, 0 };
+inline Entry machine(uint32_t id, const uint8_t b[vehicle_bytes], uint16_t transitions = 0) {
+    Entry e = { id, (uint32_t)(vehicle | ((uint32_t)b[8] << 8) | ((uint32_t)transitions << 16)), 0, 0 };
     memcpy(&e.a, b, 4); memcpy(&e.b, b + 4, 4); return e;
 }
 inline void machine_bytes(const Entry &e, uint8_t b[vehicle_bytes]) {
     memcpy(b, &e.a, 4); memcpy(b + 4, &e.b, 4); b[8] = (uint8_t)(e.flags >> 8);
 }
 inline bool valid(const Entry &e) {
-    if (e.flags & vehicle) return (e.flags & ~(uint32_t)(vehicle | 0xff00u)) == 0;
+    if (e.flags & vehicle) {
+        if (e.flags & ~(uint32_t)(vehicle | 0xff00u | 0x01ff0000u)) return false;
+        uint8_t b[vehicle_bytes]; machine_bytes(e, b);
+        uint16_t transitions = (uint16_t)(e.flags >> 16);
+        for (int k = 0; k < vehicle_bytes; ++k) if ((transitions & (1u << k)) && !b[k]) return false;
+        return true;
+    }
     if (e.flags & ~(uint32_t)(dead | hurt | record)) return false;
     if (!(e.flags & hurt)) return false;
     float h = value(e.a);
@@ -83,8 +91,10 @@ public:
         if (!epoch || epoch == peer_) return false;
         for (size_t i = 0; i < retired_count_; ++i) if (retired_[i] == epoch) return false;
         if (peer_) {
-            if (retired_count_ < 8) retired_[retired_count_++] = peer_;
-            else { for (size_t i = 1; i < 8; ++i) retired_[i - 1] = retired_[i]; retired_[7] = peer_; }
+            // Never forget an old incarnation and accidentally accept it again. On exhaustion,
+            // require a process restart instead of silently evicting a retired epoch.
+            if (retired_count_ == max_retired) return false;
+            retired_[retired_count_++] = peer_;
         }
         peer_ = epoch; out_.clear(); soldiers_.clear(); vehicles_.clear(); return true;
     }
@@ -105,7 +115,7 @@ public:
             size_t n = count - at < (size_t)per_packet ? count - at : (size_t)per_packet;
             bool okay = true; for (size_t i = 0; i < n; ++i) if (!valid(items[at + i])) okay = false;
             if (!okay) { ++counts_.rejected; break; }
-            PacketHead h = { make_head(PKT_VITALS, (int)n), epoch_, ++seq_ };
+            PacketHead h = { make_head(PKT_VITALS, (int)n), epoch_, peer_, ++seq_ };
             Tx tx; tx.seq = h.seq; tx.sent_at = now; tx.bytes.resize(sizeof h + n * sizeof(Entry));
             memcpy(tx.bytes.data(), &h, sizeof h);
             memcpy(tx.bytes.data() + sizeof h, items + at, n * sizeof(Entry));
@@ -128,15 +138,15 @@ public:
     bool packet(const void *data, size_t size, bool ready, Send send) {
         if (!data || size < sizeof(PacketHead)) { ++counts_.rejected; return false; }
         PacketHead h; memcpy(&h, data, sizeof h);
-        if (h.h.magic != k_magic || h.h.flags != 0 || !h.epoch || !h.seq) { ++counts_.rejected; return false; }
+        if (h.h.magic != k_magic || h.h.flags != 0 || !h.epoch || !h.target || !h.seq) { ++counts_.rejected; return false; }
         if (h.h.type == PKT_VITALS_ACK) {
-            if (size != sizeof h || h.h.count || h.epoch != epoch_) { ++counts_.rejected; return false; }
+            if (size != sizeof h || h.h.count || h.epoch != epoch_ || h.target != peer_) { ++counts_.rejected; return false; }
             for (auto it = out_.begin(); it != out_.end(); ++it) if (it->seq == h.seq) {
                 out_.erase(it); ++counts_.acked; return true;
             }
             return false; // stale/duplicate ACK cannot retire another packet
         }
-        if (h.h.type != PKT_VITALS || !ready || !send || h.epoch != peer_ ||
+        if (h.h.type != PKT_VITALS || !ready || !send || h.epoch != peer_ || h.target != epoch_ ||
             !h.h.count || h.h.count > per_packet || size != sizeof h + h.h.count * sizeof(Entry)) {
             ++counts_.rejected; return false;
         }
@@ -158,9 +168,12 @@ public:
                 if (h.seq <= v.last_seq) continue; // ignore an old zero or stale nonzero transition
                 v.last_seq = h.seq;
                 uint8_t b[vehicle_bytes]; machine_bytes(e, b);
+                uint16_t transitions = (uint16_t)(e.flags >> 16);
                 for (int k = 0; k < vehicle_bytes; ++k) {
                     uint16_t bit = (uint16_t)(1u << k);
-                    if (b[k] && !(v.peer_nonzero & bit)) { v.pending |= bit; v.pending_value[k] = b[k]; }
+                    if (b[k] && ((transitions & bit) || !(v.peer_nonzero & bit))) {
+                        v.pending |= bit; v.pending_value[k] = b[k];
+                    }
                     if (b[k]) v.peer_nonzero |= bit; else v.peer_nonzero &= (uint16_t)~bit;
                 }
             } else {
@@ -171,13 +184,13 @@ public:
             }
         }
         ++counts_.received;
-        PacketHead ack = { make_head(PKT_VITALS_ACK), h.epoch, h.seq };
+        PacketHead ack = { make_head(PKT_VITALS_ACK), h.epoch, h.target, h.seq };
         send(&ack, sizeof ack);
         return true;
     }
 private:
     struct Tx { uint32_t seq = 0, sent_at = 0; std::vector<uint8_t> bytes; };
-    uint32_t epoch_ = 0, peer_ = 0, seq_ = 0, retired_[8] = {};
+    uint32_t epoch_ = 0, peer_ = 0, seq_ = 0, retired_[max_retired] = {};
     size_t retired_count_ = 0;
     std::deque<Tx> out_;
     std::unordered_map<uint32_t, Soldier> soldiers_;
