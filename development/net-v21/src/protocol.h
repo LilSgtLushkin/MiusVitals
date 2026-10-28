@@ -4,14 +4,15 @@
 #include <stddef.h>
 #include <string.h>
 
-enum { PKT_HELLO = 1, PKT_WELCOME, PKT_KEEPALIVE, PKT_IMAGE_REQUEST, PKT_IMAGE_DATA, PKT_STATE, PKT_BYE, PKT_OBJECT, PKT_OBJECT_ACK, PKT_SHOT, PKT_SHOT_ACK, PKT_END, PKT_VITALS, PKT_VITALS_ACK };
+enum { PKT_HELLO = 1, PKT_WELCOME, PKT_KEEPALIVE, PKT_IMAGE_REQUEST, PKT_IMAGE_DATA, PKT_STATE, PKT_BYE, PKT_OBJECT, PKT_OBJECT_ACK, PKT_SHOT, PKT_SHOT_ACK, PKT_END, PKT_VITALS, PKT_VITALS_ACK, PKT_ANIM, PKT_ANIM_ACK };
 enum { HOST_MODE_SKIRMISH = 1, HOST_MODE_OPERATION = 2, HOST_MODE_MISSION = 3 };       // mission: made in the battle editor
 // Hello/Welcome Head.flags: a tactical peer advertises only hooks actually installed and ready.
 // Absence means do not suppress the local simulation for that feature.
-enum { PEER_HIT_SYNC = 1, PEER_ANIM_SYNC = 2, PEER_FEATURES = PEER_HIT_SYNC | PEER_ANIM_SYNC };
+enum { PEER_HIT_SYNC = 1, PEER_ANIM_SYNC = 2, PEER_VEHICLE_HIT_SYNC = 4, PEER_PAUSE_SYNC = 8,
+       PEER_FEATURES = PEER_HIT_SYNC | PEER_ANIM_SYNC | PEER_VEHICLE_HIT_SYNC | PEER_PAUSE_SYNC };
 static const unsigned k_magic = 0x504d5447;          // "GTMP"
-static const unsigned k_version = 17;      // 17: ordered events bind both tactical process epochs
-static const char k_wire_tag[] = "NETV21_WIRE_PROTOCOL_17"; // embedded in both binaries and checked by the packager
+static const unsigned k_version = 18;      // 18: same-version peers; tactical state binds both process epochs
+static const char k_wire_tag[] = "NETV21_WIRE_PROTOCOL_18"; // embedded in both binaries and checked by the packager
 static const char k_protocol[12] = "GTMF_TA_A1";     // the engine's own protocol id for this game
 static const unsigned k_chunk = 1000;
 static const unsigned short k_default_port = 1943;   // the port the engine's own network settings name
@@ -62,7 +63,18 @@ struct ImageData { Head h; unsigned index, size, map_epoch, map_revision; unsign
 // phase: 0 deployment, 1 initial orders, 2 battle, 3 battle over (the value of the engine's "gamemode" broadcast)
 // ready: deployment and initial orders end only when both players have pressed the game's Start button;
 // 1 = this player has finished deployment, 2 = has finished the initial orders as well.
-struct StateHead { Head h; unsigned snapshot, sim_ms; float speed, cur_speed; unsigned char paused, phase, ready, pad; };
+// owner and target are the tactical process epochs negotiated in Hello/Welcome. A delayed packet
+// from a previous process must not overwrite a new battle's units or clock. Pause votes use a
+// host-coordinated prepare/commit; the frame's snapshot number also orders this control message.
+struct PauseControl {
+    unsigned vote_revision, recovery_revision, proposal, host_vote_revision, guest_vote_revision, ack, applied;
+    unsigned char vote, target, stage, reserved;
+};
+struct StateHead {
+    Head h; unsigned owner, target, snapshot, sim_ms; float speed, cur_speed;
+    unsigned char paused, phase, ready, pad;
+    PauseControl pause;
+};
 struct UnitRec { unsigned id; unsigned char kind, pad[3]; float pos[3], rot[9], lin[3], ang[3]; };
 // One datagram of an object's saved state: a run-length coded XOR against the version the receiver holds.
 struct ObjectFrag { Head h; unsigned long long key; unsigned version, base_version, raw_size, delta_size; unsigned short frag, nfrags; };

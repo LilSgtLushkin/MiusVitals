@@ -15,6 +15,7 @@
 #include "image_chunks.h"
 #include "operation_turn.h"
 #include "image.h"
+#include "battle_identity.h"
 #include "opsave.h"
 #include "opsave_checked.h"
 #include "map_file_windows.h"
@@ -328,6 +329,7 @@ struct Joiner {
         map_file_windows::Environment env;
         if (!env.set("MP_ROLE", "join") || !env.set("MP_PEER", address) || !env.set("MP_MAP", "1") ||
             !env.set("MP_HOST_MODE", "operation") || !env.set("MP_MAP_EPOCH", epoch) || !env.set("MP_MAP_REV", revision) ||
+            !env.set(battle_identity::k_environment, nullptr) ||
             !env.set("MP_AUTOJOIN", nullptr) || !env.set("MP_ENDTURN", nullptr) || !env.set("MP_TURNDONE", nullptr))
             return fail("Could not prepare the child game's environment; no save was replaced.");
         DWORD launch_error = 0;
@@ -363,6 +365,9 @@ struct Joiner {
         if (!opsave_checked::safe_profile_id(id)) return fail("The profile id is not a safe folder name.");
         std::string why;
         if (!opsave_checked::validate(image, &why)) return fail("The received battle description is invalid.");
+        // poll() verified this checksum on receipt. Check again before passing the source
+        // identity to the child in case the buffered image changed after receipt.
+        if (fnv(image.data(), image.size()) != image_hash) return fail("The received battle description changed after transfer.");
         std::vector<unsigned char> prepared = image;
         // commanding the host's opponent: same battle, with the command of the two forces exchanged
         if (versus && !image::mirror(prepared)) return fail("The host's battle could not be prepared for the other side.");
@@ -371,8 +376,11 @@ struct Joiner {
             sprintf_s(cmd, "\"%s\\starter_x64.exe\" root\\programs\\tacgame.progpack, %s, users\\profiles, %s, *:*, 0, 1",
                       root, k_image_path, id) < 0) return fail("The battle path or command is too long.");
         char code[8] = { 0 }; memcpy(code, &prefer_side, 4);
+        char identity[battle_identity::k_text_size];
+        battle_identity::format(image_hash, battle_identity::fingerprint(prepared.data(), prepared.size()), identity);
         map_file_windows::Environment env;
-        if (!env.set("MP_ROLE", "join") || !env.set("MP_PEER", address) ||
+        if (!env.set(battle_identity::k_environment, identity) ||
+            !env.set("MP_ROLE", "join") || !env.set("MP_PEER", address) ||
             !env.set("MP_PREFER", prefer_side ? code : nullptr) || !env.set("MP_VERSUS", versus ? "1" : "0") ||
             !env.set("MP_HOST_MODE", host_mode == HOST_MODE_OPERATION ? "operation" : host_mode == HOST_MODE_MISSION ? "mission" : "skirmish") ||
             !env.set("MP_MAP", nullptr) || !env.set("MP_AUTOJOIN", host_mode == HOST_MODE_OPERATION ? address : nullptr))

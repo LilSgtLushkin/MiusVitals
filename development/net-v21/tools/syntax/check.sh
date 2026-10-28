@@ -13,8 +13,8 @@ cd "$(dirname "$0")/../.."
 ZIG=${ZIG:-zig}
 MODULE="basic_network.cpp netlog.cpp hooks.cpp render_guard.cpp vitals.cpp hit_sync.cpp anim_sync.cpp session.cpp ui.cpp state.cpp statesync.cpp statesync_legacy.cpp shots.cpp
 trench.cpp xlate.cpp steam.cpp steam_module.cpp"
-PROGRAMS="steam_logger.cpp mp_join.cpp protocol_selftest.cpp opsave_test.cpp netlog_selftest.cpp
-steam_selftest.cpp steam_friends_test.cpp atomic_file_selftest.cpp battle_file_test.cpp retry_gate_test.cpp transform_gc_test.cpp"
+PROGRAMS="src/steam_logger.cpp src/mp_join.cpp tests/protocol_selftest.cpp tests/opsave_test.cpp tests/netlog_selftest.cpp
+tests/steam_selftest.cpp tests/steam_friends_test.cpp tests/atomic_file_selftest.cpp tests/battle_file_test.cpp tests/retry_gate_test.cpp tests/transform_gc_test.cpp tests/state_apply_delay_test.cpp tests/squad_ownership_test.cpp tests/image_mirror_identity_test.cpp"
 FLAGS="-target x86_64-windows-gnu -std=c++17 -fms-extensions -c -Wno-unknown-attributes
 -Wno-pointer-bool-conversion -Wno-unused-value -Wno-nontrivial-memcall
 -Dmin(a,b)=((a)<(b)?(a):(b)) -Dmax(a,b)=((a)>(b)?(a):(b)) -Isrc -Itools/syntax"
@@ -40,12 +40,12 @@ for f in $MODULE; do
     fi
 done
 for f in $PROGRAMS; do
-    [ -f "src/$f" ] || continue
+    [ -f "$f" ] || { echo "missing $f"; fail=1; continue; }
     rc=0
-    "$ZIG" c++ $FLAGS -o "$OUT/$(basename "$f" .cpp).obj" "src/$f" >"$OUT/compile.log" 2>&1 || rc=$?
+    "$ZIG" c++ $FLAGS -o "$OUT/$(basename "$f" .cpp).obj" "$f" >"$OUT/compile.log" 2>&1 || rc=$?
     out=$(grep -v '^zig: warning' "$OUT/compile.log" || true)
     if [ "$rc" -ne 0 ] || [ -n "$out" ]; then
-        echo "== src/$f (compiler exit $rc)"
+        echo "== $f (compiler exit $rc)"
         [ -z "$out" ] || printf '%s\n' "$out" | head -25
         fail=1
     fi
@@ -55,10 +55,10 @@ done
 # not linked into the module and do not change the production build.
 for f in render_guard_test.cpp session_loopback_peer.cpp; do
     rc=0
-    "$ZIG" c++ $FLAGS -DNETV21_TEST_HOOKS -o "$OUT/$(basename "$f" .cpp).obj" "src/$f" >"$OUT/compile.log" 2>&1 || rc=$?
+    "$ZIG" c++ $FLAGS -DNETV21_TEST_HOOKS -o "$OUT/$(basename "$f" .cpp).obj" "tests/$f" >"$OUT/compile.log" 2>&1 || rc=$?
     out=$(grep -v '^zig: warning' "$OUT/compile.log" || true)
     if [ "$rc" -ne 0 ] || [ -n "$out" ]; then
-        echo "== src/$f (compiler exit $rc)"
+        echo "== tests/$f (compiler exit $rc)"
         [ -z "$out" ] || printf '%s\n' "$out" | head -25
         fail=1
     fi

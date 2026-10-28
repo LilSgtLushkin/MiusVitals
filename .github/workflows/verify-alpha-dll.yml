@@ -1,15 +1,7 @@
 name: Rebuild GTMP_alpha mp_vitals.dll
 
+# The exact rebuild is a PR/manual check; running it on both push and PR duplicated the same work.
 on:
-  push:
-    paths:
-      - .github/workflows/verify-alpha-dll.yml
-      - development/kit-source/src/mp_vitals.c
-      - development/kit-source/src/build.sh
-      - development/kit-source/src/requirements-build.txt
-      - development/gtmp-alpha/**
-      - scripts/package_gtmp_alpha.py
-      - GTMP_alpha_INSTALL.zip
   pull_request:
     paths:
       - .github/workflows/verify-alpha-dll.yml

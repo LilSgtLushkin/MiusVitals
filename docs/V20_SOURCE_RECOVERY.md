@@ -228,7 +228,8 @@ Steam вызываются, в каком порядке, какие строк�
 Написан с нуля по спецификации [`V20_STEAM_LAYER.md`](V20_STEAM_LAYER.md): `src/steam.cpp`
 (21 слот `GetProcAddress` — ровно те же имена, что в v20; 4 callback'а; P2P; presence с проверкой
 чтением; разбор `+gtmf_join=`; стенд `MP_STEAM_FAKE`), `src/steam_module.cpp` (прослойка к
-`mp_log` и якорь, который не даёт линкеру выбросить слой), `src/steam_selftest.cpp` (21 проверка).
+`mp_log` и якорь, который не даёт линкеру выбросить слой), `tests/steam_selftest.cpp` (21 проверка;
+исторически находился в `src/`).
 
 | | наш модуль | v20 |
 |---|---|---|

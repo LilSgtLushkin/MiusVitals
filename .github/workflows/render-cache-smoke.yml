@@ -7,6 +7,7 @@ on:
     branches-ignore: ['main']
     paths:
       - 'development/net-v21/src/render_guard*'
+      - 'development/net-v21/tests/render_guard_test.cpp'
       - 'development/net-v21/src/render_cache_bounds.h'
       - 'development/net-v21/tools/render_cache_bounds*'
       - 'development/game-build-3598-1/**'

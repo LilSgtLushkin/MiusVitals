@@ -32,7 +32,13 @@ int main() {
     expect(a.enqueue(&hurt, 1, 600, a_send) == 1 && a.enqueue(&worse, 1, 601, a_send) == 1, "two death states queued");
     expect(b.packet(a_to_b[1].data(), a_to_b[1].size(), true, b_send), "later death accepted first");
     expect(b.packet(a_to_b[0].data(), a_to_b[0].size(), true, b_send), "older state accepted out of order");
-    expect(b.find_soldier(7)->is_dead && b.find_soldier(7)->health == 0.2f, "late packet cannot heal or revive");
+    expect(b.find_soldier(7)->is_dead && b.find_soldier(7)->health == 0.2f, "older packet cannot overwrite newer death");
+    Entry owner_healed = soldier(7, 0.8f);
+    expect(a.enqueue(&owner_healed, 1, 602, a_send) == 1 &&
+           b.packet(a_to_b.back().data(), a_to_b.back().size(), true, b_send), "new owner state accepted");
+    expect(b.packet(a_to_b[0].data(), a_to_b[0].size(), true, b_send) &&
+           b.find_soldier(7)->health == 0.8f && !b.find_soldier(7)->is_dead,
+           "delayed older death cannot replace newer owner state");
     for (auto &x : b_to_a) a.packet(x.data(), x.size(), true, a_send);
     expect(a.outstanding() == 0, "selective out-of-order ACKs retire their own records");
 
@@ -89,6 +95,10 @@ int main() {
     PacketHead crafted = { make_head(PKT_VITALS, 2), 101, 202, 1000 };
     memcpy(wire.data(), &crafted, sizeof crafted); memcpy(wire.data() + sizeof crafted, packet_bad, sizeof packet_bad);
     expect(!b.packet(wire.data(), wire.size(), true, b_send) && !b.find_soldier(111), "mixed valid/invalid packet is atomic");
+    packet_bad[1] = soldier(111, 0.2f);
+    memcpy(wire.data() + sizeof crafted, packet_bad, sizeof packet_bad);
+    expect(!b.packet(wire.data(), wire.size(), true, b_send) && !b.find_soldier(111),
+           "ambiguous repeated unit in one packet is rejected atomically");
 
     Channel bounded; bounded.start(400); bounded.set_peer(401); a_to_b.clear();
     std::vector<Entry> rows((max_packets + 2) * per_packet);

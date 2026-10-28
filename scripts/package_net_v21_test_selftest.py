@@ -123,6 +123,17 @@ class Packaging(unittest.TestCase):
                 self.assertTrue(any(pkg.MODULE_PATH in line for line in runtime))
                 self.assertTrue(any(pkg.LAUNCHER_PATH in line for line in runtime))
 
+    def test_current_builder_rejects_a_protocol_17_pair(self):
+        # The existing archives remain readable, but new packages cannot silently use an old pair.
+        with tempfile.TemporaryDirectory() as tmp:
+            temp = Path(tmp)
+            module, launcher = temp / "module", temp / "launcher"
+            module.write_bytes(self.module + b"NETV21_WIRE_PROTOCOL_17")
+            launcher.write_bytes(self.old_launcher + b"NETV21_WIRE_PROTOCOL_17")
+            with self.assertRaisesRegex(SystemExit, "wire-protocol tag"):
+                pkg.build(ROOT, module, temp / "old-pair.zip", launcher)
+        pkg.verify(ROOT / "MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip")
+
     def test_tagged_pair_is_required(self):
         with tempfile.TemporaryDirectory() as tmp:
             temp = Path(tmp)

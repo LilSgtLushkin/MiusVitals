@@ -8,7 +8,9 @@
 #include <stdarg.h>
 #include <string.h>
 #include <vector>
+#include <unordered_set>
 
+static std::unordered_set<Object *> owned;
 static int checks, failures, host_mode = HOST_MODE_OPERATION;
 static bool connected = true, ready = true;
 static std::vector<std::vector<unsigned char>> output;
@@ -16,8 +18,15 @@ static void capture(const void *p, int n) { output.emplace_back((const unsigned 
 static int original_stat_calls;
 static void fake_stat(void *, long long arg, char flag) { if (arg == 17 && flag == 1) ++original_stat_calls; }
 static void expect(bool ok, const char *s) { ++checks; if (!ok) { ++failures; printf("FAIL: %s\n", s); } }
-void mp_log(const char *, ...) {}
+static char refusal_summary[512];
+void mp_log(const char *format, ...) {
+    if (!strstr(format, "vitals: refused in latest scan")) return;
+    va_list args; va_start(args, format);
+    vsnprintf(refusal_summary, sizeof refusal_summary, format, args);
+    va_end(args);
+}
 bool session_connected() { return connected; }
+bool session_owns(Object *o) { return owned.count(o) != 0; }
 int session_role() { return ROLE_HOST; }
 int session_host_mode() { return host_mode; }
 bool xlate_ready() { return ready; }
@@ -52,6 +61,18 @@ static void deliver(const vitals::Entry *entries, unsigned n, uint32_t &seq) {
     memcpy(bytes.data(), &h, sizeof h); memcpy(bytes.data() + sizeof h, entries, n * sizeof(*entries));
     vitals_on_packet(bytes.data(), (int)bytes.size(), capture);
 }
+static bool sent_soldier(uint32_t id) {
+    for (const auto &bytes : output) {
+        if (bytes.size() < sizeof(vitals::PacketHead)) continue;
+        vitals::PacketHead h; memcpy(&h, bytes.data(), sizeof h);
+        if (h.h.type != PKT_VITALS || bytes.size() != sizeof h + h.h.count * sizeof(vitals::Entry)) continue;
+        for (unsigned i = 0; i < h.h.count; ++i) {
+            vitals::Entry e; memcpy(&e, bytes.data() + sizeof h + i * sizeof e, sizeof e);
+            if (!(e.flags & vitals::vehicle) && e.id == id) return true;
+        }
+    }
+    return false;
+}
 static bool sent_transition(uint32_t id, unsigned bit) {
     for (const auto &bytes : output) {
         if (bytes.size() < sizeof(vitals::PacketHead)) continue;
@@ -69,10 +90,11 @@ int main() {
     SetEnvironmentVariableA("MP_VITALS", nullptr); SetEnvironmentVariableA("MP_VEHICLES", nullptr);
     unsigned char manager[0x200] = {}; ObjMan *om = (ObjMan *)manager;
     Person one = person(om, 1), two = person(om, 2), invalid = person(om, 3, false);
-    Person duplicate_a = person(om, 4), duplicate_b = person(om, 4);
+    Person duplicate_a = person(om, 4), duplicate_b = person(om, 4), local = person(om, 5);
     Object *machine = vehicle(om, 10);
+    owned.insert((Object *)local.human);
     Object *objects[] = { (Object *)one.human, (Object *)two.human, (Object *)invalid.human,
-                          (Object *)duplicate_a.human, (Object *)duplicate_b.human, machine };
+                          (Object *)duplicate_a.human, (Object *)duplicate_b.human, (Object *)local.human, machine };
     put<Object **>(manager, 0xf0, objects); put<unsigned>(manager, 0xfc, (unsigned)(sizeof objects / sizeof objects[0]));
     uint32_t vid = fnv((const unsigned char *)machine->full, strlen(machine->full));
     vitals_start(); vitals_peer(777);
@@ -80,17 +102,17 @@ int main() {
     uint32_t now = GetTickCount(), seq = 0;
     vitals_frame(om, now, capture);
     vitals::Entry incoming[] = { vitals::soldier(1, 0.3f), vitals::soldier(2, 0.6f),
-                                 vitals::soldier(3, 0.2f), vitals::soldier(4, 0.1f) };
-    ready = false; size_t before = output.size(); deliver(incoming, 4, seq);
+                                 vitals::soldier(3, 0.2f), vitals::soldier(4, 0.1f), vitals::soldier(5, 0.1f) };
+    ready = false; size_t before = output.size(); deliver(incoming, 5, seq);
     expect(output.size() == before && get<float>(one.human, 0x7c8) == 1.f, "unready number exchange is not acknowledged or applied");
-    ready = true; deliver(incoming, 4, seq);
+    ready = true; deliver(incoming, 5, seq);
     uint8_t status[vitals::vehicle_bytes] = {}; status[2] = 7;
     vitals::Entry veh = vitals::machine(vid, status); deliver(&veh, 1, seq);
     expect(output.size() == before, "number exchange alone does not ACK before startup validation");
     for (unsigned step = 1; step <= 30; ++step) vitals_frame(om, now + step * 100, capture);
     expect(get<float>(one.human, 0x7c8) == 1.f && get<float>(two.human, 0x7c8) == 1.f && output.empty(),
            "state is neither sent nor applied before startup validation finishes");
-    deliver(incoming, 4, seq); deliver(&veh, 1, seq);
+    deliver(incoming, 5, seq); deliver(&veh, 1, seq);
     expect(output.size() >= before + 2, "validated records acknowledged");
     vitals_frame(om, now + 3200, capture);
     expect(get<float>(one.human, 0x7c8) == 0.3f && get<unsigned>(one.record, 0x2c) == 5,
@@ -103,20 +125,33 @@ int main() {
     expect(get<float>(duplicate_a.human, 0x7c8) == 1.f && get<float>(duplicate_b.human, 0x7c8) == 1.f,
            "ambiguous local IDs are never applied");
     expect(*((unsigned char *)machine + 0xd09) == 7, "vehicle status transition applied after baseline");
-    output.clear(); *((unsigned char *)machine + 0xd09) = 0; vitals_frame(om, now + 3300, capture);
+    expect(get<float>(local.human, 0x7c8) == 1.f && sent_soldier(5) && !sent_soldier(1),
+           "peer cannot change our soldier and only our initial health is published");
+    output.clear(); owned.insert(machine); *((unsigned char *)machine + 0xd09) = 0; vitals_frame(om, now + 3300, capture);
     *((unsigned char *)machine + 0xd09) = 7; vitals_frame(om, now + 3400, capture);
     expect(sent_transition(vid, 2), "observed vehicle zero-to-one is explicitly marked in the wire state");
-    vitals::Entry heal = vitals::soldier(2, 0.9f); deliver(&heal, 1, seq);
+    vitals::Entry heal[] = { vitals::soldier(2, 0.9f), vitals::soldier(1, 1.f) };
+    deliver(heal, 2, seq);
     vitals_frame(om, now + 3600, capture);
-    expect(get<float>(two.human, 0x7c8) == 0.6f, "later higher peer health cannot heal");
+    expect(get<float>(two.human, 0x7c8) == 0.9f, "new owner health updates a living soldier in either direction");
+    expect(get<float>(one.human, 0x7c8) == 0.3f && get<void *>(one.human, 0x2388) == nullptr,
+           "a locally dead soldier is never resurrected by owner health");
     // A readable but read-only human must be skipped, not written.
     DWORD previous; expect(VirtualProtect(two.human, 0x3000, PAGE_READONLY, &previous) != 0, "protect fake human");
     vitals::Entry worse = vitals::soldier(2, 0.55f); deliver(&worse, 1, seq);
     vitals_frame(om, now + 3800, capture);
-    expect(get<float>(two.human, 0x7c8) == 0.6f, "read-only health is not written");
+    expect(get<float>(two.human, 0x7c8) == 0.9f, "read-only health is not written");
     DWORD ignored; VirtualProtect(two.human, 0x3000, previous, &ignored);
     vitals_frame(om, now + 4000, capture);
     expect(get<float>(two.human, 0x7c8) == 0.55f, "pending health applies when writable again");
+    refusal_summary[0] = 0; vitals_frame(om, now + 5100, capture);
+    expect(strstr(refusal_summary, "invalid health 0, death record/write 1"),
+           "automatic summary identifies a refused death separately from invalid health");
+    put<float>(two.human, 0x7c8, 3.f); refusal_summary[0] = 0;
+    vitals_frame(om, now + 10200, capture);
+    expect(strstr(refusal_summary, "invalid health 1, death record/write 1"),
+           "automatic summary separately counts invalid health and a refused death");
+    put<float>(two.human, 0x7c8, 0.55f);
     alignas(8) unsigned char statistics[0x140] = {};
     put<unsigned>(statistics, 0x130, 0x12345678);
     vitals_frame(om, GetTickCount(), capture);
@@ -136,7 +171,7 @@ int main() {
     // fails. No early ACK should make the peer believe its state was retained either.
     vitals_start(); vitals_peer(777); output.clear();
     put<float>(one.human, 0x7c8, 0.7f);
-    for (Person p : { two, invalid, duplicate_a, duplicate_b }) put<float>(p.human, 0x7c8, 3.f);
+    for (Person p : { two, invalid, duplicate_a, duplicate_b, local }) put<float>(p.human, 0x7c8, 3.f);
     now = GetTickCount(); vitals_frame(om, now, capture);
     for (unsigned step = 1; step <= 40; ++step) vitals_frame(om, now + step * 100, capture);
     expect(output.empty(), "failed health sanity emits neither early states nor retries");
@@ -145,7 +180,7 @@ int main() {
     put<unsigned>(statistics, 0x130, 0x12345678); vitals_test_stat_invoke(statistics, fake_stat);
     expect(get<unsigned>(statistics, 0x130) == 0x12345678, "failed health sanity does not change statistics");
     vitals_pause();
-    for (Person p : { one, two, invalid, duplicate_a, duplicate_b }) { release(p.human); release(p.squad); release(p.record); }
+    for (Person p : { one, two, invalid, duplicate_a, duplicate_b, local }) { release(p.human); release(p.squad); release(p.record); }
     release(machine);
     printf("vitals engine adapter selftest: %d checks, %d failed\n", checks, failures);
     return failures ? 1 : 0;

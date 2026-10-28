@@ -143,14 +143,21 @@ inline bool mirror(std::vector<byte> &b)
     SquadColumns c = squad_columns(b, s);
     if (!u || !e || c.tag < 0 || c.side < 0) return false;
     unsigned us = u32_at(b.data(), u), es = u32_at(b.data(), e);
-    unsigned turned = 0;
+    // A failed mirror must leave its input untouched. Find a convertible opponent before
+    // changing any USER tags; callers normally use copies, but the operation is transactional.
+    bool can_turn = false;
+    for (unsigned r = 0; r < s.rows; r++) {
+        unsigned side = u32_at(b.data(), cell(s, r, c.side));
+        unsigned tag = u32_at(b.data(), cell(s, r, c.tag));
+        if (tag != k_user && side == es) { can_turn = true; break; }
+    }
+    if (!can_turn) return false;
     for (unsigned r = 0; r < s.rows; r++) {
         size_t tag = cell(s, r, c.tag);
         unsigned side = u32_at(b.data(), cell(s, r, c.side)), v = u32_at(b.data(), tag);
         if (v == k_user) put_u32(b.data(), tag, k_enem);
-        else if (side == es) { put_u32(b.data(), tag, k_user); turned++; }
+        else if (side == es) put_u32(b.data(), tag, k_user);
     }
-    if (!turned) return false;
     put_u32(b.data(), u, es);
     put_u32(b.data(), e, us);
     if (p.ok && p.type == 2 && p.rows == 2 && p.cols >= 3)

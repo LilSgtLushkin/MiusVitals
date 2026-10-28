@@ -47,10 +47,13 @@ inline std::vector<byte> battle() {
     const unsigned ger=0x00524547, ussr=0x52535355, user=0x52455355, enem=0x4d454e45;
     Node game; game.name="i_gamespec:gamespec"; game.cells={num("user_side",ger),num("enemy_side",ussr)};
     Node squads; squads.name="squads"; squads.type=2; squads.cols=4;
+    // A non-USER host formation makes double-mirroring lossy: it must not be used to
+    // reconstruct the host file hash. The genuine launcher must carry its identity.
     squads.cells={num("",0),num("",0x100),num("",ger),num("",user),
-                  num("",0),num("",0x200),num("",ussr),num("",enem)};
+                  num("",0),num("",0x200),num("",ussr),num("",enem),
+                  num("",0),num("",0x300),num("",ger),num("",0x314e4535)};
     Node units; units.name="units"; units.type=2; units.cols=1;
-    units.cells={str("i_human:hum_00000100"),str("i_human:hum_00000200")};
+    units.cells={str("i_human:hum_00000100"),str("i_human:hum_00000200"),str("i_human:hum_00000300")};
     return build({game,squads,units});
 }
 inline opsave::NodeRef node(const std::vector<byte> &b,const char *name){for(auto &n:opsave::nodes(b))if(n.name==name)return n;return {};}

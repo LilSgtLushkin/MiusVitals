@@ -7,6 +7,7 @@ python3 "$ROOT/development/merged-source/verify_workspace.py"
 python3 "$ROOT/scripts/check_artifacts.py"
 python3 "$ROOT/scripts/check_artifacts_selftest.py"
 python3 "$ROOT/scripts/package_net_v21_test_selftest.py"
+python3 "$ROOT/development/net-v21/tools/extract_legacy_shots_fixture_selftest.py"
 python3 "$ROOT/tests/test_historical_106_fixture.py"
 if [ -f "$ROOT/MiusMultiplayer_v1.0.7_TEST_INSTALL.zip" ]; then
     # The released 1.0.7 remains historical; new experimental sources intentionally differ.
@@ -24,7 +25,12 @@ assert hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest() == '60
 PY
 fi
 if [ -f "$ROOT/MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip" ]; then
-    python3 "$ROOT/scripts/package_net_v21_test.py" --verify "$ROOT/MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip" --verify-source
+    # Preserve the previously tested archive; it is no longer a build of the current source.
+    python3 "$ROOT/scripts/package_net_v21_test.py" --verify "$ROOT/MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip"
+    python3 - "$ROOT/MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip" <<'PY'
+import hashlib, pathlib, sys
+assert hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest() == 'd733efa9f085f65d1f5db36bf8b004e5945329625d0bb6b468590d936b490bb8'
+PY
 fi
 python3 "$ROOT/scripts/archive_audit_selftest.py"
 python3 "$ROOT/scripts/archive_audit.py" --check

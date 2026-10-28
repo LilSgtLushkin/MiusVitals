@@ -26,6 +26,7 @@ unsigned session_test_hello_rejected();
 void session_test_state_dispatch(bool tactical);
 void session_test_shot_dispatch(bool tactical);
 bool session_test_transform_dispatch();
+bool session_test_state_header_order();
 bool session_test_new_force_offer();
 bool session_test_force_fragments();
 bool session_test_force_recovery();
@@ -35,7 +36,10 @@ void session_test_motion_push(const UnitRec &);
 u32 session_test_motion_updates();
 u32 session_test_motion_skipped();
 size_t session_test_motion_cached();
+bool session_test_correction_peak(u64, float, float, bool);
 void session_test_motion_end();
+void session_test_owned(u64);
+void session_test_snapshot_timer(ObjMan *, StateHead *);
 void session_test_map_enable(bool);
 unsigned session_test_map_dropped();
 unsigned session_test_map_duplicates();
@@ -101,12 +105,18 @@ void shots_reset() {}
 void shots_report() {}
 void hits_install(ObjMan *) {}
 bool hits_available() { return false; }
+unsigned hits_features() { return 0; }
 void hits_report() {}
 void hits_reset_peer() {}
 void hits_stop() {}
 void anim_install(ObjMan *) {}
 bool anim_available() { return false; }
 void anim_frame(ObjMan *, DWORD) {}
+void anim_transport_epoch(u32, u32) {}
+void anim_transport_reset() {}
+void anim_on_packet(const unsigned char *, int, void (*)(const void *, int)) {}
+void anim_transport_tick(DWORD, void (*)(const void *, int)) {}
+void anim_sim_step(ObjMan *, DWORD, void (*)(const void *, int)) {}
 void anim_report() {}
 void anim_reset_peer() {}
 void anim_stop() {}
@@ -114,12 +124,39 @@ void trench_install() {}
 void trench_sim_step(ObjMan *) { ++trench_steps; }
 void trench_report() {}
 static Object *find_nothing(ObjMan *, Dep *) { return nullptr; }
+static Object *current_test_timer;
+static Object *find_test_timer(ObjMan *, Dep *dep) {
+    return !strcmp(dep->iface, "i_ctrltimer") && !strcmp(dep->name, "ctrltimer") ? current_test_timer : nullptr;
+}
+static bool timer_and_squad_cache_test()
+{
+    alignas(8) unsigned char timer_a[0x180] = {}, timer_b[0x180] = {};
+    *(float *)(timer_a + 0x108) = 2.f; *(float *)(timer_a + 0x10c) = 1.f;
+    *(u32 *)(timer_a + 0x158) = 16; timer_a[0x15c] = 1; timer_a[0x15d] = 1;
+    *(float *)(timer_b + 0x108) = 3.f; *(float *)(timer_b + 0x10c) = 2.f;
+    *(u32 *)(timer_b + 0x158) = 8; timer_b[0x15c] = 0; timer_b[0x15d] = 1;
+    void *vt[10] = {}; vt[9] = (void *)find_test_timer; ObjMan manager = { vt };
+    StateHead sh = {};
+    current_test_timer = (Object *)timer_a; session_test_snapshot_timer(&manager, &sh);
+    bool ok = sh.speed == 1.f && sh.cur_speed == 2.f && sh.paused == 1;
+    current_test_timer = (Object *)timer_b; session_test_snapshot_timer(&manager, &sh);
+    ok = ok && sh.speed == 3.f && sh.cur_speed == 3.f && sh.paused == 0;
+    current_test_timer = nullptr; session_test_snapshot_timer(&manager, &sh);
+    ok = ok && sh.speed == 1.f && sh.cur_speed == 1.f && sh.paused == 0;
+    session_test_owned((2ull << 32) | 0x100); // one owned soldier
+    ok = ok && session_owns_squad(0x101) && !session_owns_squad(0x200);
+    session_test_owned((2ull << 32) | 0x200); // same number of soldiers, different squad
+    ok = ok && !session_owns_squad(0x100) && session_owns_squad(0x201);
+    session_test_fresh_tactical();
+    return ok;
+}
 
 static bool motion_test()
 {
-    alignas(8) unsigned char memory[0x300] = {}, manager_bytes[0x110] = {};
-    Object *unit = (Object *)memory;
-    unit->iface = "i_techn"; strcpy_s(unit->full, "i_techn:unit_7b");
+    alignas(8) unsigned char memory[0x300] = {}, replacement_memory[0x300] = {}, manager_bytes[0x110] = {};
+    Object *unit = (Object *)memory, *replacement = (Object *)replacement_memory;
+    unit->iface = replacement->iface = "i_techn";
+    strcpy_s(unit->full, "i_techn:unit_7b"); strcpy_s(replacement->full, "i_techn:unit_7b");
     Object *units[] = { unit };
     *(Object ***)(manager_bytes + 0xf0) = units; *(u32 *)(manager_bytes + 0xfc) = 1;
     ObjMan *manager = (ObjMan *)manager_bytes;
@@ -129,6 +166,7 @@ static bool motion_test()
     session_test_motion_push(r);
     session_sim_step(manager, 0);
     bool ok = *(float *)(memory + UNIT_POS) == 10 && session_test_motion_updates() == 1 &&
+              session_test_correction_peak((1ull << 32) | 0x7b, 0, 10, true) &&
               shot_steps == 1 && trench_steps == 1;
     for (int i = 0; i < 20; i++) session_sim_step(manager, 0);
     ok = ok && *(float *)(memory + UNIT_POS) == 10 && session_test_motion_updates() == 1 &&
@@ -137,9 +175,18 @@ static bool motion_test()
     ok = ok && *(float *)(memory + UNIT_POS) == 20 && session_test_motion_updates() == 2;
     session_sim_step(manager, 16);
     ok = ok && session_test_motion_updates() == 3 && shot_steps == 23 && trench_steps == 23;
+    // A same-ID object replacement with the same manager count must not reuse the old pointer or
+    // interpolate a fresh object against its predecessor's held state.
+    float previous_position = *(float *)(memory + UNIT_POS);
+    units[0] = replacement;
+    session_sim_step(manager, 0);
+    ok = ok && session_test_motion_cached() == 0 && *(float *)(replacement_memory + UNIT_POS) == 0;
+    r.pos[0] = 30; session_test_motion_push(r); session_sim_step(manager, 0);
+    ok = ok && *(float *)(replacement_memory + UNIT_POS) == 30 &&
+         *(float *)(memory + UNIT_POS) == previous_position && session_test_motion_cached() == 1;
     *(u32 *)(manager_bytes + 0xfc) = 0;
     session_sim_step(manager, 0);
-    ok = ok && session_test_motion_cached() == 0 && shot_steps == 24 && trench_steps == 24;
+    ok = ok && session_test_motion_cached() == 0 && shot_steps == 26 && trench_steps == 26;
     session_test_motion_end();
     shot_steps = trench_steps = 0;
     return ok;
@@ -417,13 +464,21 @@ static int spectator_map_test(bool host, bool steam, const char *own_port, const
 
 // Both actual CreateProcess paths spawn this harmless starter. Read its environment verdict
 // and wait for it to exit before reusing the filename or deleting the isolated directory.
-static bool starter_checked(const char *root)
+static bool starter_checked(const char *root, std::string *identity = nullptr)
 {
     char path[MAX_PATH]; sprintf_s(path, "%s\\starter_fixture_result.txt", root);
     bool ok = false; unsigned long pid = 0; DWORD start = GetTickCount();
     while (GetTickCount() - start < 5000) {
         FILE *f = nullptr;
-        if (!fopen_s(&f, path, "rb") && f) { ok = fscanf_s(f, "ok:%lu", &pid) == 1; fclose(f); break; }
+        if (!fopen_s(&f, path, "rb") && f) {
+            char line[160] = {};
+            ok = fgets(line, sizeof line, f) && sscanf_s(line, "ok:%lu", &pid) == 1;
+            if (identity) {
+                const char *separator = strchr(line + 3, ':');
+                if (separator) *identity = separator + 1; else ok = false;
+            }
+            fclose(f); break;
+        }
         Sleep(10);
     }
     if (pid) {
@@ -516,6 +571,7 @@ static int host_battle_transition(bool host, bool steam, const char *our_port, c
     SetEnvironmentVariableA("MP_ROLE", "join"); SetEnvironmentVariableA("MP_MAP", "1");
     SetEnvironmentVariableA("MP_MAP_EPOCH", "102"); SetEnvironmentVariableA("MP_MAP_REV", "2");
     SetEnvironmentVariableA("MP_PEER", address);
+    SetEnvironmentVariableA(battle_identity::k_environment, "stale-map-ticket");
     session_test_spawn_battle_lobby(); session_start((ObjMan *)manager);
     bool notice = false;
     start = GetTickCount();
@@ -526,7 +582,10 @@ static int host_battle_transition(bool host, bool steam, const char *our_port, c
     }
     if (!notice) return 7;
     bool lobby_child = starter_checked(root);
-    if (!lobby_child) return 18;
+    char map_identity[64] = {};
+    bool lobby_parent_restored = GetEnvironmentVariableA(battle_identity::k_environment, map_identity, sizeof map_identity) &&
+                                 !strcmp(map_identity, "stale-map-ticket");
+    if (!lobby_child || !lobby_parent_restored) return 18;
     // The fixture tested CreateProcess and environment. Simulate the exited map process and
     // the game's autojoin UI: this fixture is not the engine and must not invoke ExitProcess.
     session_test_map_leave_screen(); session_frame((ObjMan *)manager);
@@ -545,16 +604,26 @@ static int host_battle_transition(bool host, bool steam, const char *our_port, c
     // Launch the real Joiner into a harmless starter, and then use its actual mirrored file to
     // model the new tactical process. Starting with MP_MAP=1 exercises its explicit removal.
     SetEnvironmentVariableA("MP_MAP", "1");
+    SetEnvironmentVariableA(battle_identity::k_environment, "stale-parent-value");
     bool launched = lobby.launch(root);
     if (!launched) { printf("launcher: %s\n", lobby.error); return 17; }
-    bool child = starter_checked(root);
+    char parent_identity[64] = {};
+    bool parent_restored = GetEnvironmentVariableA(battle_identity::k_environment, parent_identity, sizeof parent_identity) &&
+                           !strcmp(parent_identity, "stale-parent-value");
+    std::string child_identity;
+    bool child = starter_checked(root, &child_identity);
     // Start with the same environment the child fixture verified. Reset in-memory perspective to
     // model a genuinely fresh process and check the source hash after load_battle_description().
+    SetEnvironmentVariableA(battle_identity::k_environment, child_identity.c_str());
     SetEnvironmentVariableA("MP_ROLE", "join"); SetEnvironmentVariableA("MP_MAP", nullptr);
     SetEnvironmentVariableA("MP_PEER", address); SetEnvironmentVariableA("MP_VERSUS", "1");
     sprintf_s(g_out_dir, "%s\\out", root); strcpy_s(g_program, "tacgame");
     session_test_fresh_tactical(); session_start((ObjMan *)manager);
     bool hash = session_test_source_hash() == fnv(battle.data(), battle.size());
+    char consumed_identity[64] = {};
+    SetLastError(ERROR_SUCCESS);
+    bool ticket_consumed = !GetEnvironmentVariableA(battle_identity::k_environment, consumed_identity, sizeof consumed_identity) &&
+                           GetLastError() == ERROR_ENVVAR_NOT_FOUND;
     Object mine = {}, theirs = {};
     mine.iface = theirs.iface = "i_human";
     strcpy_s(mine.full, "i_human:hum_00000200"); strcpy_s(theirs.full, "i_human:hum_00000100");
@@ -567,10 +636,11 @@ static int host_battle_transition(bool host, bool steam, const char *our_port, c
         if (session_connected()) { connected = true; break; }
         Sleep(10);
     }
-    bool ok = notice && lobby_child && downloaded && launched && child && hash && controls && connected;
-    printf("BATTLE_%s_RESULT join ok=%d notice=%d lobby_env=%d image=%d launch=%d battle_env=%d hash=%d controls=%d connected=%d\n",
-           steam ? "STEAM" : "IP", (int)ok, (int)notice, (int)lobby_child, (int)downloaded, (int)launched, (int)child,
-           (int)hash, (int)controls, (int)connected);
+    bool ok = notice && lobby_child && lobby_parent_restored && downloaded && launched && parent_restored &&
+              child && hash && ticket_consumed && controls && connected;
+    printf("BATTLE_%s_RESULT join ok=%d notice=%d lobby_env=%d lobby_parent=%d image=%d launch=%d parent_restored=%d battle_env=%d hash=%d consumed=%d controls=%d connected=%d\n",
+           steam ? "STEAM" : "IP", (int)ok, (int)notice, (int)lobby_child, (int)lobby_parent_restored, (int)downloaded,
+           (int)launched, (int)parent_restored, (int)child, (int)hash, (int)ticket_consumed, (int)controls, (int)connected);
     // Give the host enough time to receive the final tactical HELLO before stopping.
     start = GetTickCount();
     while (GetTickCount() - start < 500) { session_frame((ObjMan *)manager); Sleep(10); }
@@ -698,10 +768,12 @@ int main(int argc, char **argv)
     if (legacy_shot_packets != 1 || tactical_shot_packets != 1) { puts("FAIL: shot dispatch by mode"); return 1; }
     if (!session_test_legacy_end()) { puts("FAIL: non-tactical end packet behavior"); return 1; }
     if (!session_test_transform_dispatch()) { puts("FAIL: transform dispatch by mode"); return 1; }
+    if (!session_test_state_header_order()) { puts("FAIL: stale state header or process accepted"); return 1; }
     if (!session_test_new_force_offer()) { puts("FAIL: changed force offer"); return 1; }
     if (!session_test_force_fragments()) { puts("FAIL: force fragment lengths"); return 1; }
     if (!session_test_force_recovery()) { puts("FAIL: force backup recovery"); return 1; }
     if (!motion_test()) { puts("FAIL: zero-ms simulation and remote transform processing"); return 1; }
+    if (!timer_and_squad_cache_test()) { puts("FAIL: current timer or same-count squad ownership"); return 1; }
     puts("state, force, zero-ms motion and cache tests passed");
     bool host = !strcmp(argv[1], "host");
     SetEnvironmentVariableA("MP_ROLE", argv[1]);

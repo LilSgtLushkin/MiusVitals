@@ -18,6 +18,9 @@
 #include "transform_inbox.h"
 #include "transform_send.h"
 #include "transform_gc.h"
+#include "state_apply_delay.h"
+#include "pause_sync.h"
+#include "squad_ownership.h"
 #include "peer_guard.h"
 #include "transport_policy.h"
 #include "render_guard.h"
@@ -27,6 +30,7 @@
 #include "protocol.h"
 #include "ceasefire.h"
 #include "image.h"
+#include "battle_identity.h"
 #include "force.h"
 #include "battle_file.h"
 #include "atomic_file.h"
@@ -56,7 +60,8 @@
 #include <vector>
 #include <atomic>
 
-static const int k_units_per_packet = 14;       // 24 + 14 * 80 = 1144 bytes, below any sane MTU
+static const int k_units_per_packet = 14;       // 68 + 14 * 80 = 1188 bytes, below a 1200-byte MTU
+static_assert(sizeof(StateHead) + k_units_per_packet * sizeof(UnitRec) <= 1200, "tactical state MTU");
 
 static int g_role;
 static int g_host_mode;
@@ -65,7 +70,11 @@ static unsigned g_prefer_side;
 static SOCKET g_sock = INVALID_SOCKET;
 static sockaddr_in g_peer;
 static bool g_have_peer, g_connected, g_bind_pending, g_upnp_started;
-static unsigned g_peer_features; // feature bits from the current tactical peer's Hello/Welcome
+static unsigned g_peer_features; // ordered tactical state features, bootstrapped by Hello/Welcome
+static pause_sync::State g_pause;
+// True once a battle control message was accepted or a connected battle peer was lost. It keeps
+// the timer held even if the first control message was lost before the connection dropped.
+static bool g_pause_ever_connected;
 static u32 g_event_local_epoch, g_event_peer_epoch; // identity bound to the current ordered stream
 static unsigned short g_port = k_default_port;
 static DWORD g_last_rx, g_last_hello, g_last_snapshot, g_last_report, g_last_bind_try;
@@ -99,16 +108,22 @@ static std::atomic<bool> g_watch_host_worker(false), g_block_guest_turn(false);
 // battle description: served by the host, read by both for sides and unit ownership
 static std::vector<unsigned char> g_image;
 static u32 g_image_hash, g_user_side, g_enemy_side;
-// The description as the host has it: this game's own copy, turned back round when this game mirrored it.
+// Host-file hash: exact for the host or a ticketed guest, otherwise a lossy mirror reconstruction.
 static u32 g_source_hash;
+static bool g_source_identity_exact;
 static std::unordered_set<u64> g_my_units;          // versus: the units this game's player commands
+static SquadOwnership g_my_squads;                 // derived from the current set, not merely its size
 static std::unordered_set<u64> g_position_only;     // units whose saved state is not exchanged
+
+static void rebuild_my_squads() { g_my_squads.rebuild(g_my_units); }
 
 // unit transforms
 static std::unordered_map<u64, transforms::Sent> g_sent;            // what was last sent per owned unit
 static std::unordered_map<u64, Object *> g_units;       // local unit per id
-static u32 g_units_count_seen;
-static transforms::Inbox g_pending;                     // tactical: latest arrival per unit before the next simulation step
+static ObjectListSnapshot<Object> g_unit_list;         // the actual manager entries used to build g_units
+static StateApplyDelay g_state_apply_delay;           // fresh initialization period per manager/session
+static transforms::Inbox g_pending;                     // tactical: newest snapshot per unit across simulation steps
+static transforms::HeaderOrder g_state_headers;         // shared clock/control fields ordered independently
 static std::vector<UnitRec> g_pending_legacy;           // non-tactical: preserve the old unfiltered receive path
 // The last two transforms received per followed unit, with the time each arrived: the unit is shown
 // between them, a little in the past (see session_sim_step).
@@ -126,6 +141,7 @@ static bool g_clock_adopted;
 static u32 g_snapshot, g_stat_sent, g_stat_applied, g_stat_elided, g_stat_coalesced, g_stat_bad_transforms;
 static u32 g_stat_zero_steps, g_stat_zero_skipped, g_stat_cache_pruned;
 static u32 g_stat_packets, g_stat_rx_bytes, g_stat_tx_bytes, g_stat_snaps;
+static void pause_connection_lost();
 #ifdef NETV21_TEST_HOOKS
 static unsigned g_test_hello_rejected;
 static bool g_test_map_no_game, g_test_map_faults, g_test_map_on_screen, g_test_battle_notice, g_test_spawn_battle_lobby;
@@ -142,8 +158,9 @@ void session_test_event_faults() { g_test_event_faults = true; }
 unsigned session_test_event_dropped() { return g_test_event_dropped; }
 unsigned session_test_event_duplicates() { return g_test_event_duplicates; }
 unsigned session_test_event_ack_dropped() { return g_test_event_ack_dropped; }
-void session_test_owned(u64 key) { g_versus = true; g_my_units.clear(); g_my_units.insert(key); }
+void session_test_owned(u64 key) { g_versus = true; g_my_units.clear(); g_my_units.insert(key); rebuild_my_squads(); }
 void session_test_event_disconnect() {
+    pause_connection_lost();
     g_connected = false;
     if (g_tactical) { vitals_pause(); hits_reset_peer(); anim_reset_peer(); }
     if (g_role == ROLE_HOST) g_have_peer = false;
@@ -160,6 +177,14 @@ unsigned session_test_map_stale() { return g_test_map_stale; }
 #endif
 static double g_stat_err_sum;
 static float g_stat_err_max;
+struct CorrectionPeak {
+    u64 key;
+    float local[3], target[3];
+    double snapshot_age;
+    DWORD rx_age;
+    bool fresh;
+};
+static CorrectionPeak g_stat_peak;
 static u64 g_sim_ms;
 static u32 g_phase, g_host_phase;          // battle phase here / on the host
 static DWORD g_last_phase_step;
@@ -202,7 +227,34 @@ typedef void (*SetPause)(char *, unsigned char);
 static SetSpeed g_set_speed;               // the timer's own setters, replaced on the timer object of a joining game
 static SetPause g_set_pause;
 static double g_sim_step = 0.02;           // multiplayer battles simulate in steps of this many seconds (MP_SIM_HZ)
+static unsigned pause_feature(void) { return g_start_action && g_input_action && g_box_result && g_timer_step ? PEER_PAUSE_SYNC : 0; }
+static bool pause_managed(void) {
+    return g_tactical && g_role != ROLE_NONE && g_phase == 2 && (g_connected || g_pause_ever_connected);
+}
+static bool pause_effective(void) {
+    return !g_connected || !pause_feature() || !(g_peer_features & PEER_PAUSE_SYNC) || !g_pause.active() || g_pause.paused();
+}
 static void force_publish(void);           // M4: this player's force, offered to the other game (defined below)
+static void pause_connection_lost()
+{
+    if (g_tactical && g_connected && g_phase == 2) {
+        g_pause_ever_connected = true;
+        g_pause.lost();
+        mp_log("pause: connection lost; holding locally until both players agree to resume");
+    }
+}
+
+static void pause_peer_features(unsigned next)
+{
+    // Treat loss of an established control capability as a recovery event, not merely a
+    // temporary timer override that would silently release when the capability reappears.
+    if (g_tactical && g_connected && g_phase == 2 && g_pause_ever_connected &&
+        (g_peer_features & PEER_PAUSE_SYNC) && !(next & PEER_PAUSE_SYNC)) {
+        g_pause.lost();
+        mp_log("pause: peer control capability disappeared; waiting for a fresh agreement");
+    }
+    g_peer_features = next;
+}
 
 int session_role(void) { return g_role; }
 int session_host_mode(void) { return g_host_mode; }
@@ -295,7 +347,7 @@ const char *session_status(void)
         !(g_connected && g_peer.sin_family == STEAM_FAMILY))
         sprintf_s(state, "UDP port %u is busy, retrying", g_port);
     else if (g_role == ROLE_JOIN && g_host_lost)
-        sprintf_s(state, "%s disconnected; use the game's own controls", peer);
+        sprintf_s(state, "%s disconnected; waiting for reconnection", peer);
     else if (!g_connected && g_role == ROLE_HOST)
         sprintf_s(state, "waiting for a player at %s:%u", g_local_ip, g_port);
     else if (!g_connected)
@@ -326,8 +378,20 @@ const char *session_status(void)
         sprintf_s(state, "%s has finished %s, press Start when ready", peer, what);
     else if (g_phase < 2 && g_start_action && !mine)
         sprintf_s(state, "%s ends when both players press Start", g_phase == 0 ? "deployment" : "initial orders");
+    else if (g_phase == 1 && mine && theirs && (!pause_feature() || !(g_peer_features & PEER_PAUSE_SYNC) || !g_pause.active()))
+        sprintf_s(state, "waiting for verified two-player pause control before battle");
     else if (g_phase < 2)
         sprintf_s(state, "connected, starting");
+    else if (g_phase == 2 && pause_managed() && (!(g_peer_features & PEER_PAUSE_SYNC) || !pause_feature() || !g_pause.active()))
+        sprintf_s(state, "waiting for verified two-player pause control");
+    else if (g_phase == 2 && g_pause.waiting()) {
+        if (g_pause.my_vote() != g_pause.paused())
+            sprintf_s(state, "pause change requested; waiting for %s", peer);
+        else if (g_pause.peer_vote() != g_pause.paused())
+            sprintf_s(state, "%s requests a pause change; press Start to agree", peer);
+        else sprintf_s(state, "confirming the pause change with %s", peer);
+    } else if (g_phase == 2 && g_pause.paused())
+        sprintf_s(state, "paused; both players press Start to resume");
     else if (g_phase == 2 && g_waiting_since && GetTickCount() - g_waiting_since > 1500)
         sprintf_s(state, "waiting for %s's game to catch up", peer);
     else if (g_phase == 2 && g_role == ROLE_JOIN && g_clock_factor > 1.5f)
@@ -468,14 +532,7 @@ u32 session_phase(void) { return g_phase; }
 bool session_owns_squad(u32 id)
 {
     if (!g_versus) return g_role == ROLE_HOST;
-    static std::unordered_set<u32> squads;
-    static size_t built_from;
-    if (built_from != g_my_units.size()) {
-        squads.clear();
-        for (u64 key : g_my_units) squads.insert((u32)key & 0x7fffffe0);
-        built_from = g_my_units.size();
-    }
-    return squads.count(id & 0x7fffffe0) != 0;
+    return g_my_squads.owns(id);
 }
 bool session_unit_key(Object *o, u64 *key) { return unit_key(o, key, 0); }
 u64 session_battle_ms(void) { return g_sim_ms; }
@@ -640,6 +697,21 @@ bool session_test_force_recovery()
 
 static void load_battle_description(void)
 {
+    // A failed reload must not retain ownership or a battle image from an earlier session.
+    g_image.clear(); g_image_hash = g_source_hash = g_user_side = g_enemy_side = 0;
+    g_source_identity_exact = false;
+    g_my_units.clear(); g_my_squads.clear(); g_position_only.clear();
+    // The ticket is for this process launch only. Do not let it leak into a later child;
+    // consuming it does not authenticate it or rule out an already-stale inherited value.
+    char identity[64] = {};
+    SetLastError(ERROR_SUCCESS);
+    DWORD identity_size = GetEnvironmentVariableA(battle_identity::k_environment, identity, sizeof identity);
+    bool identity_present = identity_size != 0 || GetLastError() == ERROR_SUCCESS;
+    bool supplied = identity_size != 0 && identity_size < sizeof identity;
+    if (identity_present && !SetEnvironmentVariableA(battle_identity::k_environment, nullptr)) {
+        mp_log("net: could not consume inherited battle identity (%lu); using approximate reconstruction", GetLastError());
+        supplied = false;
+    }
     // the description this battle was started from: second item on the command line
     char path[MAX_PATH], rel[MAX_PATH];
     strcpy_s(rel, k_image_path);
@@ -655,17 +727,28 @@ static void load_battle_description(void)
     if (g_force_recovery_blocked) mp_log("lobby: force exchange and side swap are disabled until the previous backup is recovered");
     if (!read_file(path, g_image)) { mp_log("net: cannot read the battle description %s", path); return; }
     g_image_hash = fnv(g_image.data(), g_image.size());
-    // The host serves its description as it is; a joining game mirrors the copy it was given, so the hash of
-    // *the host's* file is the hash of this one turned back round. Comparing the wrong one made two games
-    // that are playing the same battle look as if their descriptions differed.
+    // A guest's local file may be mirrored and cannot always be inverted: its original formation
+    // tags may have been lost. Prefer the hash verified at download and inherited with the child's
+    // prepared-image fingerprint. An old launcher or a stale ticket uses the old reconstruction
+    // for compatibility, explicitly marked as approximate.
     g_source_hash = g_image_hash;
-    if (g_versus) {
-        std::vector<unsigned char> back = g_image;
-        if (image::mirror(back)) g_source_hash = fnv(back.data(), back.size());
+    g_source_identity_exact = !(g_role == ROLE_JOIN && g_versus);
+    if (!g_source_identity_exact) {
+        unsigned source = 0;
+        if (supplied && battle_identity::resolve(identity, g_image.data(), g_image.size(), &source)) {
+            g_source_hash = source;
+            g_source_identity_exact = true;
+            mp_log("net: host battle checksum %08x inherited for matching prepared bytes (not authenticated)", g_source_hash);
+        } else {
+            if (identity_present) mp_log("net: unavailable or invalid host battle identity; using approximate mirror reconstruction");
+            std::vector<unsigned char> back = g_image;
+            if (image::mirror(back)) g_source_hash = fnv(back.data(), back.size());
+        }
     }
     image::sides(g_image, &g_user_side, &g_enemy_side);
     // In this game's own description the squads tagged USER are the ones its player commands.
     g_my_units = image::units_of(g_image, image::k_user);
+    rebuild_my_squads();
     find_position_only_units();
     mp_log("net: battle description %zu bytes (hash %08x), this player commands %s (%zu units)", g_image.size(), g_image_hash,
            image::side_name(g_user_side), g_my_units.size());
@@ -722,14 +805,14 @@ static void shot_packet_for_mode(const unsigned char *data, int size, void (*sen
     if (g_tactical) shots_on_packet(data, size, send);
     else shots_on_packet_legacy(data, size, send);
 }
-static void queue_transforms_for_mode(const UnitRec *records, unsigned count)
+static void queue_transforms_for_mode(const UnitRec *records, unsigned count, u32 snapshot)
 {
     if (!g_tactical) {
-        g_pending_legacy.insert(g_pending_legacy.end(), records, records + count); // original non-tactical path
+        if (count) g_pending_legacy.insert(g_pending_legacy.end(), records, records + count);
         return;
     }
     for (unsigned i = 0; i < count; i++) {
-        transforms::Put result = g_pending.put(records[i]);
+        transforms::Put result = g_pending.put(records[i], snapshot);
         if (result == transforms::Put::replaced) g_stat_coalesced++;
         else if (result == transforms::Put::invalid || result == transforms::Put::full) g_stat_bad_transforms++;
     }
@@ -759,11 +842,11 @@ bool session_test_transform_dispatch()
     records[0].id = records[1].id = 42; // same unit twice, third record is invalid
     g_tactical = false;
     g_pending_legacy.clear();
-    queue_transforms_for_mode(records, 3);
+    queue_transforms_for_mode(records, 3, 1);
     bool legacy_ok = g_pending_legacy.size() == 3;
     g_tactical = true;
     g_pending.clear();
-    queue_transforms_for_mode(records, 3);
+    queue_transforms_for_mode(records, 3, 1);
     bool tactical_ok = g_pending.records().size() == 1;
     g_pending.clear(); g_pending_legacy.clear();
     g_stat_coalesced = previous_coalesced; g_stat_bad_transforms = previous_bad;
@@ -844,11 +927,11 @@ bool session_test_host_battle(const std::vector<unsigned char> &image)
     unsigned user = 0, enemy = 0;
     if (!g_tactical || g_role != ROLE_HOST || !opsave_checked::validate(image) || !image::sides(image, &user, &enemy)) return false;
     g_image = image; g_image_hash = g_source_hash = fnv(g_image.data(), g_image.size());
-    g_user_side = user; g_enemy_side = enemy; g_my_units = image::units_of(image, image::k_user);
+    g_user_side = user; g_enemy_side = enemy; g_my_units = image::units_of(image, image::k_user); rebuild_my_squads();
     return true;
 }
 u32 session_test_source_hash() { return g_source_hash; }
-void session_test_fresh_tactical() { g_versus = false; g_my_units.clear(); }
+void session_test_fresh_tactical() { g_versus = false; g_my_units.clear(); rebuild_my_squads(); }
 void session_test_lobby_image()
 {
     g_image.resize(k_chunk * 2 + 117);
@@ -908,6 +991,7 @@ void session_host(int mode)
 {
     session_stop();
     g_role = ROLE_HOST;
+    g_pause.reset(true); g_pause_ever_connected = false;
     g_host_mode = mode;
     g_watch_host_worker.store(!g_tactical && mode == HOST_MODE_OPERATION, std::memory_order_release);
     g_map_given = g_map_refresh_pending = g_peer_on_map = false;
@@ -1195,7 +1279,8 @@ static void joiner_back_to_lobby(void)
     if (!peer[0]) { strcpy_s(g_map_note, "host address missing; cannot enter battle"); return; }
     map_file_windows::Environment env;
     if (!env.set("MP_AUTOJOIN", peer) || !env.set("MP_ROLE", nullptr) || !env.set("MP_MAP", nullptr) ||
-        !env.set("MP_MAP_EPOCH", nullptr) || !env.set("MP_MAP_REV", nullptr)) {
+        !env.set("MP_MAP_EPOCH", nullptr) || !env.set("MP_MAP_REV", nullptr) ||
+        !env.set(battle_identity::k_environment, nullptr)) {
         mp_log("map: could not prepare lobby environment (%lu); keeping the current map", GetLastError());
         strcpy_s(g_map_note, "cannot prepare the multiplayer lobby; retrying");
         g_map_battle_at = GetTickCount() + 10000;
@@ -1374,6 +1459,10 @@ void session_start(ObjMan *)
     steam_install();
     mp_log("net: wire protocol %u (%s)", k_version, k_wire_tag);
     g_tactical = !strcmp(g_program, "tacgame");
+    g_state_apply_delay.reset();
+    g_state_headers.reset(); g_pending.clear(); g_snapshot = 0;
+    anim_transport_reset(); anim_reset_peer();
+    g_pause.reset(false); g_pause_ever_connected = false;
     if (g_tactical) {
         vitals_start();
         shots_reset();
@@ -1412,6 +1501,7 @@ void session_start(ObjMan *)
     bool role_set = g_tactical ? env_text("MP_ROLE", v, sizeof v) : GetEnvironmentVariableA("MP_ROLE", v, sizeof v) != 0;
     if (!role_set) return;
     g_role = !_stricmp(v, "host") ? ROLE_HOST : !_stricmp(v, "join") ? ROLE_JOIN : ROLE_NONE;
+    g_pause.reset(g_role == ROLE_HOST); g_pause_ever_connected = false;
     int inherited_map = 0;
     if (spectator_policy::local_battle_offline(g_tactical, g_role == ROLE_JOIN,
                                                env_integer("MP_MAP", &inherited_map) && inherited_map != 0)) {
@@ -1493,6 +1583,8 @@ void session_start(ObjMan *)
 
 void session_stop(void)
 {
+    g_state_apply_delay.reset();
+    g_state_headers.reset(); g_pending.clear();
     vitals_pause();
     g_block_guest_turn.store(false, std::memory_order_release);
     g_watch_host_worker.store(false, std::memory_order_release);
@@ -1510,30 +1602,45 @@ void session_stop(void)
         anim_stop();
         g_pending.clear();
         g_held.clear();
+        g_sent.clear();
+        g_units.clear();
+        g_unit_list.clear();
         statesync_forget_peer();
     }
 }
 
 // ---------------------------------------------------------------- owned units: send transforms
+static void snapshot_timer(ObjMan *om, StateHead *sh)
+{
+    // Resolve through this manager for every snapshot, rather than keeping a pointer after the
+    // manager or timer is replaced. The game's object-lifetime/thread rules still apply.
+    Object *timer = engine_find(om, "i_ctrltimer", "ctrltimer");
+    // The engine's timer (base_main, iCtrlTimer): +0x108 speed setting, +0x10c the automatically reduced
+    // speed, used only while +0x15d (automatic control) is on and its 16-frame history (+0x158) is full.
+    float set = timer ? *(float *)((char *)timer + 0x108) : 1, cur = timer ? *(float *)((char *)timer + 0x10c) : 1;
+    bool reduced = timer && ((char *)timer)[0x15d] && *(u32 *)((char *)timer + 0x158) >= 16 && cur < set;
+    sh->speed = reduced ? cur : set;
+    sh->cur_speed = set;
+    sh->paused = timer ? ((char *)timer)[0x15c] : 0;
+}
+#ifdef NETV21_TEST_HOOKS
+void session_test_snapshot_timer(ObjMan *om, StateHead *sh) { snapshot_timer(om, sh); }
+#endif
 static void send_transforms(ObjMan *om, DWORD now)
 {
-    static Object *timer;
-    if (!timer) timer = engine_find(om, "i_ctrltimer", "ctrltimer");
     unsigned char packet[sizeof(StateHead) + k_units_per_packet * sizeof(UnitRec)];
     StateHead *sh = (StateHead *)packet;
+    sh->owner = vitals_epoch(); sh->target = vitals_peer_epoch();
+    if (!sh->owner || !sh->target) return; // a tactical handshake binds both process generations
+    snapshot_timer(om, sh);
     UnitRec *recs = (UnitRec *)(sh + 1);
     int n = 0;
     auto flush = [&]() {
         sh->h = make_head(PKT_STATE, n);
+        sh->h.flags = (unsigned char)(hits_features() | (anim_available() ? PEER_ANIM_SYNC : 0) | pause_feature());
+        sh->pause = g_pause.message();
         sh->snapshot = g_snapshot;
         sh->sim_ms = (u32)g_sim_ms;
-        // The engine's timer (base_main, iCtrlTimer): +0x108 speed setting, +0x10c the automatically reduced
-        // speed, used only while +0x15d (automatic control) is on and its 16-frame history (+0x158) is full.
-        float set = timer ? *(float *)((char *)timer + 0x108) : 1, cur = timer ? *(float *)((char *)timer + 0x10c) : 1;
-        bool reduced = timer && ((char *)timer)[0x15d] && *(u32 *)((char *)timer + 0x158) >= 16 && cur < set;
-        sh->speed = reduced ? cur : set;
-        sh->cur_speed = set;
-        sh->paused = timer ? ((char *)timer)[0x15c] : 0;
         sh->phase = (unsigned char)g_phase;
         sh->ready = (unsigned char)g_my_ready;
         sh->pad = 0;
@@ -1576,19 +1683,24 @@ static void send_transforms(ObjMan *om, DWORD now)
 }
 
 // ---------------------------------------------------------------- followed units: steer towards the owner's state
-static void rebuild_units(ObjMan *om)
+static void rebuild_units(ObjMan *om, Object **all, u32 count)
 {
-    u32 count;
-    Object **all = all_objects(om, &count);
-    g_units.clear();
-    for (u32 i = 0; i < count; i++) {
+    // Index exactly the same captured pointer sequence that will be compared on the next step.
+    // This does not guarantee object lifetime or make a concurrently changing engine list atomic.
+    g_unit_list.remember(om, all, count);
+    // Reuse the two tables' buckets across rebuilds. Keep the previous pointers until after cache
+    // invalidation: the same unit ID can now designate a newly allocated object.
+    static std::unordered_map<u64, Object *> next;
+    next.clear();
+    for (Object *object : g_unit_list.entries()) {
         u64 key;
-        if (unit_key(all[i], &key, 0)) g_units[key] = all[i];
+        if (unit_key(object, &key, 0)) next[key] = object;
     }
-    // Both caches otherwise retain destroyed units forever, and g_held is walked on every
-    // simulation step. Do not touch surviving entries or the transform send cadence.
-    g_stat_cache_pruned += (u32)(prune_absent(g_held, g_units) + prune_absent(g_sent, g_units));
-    g_units_count_seen = count;
+    g_stat_cache_pruned += (u32)(prune_replaced(g_held, g_units, next) +
+                                 prune_replaced(g_sent, g_units, next));
+    g_units.swap(next);
+    // The scratch table must not retain pointers after the comparison.
+    next.clear();
 }
 
 Object *session_unit(u64 key)
@@ -1605,23 +1717,25 @@ void session_sim_step(ObjMan *om, u32 sim_ms)
     // Received states wait until this game has been simulating for a while: a battle that has only just
     // appeared is still setting its units up, and a vehicle that gets a state loaded into it at that point
     // crashes the renderer (seen with large operation battles). MP_APPLY_DELAY = seconds, default 12.
-    static DWORD first_step;
     static int delay = -1;
     if (delay < 0) {
         int seconds;
         delay = 12000;
         if (env_integer("MP_APPLY_DELAY", &seconds) && seconds >= 0 && seconds <= INT_MAX / 1000)
             delay = seconds * 1000;
-        first_step = GetTickCount();
     }
+    bool apply_ready = g_state_apply_delay.ready(om, GetTickCount(), (DWORD)delay);
     double t0 = seconds_now();
     // (a state is only loaded once the other game's numbers can be translated - see xlate.cpp)
-    if (sync_state_enabled() && xlate_ready() && GetTickCount() - first_step >= (DWORD)delay) statesync_apply(om);
+    if (sync_state_enabled() && xlate_ready() && apply_ready) statesync_apply(om);
     g_prof_load += seconds_now() - t0;
     u32 count;
-    all_objects(om, &count);
-    if (count != g_units_count_seen) rebuild_units(om);
+    Object **all = all_objects(om, &count);
+    // An unchanged count does not imply unchanged objects. Compare the pointer array before any
+    // cached unit is used, and rebuild for a replacement, reorder, or different object manager.
+    if (!g_unit_list.matches(om, all, count)) rebuild_units(om, all, count);
     shots_sim_step(om);
+    anim_sim_step(om, GetTickCount(), send_peer);
     trench_sim_step(om);
 
     // Followed units are not predicted and not left to this game's own physics: they are shown where their
@@ -1647,7 +1761,7 @@ void session_sim_step(ObjMan *om, u32 sim_ms)
         new_remote = true;
         if (!h.have) h.have = 1;
     }
-    g_pending.clear();
+    g_pending.drain();
     // A zero-ms ctrl_tick does not advance physics. Drain incoming shots, control events, state,
     // and freshly received transforms above, but don't re-interpolate every held object on every
     // render-only tick. A fresh deployment/paused update is still applied immediately.
@@ -1659,6 +1773,7 @@ void session_sim_step(ObjMan *om, u32 sim_ms)
         if (!sim_ms && !h.dirty) continue;
         auto it = g_units.find(kv.first);
         if (it == g_units.end() || owns_object(it->second)) continue;
+        bool fresh = h.dirty;
         h.dirty = false;
         double t = now_s - k_delay;
         float pos[3], rot[9];
@@ -1700,7 +1815,17 @@ void session_sim_step(ObjMan *om, u32 sim_ms)
         float e[3] = { pos[0] - upos[0], pos[1] - upos[1], pos[2] - upos[2] };
         float err = sqrtf(e[0] * e[0] + e[1] * e[1] + e[2] * e[2]);
         g_stat_err_sum += err;
-        if (err > g_stat_err_max) g_stat_err_max = err;
+        if (err > g_stat_err_max) {
+            g_stat_err_max = err;
+            if (err > 3.0f) {
+                g_stat_peak.key = kv.first;
+                memcpy(g_stat_peak.local, upos, sizeof g_stat_peak.local);
+                memcpy(g_stat_peak.target, pos, sizeof g_stat_peak.target);
+                g_stat_peak.snapshot_age = now_s - h.b.at;
+                g_stat_peak.rx_age = GetTickCount() - g_last_rx;
+                g_stat_peak.fresh = fresh;
+            }
+        }
         if (err > 3.0f) g_stat_snaps++;
         g_stat_applied++;
         if (!write_remote_transform(upos, urot, uinv, (float *)(u + UNIT_LIN), (float *)(u + UNIT_ANG),
@@ -1709,22 +1834,28 @@ void session_sim_step(ObjMan *om, u32 sim_ms)
 }
 #ifdef NETV21_TEST_HOOKS
 // Windows no-game fixture drives the real step with a mock manager and remote unit.
+static u32 g_test_motion_snapshot;
 void session_test_motion_begin()
 {
     g_tactical = g_connected = true; g_role = ROLE_JOIN; g_versus = false;
-    g_units.clear(); g_sent.clear(); g_held.clear(); g_pending.clear();
-    g_units_count_seen = 0xffffffffu;
-    g_stat_applied = g_stat_zero_steps = g_stat_zero_skipped = g_stat_cache_pruned = 0;
+    g_test_motion_snapshot = 0;
+    g_units.clear(); g_sent.clear(); g_held.clear(); g_pending.clear(); g_unit_list.clear();
+    g_stat_applied = g_stat_zero_steps = g_stat_zero_skipped = g_stat_cache_pruned = g_stat_snaps = 0;
+    g_stat_err_sum = 0; g_stat_err_max = 0; g_stat_peak = {};
 }
-void session_test_motion_push(const UnitRec &r) { (void)g_pending.put(r); }
+void session_test_motion_push(const UnitRec &r) { (void)g_pending.put(r, ++g_test_motion_snapshot); }
 u32 session_test_motion_updates() { return g_stat_applied; }
 u32 session_test_motion_skipped() { return g_stat_zero_skipped; }
 size_t session_test_motion_cached() { return g_held.size(); }
+bool session_test_correction_peak(u64 key, float from, float to, bool fresh) {
+    return g_stat_snaps && g_stat_peak.key == key && g_stat_peak.local[0] == from &&
+           g_stat_peak.target[0] == to && g_stat_peak.fresh == fresh;
+}
 void session_test_motion_end()
 {
-    g_units.clear(); g_sent.clear(); g_held.clear(); g_pending.clear();
-    g_units_count_seen = 0;
-    g_stat_applied = g_stat_zero_steps = g_stat_zero_skipped = g_stat_cache_pruned = 0;
+    g_units.clear(); g_sent.clear(); g_held.clear(); g_pending.clear(); g_unit_list.clear();
+    g_stat_applied = g_stat_zero_steps = g_stat_zero_skipped = g_stat_cache_pruned = g_stat_snaps = 0;
+    g_stat_err_sum = 0; g_stat_err_max = 0; g_stat_peak = {};
     g_tactical = g_connected = false; g_role = ROLE_NONE;
 }
 #endif
@@ -1779,8 +1910,27 @@ static void resign_if_asked(ObjMan *om)
     if (g_resign_asked && resign_now(om)) g_resign_asked = false;
 }
 
+static void request_pause_vote()
+{
+    if (!g_connected || !(g_peer_features & PEER_PAUSE_SYNC) || !g_pause.active() || !pause_feature()) {
+        mp_log("pause: waiting for the other player's verified pause control");
+        return;
+    }
+    if (g_pause.press()) {
+        g_last_snapshot = 0;
+        mp_log("pause: local vote is now %s; waiting for agreement", g_pause.my_vote() ? "pause" : "run");
+    } else mp_log("pause: sequence exhausted; a new tactical process identity is required");
+}
+static bool pause_ui_enabled(Object *ui)
+{
+    // +0xed9 indicates the game's modal/alternate action branch. It must keep its original
+    // behavior instead of turning a menu action into a pause vote.
+    return readable(ui, 0xedd) && !((unsigned char *)ui)[0xed9] &&
+           !((unsigned char *)ui)[0xeda] && !((unsigned char *)ui)[0xedc];
+}
 static u64 start_action_hook(Object *ui, u64 a, u64 b, u64 c)
 {
+    if (pause_managed() && pause_ui_enabled(ui)) { request_pause_vote(); return 1; }
     if (!gate_active()) return g_start_action(ui, a, b, c);
     mark_ready();
     return 0;
@@ -1788,7 +1938,12 @@ static u64 start_action_hook(Object *ui, u64 a, u64 b, u64 c)
 
 static void input_action_hook(Object *ui, u64 b, const char *event)
 {
-    // the engine acts on the event whose value at +8 is negative (the release)
+    // The verified +0x3b460 key handler toggles the timer directly rather than calling
+    // start_action_hook. Intercept its release too, otherwise the keyboard bypasses agreement.
+    if (pause_managed() && pause_ui_enabled(ui) && readable(event, 0x10) && *(const float *)(event + 8) < 0) {
+        request_pause_vote();
+        return;
+    }
     if (gate_active() && g_phase == 1 && readable(event, 0x10) && *(const float *)(event + 8) < 0) {
         mark_ready();
         return;
@@ -1842,7 +1997,7 @@ static void set_speed_hook(char *ct, float speed)
 
 static void set_pause_hook(char *ct, unsigned char paused)
 {
-    g_set_pause(ct, follows_host_clock() ? g_host_paused : paused);
+    g_set_pause(ct, pause_managed() ? (unsigned char)pause_effective() : follows_host_clock() ? g_host_paused : paused);
 }
 
 static void replace_timer_setters(ObjMan *om)
@@ -1901,6 +2056,9 @@ static void timer_step_hook(char *ct, float dt, u32 arg)
             if (scale < 0) scale = 0;
         }
     }
+    // The timer may be written by ordinary UI setters every frame. Enforce the agreed state
+    // immediately before the engine consumes it, also while a previously connected peer is lost.
+    if (pause_managed()) ct[0x15c] = pause_effective() ? 1 : 0;
     DWORD tick = GetTickCount();
     if (scale >= 0.5 || g_role != ROLE_HOST) g_waiting_since = 0;
     else if (!g_waiting_since) g_waiting_since = tick ? tick : 1;
@@ -1980,6 +2138,10 @@ static void advance_phase(ObjMan *om, DWORD now)
     bool both = g_my_ready > g_phase && g_peer_ready > g_phase;
     bool behind = g_role == ROLE_JOIN && g_have_host_clock && g_host_phase <= 2 && g_host_phase > g_phase;
     if (!both && !behind) return;
+    // The existing two-ready gate is unchanged. Do not leave initial orders for battle until
+    // both peers can actually enforce its pause protocol; otherwise a missing timer hook could
+    // allow one game to run while the other is held.
+    if (g_phase == 1 && (!pause_feature() || !(g_peer_features & PEER_PAUSE_SYNC) || !g_pause.active())) return;
     Object *ui = engine_find(om, "i_intereff", "intereff");
     if (!ui) return;
     g_last_phase_step = now;
@@ -2434,6 +2596,15 @@ static void desc_write_in(ImageData *d, int size)
         desc_give_up("it could not be prepared for this side");
         return;
     }
+    // Pass the new host identity to the restarted child, tied to the prepared local bytes.
+    // The scoped environment restores the old value on every failed install/restart path.
+    char identity[battle_identity::k_text_size];
+    battle_identity::format(g_desc_hash, battle_identity::fingerprint(out.data(), out.size()), identity);
+    map_file_windows::Environment identity_env;
+    if (!identity_env.set(battle_identity::k_environment, identity)) {
+        desc_give_up("the restarted battle identity could not be prepared");
+        return;
+    }
     // Keep this player's original force as well as the host's: the next opponent must not
     // inherit the combined description. A failed write leaves the original file untouched.
     if (!battle_install(g_image_file, g_image, out)) {
@@ -2488,9 +2659,18 @@ static void refresh_event_epochs()
     u32 local = vitals_epoch(), peer = vitals_peer_epoch();
     if ((g_event_local_epoch && local != g_event_local_epoch) ||
         (g_event_peer_epoch && peer && peer != g_event_peer_epoch)) {
-        mp_log("net: tactical process identity changed; rekeying the ordered event stream");
+        mp_log("net: tactical process identity changed; rekeying event and state streams");
         shots_reset();
+        anim_transport_reset(); anim_reset_peer();
+        if (g_pause_ever_connected && g_phase == 2) {
+            g_pause.new_peer();
+            mp_log("pause: process identity changed; waiting for both players before resuming");
+        } else {
+            g_pause.reset(g_role == ROLE_HOST); g_pause_ever_connected = false;
+        }
+        g_pending.clear(); g_state_headers.reset(); g_held.clear(); g_sent.clear();
     }
+    anim_transport_epoch(local, peer);
     g_event_local_epoch = local;
     g_event_peer_epoch = peer;
 }
@@ -2499,6 +2679,47 @@ static void tactical_peer_epoch(u32 epoch)
     if (!g_tactical || !epoch) return;
     vitals_peer(epoch); // may reject a retired identity
     refresh_event_epochs();
+}
+
+// Called only after a full StateHead is known to be present. Do not refresh liveness for a
+// malformed state or one addressed to an old tactical process.
+static bool valid_tactical_state(const StateHead *sh, int size)
+{
+    return !(sh->h.flags & ~PEER_FEATURES) && !sh->pad && sh->h.count <= k_units_per_packet && sh->paused <= 1 &&
+           (!(sh->h.flags & PEER_PAUSE_SYNC) || pause_sync::State::valid(sh->pause, g_role == ROLE_JOIN)) &&
+           sh->phase <= 3 && sh->ready <= 2 && std::isfinite(sh->speed) && std::isfinite(sh->cur_speed) &&
+           size == (int)(sizeof(StateHead) + sh->h.count * sizeof(UnitRec)) &&
+           vitals_epoch() && vitals_peer_epoch() && sh->owner == vitals_peer_epoch() && sh->target == vitals_epoch();
+}
+
+// A snapshot may be split across datagrams: only the first/newer header updates common control
+// fields, while every valid datagram may still carry the newest transform for its own units.
+static bool apply_state_header(const StateHead *sh, DWORD now)
+{
+    bool newer_header = !g_tactical || g_state_headers.accept(sh->snapshot);
+    if (newer_header && g_tactical) {
+        pause_peer_features(sh->h.flags & PEER_FEATURES);
+        if (g_peer_features & PEER_PAUSE_SYNC) {
+            bool before = g_pause.paused(), recovering = g_pause.recovering();
+            if (g_pause.receive(sh->pause, sh->snapshot)) {
+                g_pause_ever_connected = true;
+                if (before != g_pause.paused() || recovering != g_pause.recovering())
+                    mp_log("pause: %s%s", g_pause.paused() ? "paused" : "running",
+                           g_pause.recovering() ? " (waiting for both after connection loss)" : " by agreement");
+            }
+        }
+    }
+    if (newer_header && sh->ready != g_peer_ready) {
+        g_peer_ready = sh->ready;
+        mp_log("ready: the other player has finished %s", g_peer_ready >= 2 ? "the initial orders" : g_peer_ready ? "deployment" : "nothing yet");
+    }
+    if (newer_header && g_role == ROLE_JOIN) {
+        g_host_speed = sh->speed; g_host_cur_speed = sh->cur_speed; g_host_paused = sh->paused;
+        g_host_phase = sh->phase; g_host_sim_ms = sh->sim_ms; g_have_host_clock = true;
+    } else if (newer_header) {
+        g_peer_sim_ms = sh->sim_ms; g_peer_phase = sh->phase; g_peer_clock_at = now ? now : 1;
+    }
+    return newer_header;
 }
 
 // ---------------------------------------------------------------- receive
@@ -2550,7 +2771,7 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
         // The joining player commands the opponent unless it asked for the side the host plays.
         bool versus = !(prefer && prefer == g_user_side);
         Welcome w = { make_head(PKT_WELCOME) };
-        if (g_tactical && hits_available()) w.h.flags |= PEER_HIT_SYNC;
+        if (g_tactical) w.h.flags |= (unsigned char)(hits_features() | pause_feature());
         if (g_tactical && anim_available()) w.h.flags |= PEER_ANIM_SYNC;
         memcpy(w.proto, k_protocol, sizeof k_protocol);
         w.version = k_version;
@@ -2587,7 +2808,7 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
                         ip, ntohs(from.sin_port), name[0] ? name : "no name", w.user_side,
                         w.enemy_side, (int)versus);
             g_sent.clear();            // a new game needs every unit once
-            if (g_tactical) g_pending.clear(); // never apply the previous tactical peer's queued transforms
+            if (g_tactical) g_pending.drain(); // preserve per-unit sequence memory on same-process reconnect
             g_held.clear();
             reset_state_for_mode();
             // A temporary timeout from the same tactical process must retain the unacked stream;
@@ -2597,7 +2818,8 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
             g_peer_ready = 0;
             g_peer_swap_known = false;
         }
-        g_peer_features = g_tactical ? (in->h.flags & PEER_FEATURES) : 0;
+        if (!g_tactical || !g_state_headers.have())
+            g_peer_features = g_tactical ? (in->h.flags & PEER_FEATURES) : 0;
         if (name[0]) strcpy_s(g_peer_name, name);
         g_peer_lobby_ready = in->lobby_ready != 0;
         g_peer_on_map = in->phase == 0xfe && in->map_epoch == g_map_epoch && in->map_revision == g_map_revision;
@@ -2617,7 +2839,7 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
             // Reusing old fragment bits would mix offers and waste a complete fetch before failing hash.
             force_begin_offer(in->force_size, in->force_hash, name);
         }
-        if (in->phase < 0xfe && in->ready != g_peer_ready) {
+        if ((!g_tactical || !g_state_headers.have()) && in->phase < 0xfe && in->ready != g_peer_ready) {
             g_peer_ready = in->ready;
             mp_log("ready: the other player has finished %s", g_peer_ready >= 2 ? "the initial orders" : g_peer_ready ? "deployment" : "nothing yet");
         }
@@ -2637,7 +2859,9 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
             last_bad_welcome = now ? now : 1;
             mp_log("net: rejected a host welcome with a different version, protocol, or size");
         }
+        pause_connection_lost();
         g_connected = false;
+        if (g_tactical) { vitals_pause(); hits_reset_peer(); anim_reset_peer(); }
         return;
     }
     if (g_role == ROLE_JOIN && g_tactical && h->type == PKT_WELCOME) {
@@ -2647,6 +2871,12 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
     }
     bool operation_host = !g_tactical && g_role == ROLE_HOST && g_host_mode == HOST_MODE_OPERATION;
     if (!spectator_policy::incoming(operation_host, !g_tactical && g_map_mode, h->type, h->flags)) return;
+    if (g_tactical && h->type == PKT_STATE) {
+        // Do not let a delayed packet from a retired process alter state or extend liveness.
+        if (!g_connected || size < (int)sizeof(StateHead)) return;
+        const StateHead *sh = (const StateHead *)data;
+        if (!valid_tactical_state(sh, size)) return;
+    }
     g_last_rx = now;
 
     switch (h->type) {
@@ -2708,10 +2938,11 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
                         ((const Welcome *)data)->user_side, ((const Welcome *)data)->enemy_side,
                         (int)((const Welcome *)data)->versus, (int)((const Welcome *)data)->in_battle);
             const Welcome *w = (const Welcome *)data;
-            g_peer_features = g_tactical ? (w->h.flags & PEER_FEATURES) : 0;
+            if (!g_tactical || !g_state_headers.have())
+                g_peer_features = g_tactical ? (w->h.flags & PEER_FEATURES) : 0;
             if (!g_connected) {
                 if (g_tactical) {
-                    g_sent.clear(); g_pending.clear(); g_held.clear();
+                    g_sent.clear(); g_pending.drain(); g_held.clear();
                     statesync_forget_peer();
                     // Keep the outgoing event epoch and saved-state version: the same host may
                     // have stayed alive while only its replies were lost. Incoming state can
@@ -2723,9 +2954,9 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
                 g_connected = true;
                 mp_log("net: connected to host (host commands %s)", image::side_name(w->user_side));
             }
-            // The two games must be playing the same battle.  The description is each game's own file, so
-            // it is worth saying out loud when they differ - that is the one thing that makes every later
-            // difference unexplainable.
+            // Current launchers carry the verified host hash with the prepared image. Older
+            // launchers fall back to a potentially lossy reconstruction; the log distinguishes
+            // the two and reports the hash actually used by the comparison.
             // Only when the host has said it is starting the battle again: then its description carries both
             // forces and this game has to take it over. Without the exchange (an operation, MP_FORCE_EXCHANGE=0,
             // a force that could not be put in) nothing restarts, and each game keeps the battle it started with.
@@ -2735,8 +2966,10 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
                 desc_begin(w->image_size, w->image_hash, now);     // it carries both forces: take it
             if (g_tactical && !g_image.empty() && w->image_size &&
                 (w->image_size != g_image.size() || w->image_hash != g_source_hash))
-                mp_log("net: the battle description differs from the host's: %u bytes (hash %08x) here, %u bytes (hash %08x) on the host",
-                       (unsigned)g_image.size(), g_image_hash, w->image_size, w->image_hash);
+                mp_log("net: battle description comparison differs: %u bytes, local hash %08x, source hash %08x (%s); host %u bytes, hash %08x",
+                       (unsigned)g_image.size(), g_image_hash, g_source_hash,
+                       g_source_identity_exact ? "source checksum (not authenticated)" : "approximate mirror reconstruction; command tags may differ",
+                       w->image_size, w->image_hash);
             memcpy(g_peer_name, w->name, sizeof g_peer_name);
             g_peer_name[sizeof g_peer_name - 1] = 0;
             if (g_map_mode) {
@@ -2805,24 +3038,9 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
         if (size >= (int)sizeof(StateHead)) {
             const StateHead *sh = (const StateHead *)data;
             if (size < (int)(sizeof(StateHead) + sh->h.count * sizeof(UnitRec))) return;
-            if (g_role == ROLE_JOIN) {
-                g_host_speed = sh->speed;
-                g_host_cur_speed = sh->cur_speed;
-                g_host_paused = sh->paused;
-                g_host_phase = sh->phase;
-                g_host_sim_ms = sh->sim_ms;
-                if (sh->ready != g_peer_ready) {
-                    g_peer_ready = sh->ready;
-                    mp_log("ready: the other player has finished %s", g_peer_ready >= 2 ? "the initial orders" : g_peer_ready ? "deployment" : "nothing yet");
-                }
-                g_have_host_clock = true;
-            } else {
-                g_peer_sim_ms = sh->sim_ms;
-                g_peer_phase = sh->phase;
-                g_peer_clock_at = now ? now : 1;
-            }
+            apply_state_header(sh, now);
             const UnitRec *recs = (const UnitRec *)(sh + 1);
-            queue_transforms_for_mode(recs, sh->h.count);
+            queue_transforms_for_mode(recs, sh->h.count, sh->snapshot);
             g_stat_packets++;
         }
         break;
@@ -2838,11 +3056,16 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
     case PKT_VITALS_ACK:
         if (g_tactical && g_connected) vitals_on_packet(data, size, send_peer);
         break;
+    case PKT_ANIM:
+    case PKT_ANIM_ACK:
+        if (g_tactical && g_connected) anim_on_packet(data, size, send_peer);
+        break;
     case PKT_END:
         end_on_packet(data, size, now);
         break;
     case PKT_BYE:
         mp_log("net: the other player's game closed");
+        pause_connection_lost();
         g_connected = false;
         if (g_tactical) vitals_pause();
         if (g_role == ROLE_JOIN && g_tactical && !g_host_lost) g_host_lost = now ? now : 1;
@@ -2852,25 +3075,75 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
 }
 
 #ifdef NETV21_TEST_HOOKS
-// Characterize the real Hello handler under reordering. Identical-epoch messages carry no
-// capability generation, so an old value can overwrite a newer one in either direction.
+// Exercise the production state handler without a game. Called before session_start in the
+// loopback fixture, so a synthetic Vitals handshake does not replace a live peer.
+bool session_test_state_header_order()
+{
+    int role = g_role;
+    bool tactical = g_tactical, connected = g_connected, have_peer = g_have_peer, map_mode = g_map_mode;
+    sockaddr_in peer = g_peer;
+    DWORD last_rx = g_last_rx;
+    u32 packets = g_stat_packets, host_sim_ms = g_host_sim_ms, host_phase = g_host_phase, peer_ready = g_peer_ready;
+    unsigned peer_features = g_peer_features;
+    float speed = g_host_speed, cur_speed = g_host_cur_speed;
+    unsigned char paused = g_host_paused;
+    bool have_clock = g_have_host_clock;
+
+    g_role = ROLE_JOIN; g_tactical = g_connected = g_have_peer = true; g_map_mode = false;
+    g_peer = {}; g_peer.sin_family = AF_INET; g_peer.sin_addr.s_addr = 0x0100007f; g_peer.sin_port = 1234;
+    vitals_start(); vitals_peer(777); g_state_headers.reset();
+    StateHead newer = {}; newer.h = make_head(PKT_STATE); newer.h.flags = PEER_HIT_SYNC | PEER_ANIM_SYNC; newer.snapshot = 42;
+    newer.owner = 777; newer.target = vitals_epoch();
+    newer.sim_ms = 1000; newer.speed = newer.cur_speed = 1; newer.paused = 1; newer.phase = 2; newer.ready = 2;
+    on_packet(g_peer, (const unsigned char *)&newer, sizeof newer, 100);
+    bool accepted_new = g_host_sim_ms == 1000 && g_host_paused == 1 && g_host_phase == 2 && g_peer_ready == 2 &&
+                        g_peer_features == (PEER_HIT_SYNC | PEER_ANIM_SYNC);
+    StateHead older = newer; older.h.flags = PEER_VEHICLE_HIT_SYNC;
+    older.snapshot = 41; older.sim_ms = 500; older.paused = 0; older.phase = 1; older.ready = 1;
+    on_packet(g_peer, (const unsigned char *)&older, sizeof older, 101);
+    bool rejected_old = g_host_sim_ms == 1000 && g_host_paused == 1 && g_host_phase == 2 && g_peer_ready == 2 &&
+                        g_peer_features == (PEER_HIT_SYNC | PEER_ANIM_SYNC);
+    StateHead previous_process = older; previous_process.snapshot = 43; previous_process.owner = 776;
+    on_packet(g_peer, (const unsigned char *)&previous_process, sizeof previous_process, 102);
+    bool rejected_previous = g_last_rx == 101 && g_host_sim_ms == 1000 && g_peer_ready == 2;
+
+    g_state_headers.reset();
+    g_role = role; g_tactical = tactical; g_connected = connected; g_have_peer = have_peer; g_map_mode = map_mode;
+    g_peer = peer; g_last_rx = last_rx; g_stat_packets = packets; g_host_sim_ms = host_sim_ms;
+    g_host_phase = host_phase; g_peer_ready = peer_ready; g_host_speed = speed; g_host_cur_speed = cur_speed;
+    g_host_paused = paused; g_have_host_clock = have_clock; g_peer_features = peer_features;
+    return accepted_new && rejected_old && rejected_previous;
+}
+
+// A state header establishes the ordered capability/ready stream. Delayed Hello packets cannot
+// subsequently roll either value back, including after a same-process temporary disconnect.
 bool session_test_event_capability_reorder()
 {
-    if (!g_tactical || g_role != ROLE_HOST || !g_connected || !g_have_peer ||
-        (g_peer_features & PEER_FEATURES) != PEER_FEATURES || !vitals_peer_epoch()) return false;
+    if (!g_tactical || g_role != ROLE_HOST || !g_connected || !g_have_peer || !vitals_peer_epoch()) return false;
+    transforms::HeaderOrder saved_order = g_state_headers;
+    u32 saved_features = g_peer_features, saved_ready = g_peer_ready, saved_sim = g_peer_sim_ms;
+    u32 saved_phase = g_peer_phase, saved_packets = g_stat_packets;
+    DWORD saved_clock = g_peer_clock_at, saved_rx = g_last_rx;
+    g_state_headers.reset();
+    StateHead state = {}; state.h = make_head(PKT_STATE); state.h.flags = PEER_HIT_SYNC;
+    state.owner = vitals_peer_epoch(); state.target = vitals_epoch(); state.snapshot = 10;
+    state.phase = state.ready = 2; state.speed = state.cur_speed = 1;
+    on_packet(g_peer, (const unsigned char *)&state, sizeof state, 100);
     Hello hello = { make_head(PKT_HELLO) };
     memcpy(hello.proto, k_protocol, sizeof k_protocol);
-    hello.version = k_version; hello.phase = 2; hello.lobby_ready = 1;
-    hello.ready = (unsigned char)g_peer_ready;
-    hello.vitals_epoch = vitals_peer_epoch();
-    on_packet(g_peer, (const unsigned char *)&hello, sizeof hello, GetTickCount());
-    bool old_off_accepted = session_peer_features() == 0;
-    hello.h.flags = PEER_FEATURES;
-    on_packet(g_peer, (const unsigned char *)&hello, sizeof hello, GetTickCount());
-    bool old_on_accepted = (session_peer_features() & PEER_FEATURES) == PEER_FEATURES;
-    hello.h.flags = 0;
-    on_packet(g_peer, (const unsigned char *)&hello, sizeof hello, GetTickCount());
-    return old_off_accepted && old_on_accepted && session_peer_features() == 0;
+    hello.version = k_version; hello.phase = 2; hello.ready = 0; hello.lobby_ready = 1;
+    hello.vitals_epoch = vitals_peer_epoch(); hello.h.flags = 0;
+    on_packet(g_peer, (const unsigned char *)&hello, sizeof hello, 101);
+    bool ignored_off = g_peer_features == PEER_HIT_SYNC && g_peer_ready == 2;
+    state.snapshot = 11; state.h.flags = 0; state.ready = 1;
+    on_packet(g_peer, (const unsigned char *)&state, sizeof state, 102);
+    hello.h.flags = PEER_FEATURES; hello.ready = 2;
+    on_packet(g_peer, (const unsigned char *)&hello, sizeof hello, 103);
+    bool ignored_on = g_peer_features == 0 && g_peer_ready == 1;
+    g_state_headers = saved_order; g_peer_features = saved_features; g_peer_ready = saved_ready;
+    g_peer_sim_ms = saved_sim; g_peer_phase = saved_phase; g_peer_clock_at = saved_clock;
+    g_stat_packets = saved_packets; g_last_rx = saved_rx;
+    return ignored_off && ignored_on;
 }
 
 // The no-game fixture substitutes save/load only; packet/transport and identity checks are real.
@@ -3043,7 +3316,7 @@ void session_frame(ObjMan *om)
             g_last_hello = now;
             // the hello doubles as keep-alive and carries the side wish, so a restarted host learns it again
             Hello hello = { make_head(PKT_HELLO) };
-            if (g_tactical && hits_available()) hello.h.flags |= PEER_HIT_SYNC;
+            if (g_tactical) hello.h.flags |= (unsigned char)(hits_features() | pause_feature());
             if (g_tactical && anim_available()) hello.h.flags |= PEER_ANIM_SYNC;
             memcpy(hello.proto, k_protocol, sizeof k_protocol);
             hello.version = k_version;
@@ -3069,6 +3342,7 @@ void session_frame(ObjMan *om)
         g_prof_save += seconds_now() - t0;
         xlate_frame(om);
         anim_frame(om, now);
+        anim_transport_tick(now, send_peer);
         shots_frame(send_peer);
         vitals_frame(om, now, send_peer);
         refresh_event_epochs(); // vitals_frame may discover a new local object manager
@@ -3080,6 +3354,7 @@ void session_frame(ObjMan *om)
     DWORD patience = (g_tactical && g_phase >= 2) ? 8000u : 20000u;
     if (g_connected && now - g_last_rx > patience) {
         mp_log("net: connection lost (nothing received for %u s)", (unsigned)(patience / 1000));
+        pause_connection_lost();
         g_connected = false;
         if (g_tactical) { vitals_pause(); hits_reset_peer(); anim_reset_peer(); }
         g_peer_ready = 0;
@@ -3092,6 +3367,10 @@ void session_frame(ObjMan *om)
                    g_stat_sent, g_stat_applied, g_stat_coalesced, g_stat_elided, g_stat_bad_transforms,
                    g_stat_applied ? g_stat_err_sum / g_stat_applied : 0.0, g_stat_err_max, g_stat_snaps,
                    g_stat_rx_bytes / 5120.0, g_stat_tx_bytes / 5120.0, g_stat_zero_steps, g_stat_zero_skipped, g_stat_cache_pruned);
+            if (g_stat_snaps) mp_log("net: largest correction unit=%llx local=(%.2f,%.2f,%.2f) target=(%.2f,%.2f,%.2f) snapshot age=%.2f s new=%u last rx=%u ms ago",
+                                     g_stat_peak.key, g_stat_peak.local[0], g_stat_peak.local[1], g_stat_peak.local[2],
+                                     g_stat_peak.target[0], g_stat_peak.target[1], g_stat_peak.target[2],
+                                     g_stat_peak.snapshot_age, (unsigned)g_stat_peak.fresh, (unsigned)g_stat_peak.rx_age);
             statesync_report();
             shots_report();
             hits_report();

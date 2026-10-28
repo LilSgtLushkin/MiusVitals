@@ -139,6 +139,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python development/net-v21/tools/xlate_identity_emulation_selftest.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python development/net-v21/tools/human_hit_evidence_selftest.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python development/net-v21/tools/render_cache_bounds_selftest.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -190,6 +192,18 @@ jobs:
           type development\net-v21\build\selftest.log
           if not %rc%==0 exit /b %rc%
           development\net-v21\build\selftest\hit_anim_wire_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\animation_channel_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\pause_sync_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          python development\net-v21\tools\pause_session_slice_selftest.py >> development\net-v21\build\selftest.log 2>&1
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log
           if not %rc%==0 exit /b %rc%
@@ -261,6 +275,18 @@ jobs:
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log
           if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\state_apply_delay_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\squad_ownership_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\image_mirror_identity_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
           development\net-v21\build\selftest\transform_send_test.exe >> development\net-v21\build\selftest.log 2>&1
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log
@@ -314,10 +340,6 @@ jobs:
           type development\net-v21\build\selftest.log
           if not %rc%==0 exit /b %rc%
           development\net-v21\build\selftest\shots_xlate_characterization_test.exe >> development\net-v21\build\selftest.log 2>&1
-          set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
-          if not %rc%==0 exit /b %rc%
-          python development\net-v21\tools\shots_compat_pair.py --legacy development\net-v21\build\selftest\shots_compat_107.exe --current development\net-v21\build\selftest\shots_compat_current.exe >> development\net-v21\build\selftest.log 2>&1
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log
           if not %rc%==0 exit /b %rc%
@@ -408,9 +430,9 @@ jobs:
             2>&1 | tee development/net-v21/build/battle-report-selftest.log
           exit ${PIPESTATUS[0]}
 
-      # Rebuild a disposable ZIP from this exact PR head. It must equal the committed release
-      # candidate byte-for-byte; the installer test below exercises the actual committed ZIP.
-      - name: Rebuild the candidate installer for an exact comparison
+      # Build a disposable ZIP from this exact PR head. The previously released net+fps ZIP
+      # remains immutable and is verified separately; it is not this revised source tree.
+      - name: Build the current disposable installer
         shell: bash
         run: |
           python scripts/package_net_v21_test.py \
@@ -420,14 +442,15 @@ jobs:
             2>&1 | tee development/net-v21/build/package.log
           exit ${PIPESTATUS[0]}
 
-      - name: Verify the committed net+fps archive equals this build and current kit
+      - name: Verify the preserved net+fps archive and the current disposable installer
         shell: bash
         run: |
           set -euo pipefail
           archive='MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip'
-          python scripts/package_net_v21_test.py --verify "$archive" --verify-source
-          cmp "$archive" development/net-v21/build/CI_fixture_NOT_RELEASE.zip
-          sha256sum "$archive"
+          python scripts/package_net_v21_test.py --verify "$archive"
+          echo 'd733efa9f085f65d1f5db36bf8b004e5945329625d0bb6b468590d936b490bb8  '"$archive" | sha256sum --check
+          python scripts/package_net_v21_test.py --verify development/net-v21/build/CI_fixture_NOT_RELEASE.zip --verify-source
+          sha256sum development/net-v21/build/CI_fixture_NOT_RELEASE.zip
 
       # The retired ZIP is not restored into the checkout. The Windows test reads the
       # historical Git blob in memory and verifies its SHA-256 before exercising rollback.
@@ -441,10 +464,10 @@ jobs:
           fi
           git cat-file -e "$revision:MiusMultiplayer_v1.0.6_TEST_INSTALL.zip"
 
-      - name: Exercise the committed one-step installer and historical upgrades on Windows
+      - name: Exercise the current one-step installer and historical upgrades on Windows
         shell: cmd
         env:
-          MIUS_TEST_ARCHIVE: MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip
+          MIUS_TEST_ARCHIVE: development/net-v21/build/CI_fixture_NOT_RELEASE.zip
           MIUS_TEST_STATE: unified_test_v107_experimental_net_fps
           MIUS_TEST_UPGRADE: '1'
           MIUS_TEST_UPGRADE_107_EXPERIMENTAL: '1'

@@ -4,6 +4,7 @@
 #include "protocol.h"
 #include "hit_wire.h"
 #include "anim_wire.h"
+#include "animation_channel.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdarg.h>
@@ -22,7 +23,13 @@ void anim_test_expire_wait();
 
 char g_out_dir[MAX_PATH] = ".";
 char g_program[32] = "tacgame";
-void mp_log(const char *, ...) {}
+static char component_failure[512];
+void mp_log(const char *format, ...) {
+    if (!strstr(format, "hit: component failure")) return;
+    va_list args; va_start(args, format);
+    vsnprintf(component_failure, sizeof component_failure, format, args);
+    va_end(args);
+}
 static int checks, failures;
 static void check(bool ok, const char *label) { ++checks; if (!ok) { ++failures; printf("FAIL: %s\n", label); } }
 bool readable(const void *p, size_t n) {
@@ -31,7 +38,7 @@ bool readable(const void *p, size_t n) {
     uintptr_t a = (uintptr_t)p, b = (uintptr_t)m.BaseAddress;
     return a >= b && a - b <= m.RegionSize && n <= m.RegionSize - (a - b);
 }
-static unsigned features = PEER_HIT_SYNC | PEER_ANIM_SYNC;
+static unsigned features = PEER_FEATURES;
 static Object *soldier, *other, *vehicle, *missing;
 static bool soldier_owned = true, other_owned = false, vehicle_owned = true, bad_mapping;
 static unsigned char desc1[0x80], desc2[0x80];
@@ -66,7 +73,10 @@ bool shots_try_queue(ShotRec &s, size_t limit) {
     if (queued.size() >= limit) return false;
     s.seq = (u32)queued.size() + 1; queued.push_back(s); return true;
 }
-bool shots_queue_latest(ShotRec &s, size_t limit) { return shots_try_queue(s, limit); }
+static std::vector<std::vector<unsigned char>> anim_packets;
+static void capture_anim(const void *data, int n) {
+    anim_packets.emplace_back((const unsigned char *)data, (const unsigned char *)data + n);
+}
 static u32 description_id(ObjMan *, void *p) { return p == desc1 ? 101 : p == desc2 ? 202 : 0xffffffffu; }
 static void *description_ptr(ObjMan *, u32 id) { return id == 101 ? desc1 : id == 202 ? desc2 : nullptr; }
 static Object *find_nothing(ObjMan *, Dep *) { return nullptr; }
@@ -128,7 +138,7 @@ int main()
     features = 0;
     check(hits_test_capture(false, soldier, rec, 5, other, 6, true) == 123 && queued.empty() && hit_calls == 1,
           "without peer capability hit passes through and is not queued");
-    features = PEER_HIT_SYNC | PEER_ANIM_SYNC;
+    features = PEER_FEATURES;
     check(hits_test_capture(false, soldier, rec, 5, other, 6, true) == 123 && queued.size() == 1 && hit_calls == 2,
           "owner hit queued and original called once");
     ShotRec h = queued.back();
@@ -139,13 +149,11 @@ int main()
           "local hit on the other owner's unit is held");
     put32((char *)soldier + 0x2768, 1);
     check(hits_received(h, om) && hit_calls == 3 && observed_seed == 9876 && observed_a3 == 5 && observed_a5 == 6 && observed_a6 &&
-          observed_d1 == desc1 && observed_d2 == desc2 && observed_obj == vehicle && observed_source == other,
-          "remote hit reconstructs validated references, arguments and seed");
-    put32(parts + 0x48, (77u << 10) | 23);
-    check(hits_received(h, om) && hit_calls == 4 && observed_part == ((77u << 10) | 23),
-          "component group remapped to the receiving game's IDs");
+          observed_d1 == desc1 && observed_d2 == desc2 && observed_obj == vehicle && observed_source == other && observed_part == 0xffffffffu,
+          "remote human hit reconstructs references and seed without a process-local component");
     put32(parts + 0x48, (77u << 10) | 24);
-    check(hits_received(h, om) && hit_calls == 4, "different component layout refused without invoking engine");
+    check(hits_received(h, om) && hit_calls == 4 && observed_part == 0xffffffffu,
+          "human replay is independent of component list layout");
     put32(parts + 0x48, part);
     bad_mapping = true;
     check(hits_received(h, om) && hit_calls == 4, "unmapped description refused"); bad_mapping = false;
@@ -165,6 +173,47 @@ int main()
     if (!worker) return 3;
     WaitForSingleObject(worker, 5000); CloseHandle(worker);
     check(hit_calls == 5 && queued.size() == 1, "off-thread engine call passes through without touching session maps");
+
+    // The human path must survive the exact three list cases that previously disabled all hits.
+    soldier_owned = true; queued.clear();
+    put32(rec + 0x60, (99u << 10) | 23);
+    check(hits_test_capture(false, soldier, rec, 5, other, 6, true) == 123 && hit_calls == 6 && queued.size() == 1,
+          "human hit with an unmatched component is still queued");
+    put32((char *)soldier + 0x85c, 0);
+    check(hits_test_capture(false, soldier, rec, 5, other, 6, true) == 123 && hit_calls == 7 && queued.size() == 2,
+          "human hit with no component list is still queued");
+    alignas(8) unsigned char many_parts[7 * 0x60] = {};
+    void *many_ptr = many_parts; memcpy((char *)soldier + 0x850, &many_ptr, 8); put32((char *)soldier + 0x85c, 7);
+    for (u32 i = 0; i < 7; ++i) put32(many_parts + (size_t)i * 0x60 + 0x48, (i + 1) << 10);
+    check(hits_test_capture(false, soldier, rec, 5, other, 6, true) == 123 && hit_calls == 8 && queued.size() == 3 &&
+          hits_features() == (PEER_HIT_SYNC | PEER_VEHICLE_HIT_SYNC), "human hit ignores a large component list");
+
+    // Vehicles still require an independently validated component translation. A vehicle-only
+    // failure withdraws that capability and leaves the human path working.
+    memcpy((char *)vehicle + 0x850, &part_ptr, 8); put32((char *)vehicle + 0x85c, 1);
+    put32((char *)vehicle + 0xb64, 4321); component_failure[0] = 0;
+    check(hits_test_capture(true, vehicle, rec, 5, other, 6, true) == 123 && hit_calls == 9 && queued.size() == 3 &&
+          hits_features() == PEER_HIT_SYNC && strstr(component_failure, "part group absent from list"),
+          "unmatched vehicle part disables only vehicle synchronization");
+    check(hits_test_capture(false, soldier, rec, 5, other, 6, true) == 123 && hit_calls == 10 && queued.size() == 4,
+          "vehicle failure does not disable human hits");
+    hits_test_engine(om, hit_original, hit_original);
+    put32(rec + 0x60, part);
+    check(hits_test_capture(true, vehicle, rec, 5, other, 6, true) == 123 && hit_calls == 11 && queued.size() == 5,
+          "mapped vehicle hit is queued separately");
+    ShotRec v = queued.back(); vehicle_owned = false;
+    put32(parts + 0x48, (77u << 10) | 23);
+    check(hits_received(v, om) && hit_calls == 12 && observed_seed == 4321 && observed_part == ((77u << 10) | 23),
+          "vehicle component group is translated before replay");
+    vehicle_owned = true;
+    hits_test_engine(om, hit_original, hit_original);
+    put32((char *)vehicle + 0x85c, 0); component_failure[0] = 0;
+    check(hits_test_capture(true, vehicle, rec, 5, other, 6, true) == 123 && hit_calls == 13 && hits_features() == PEER_HIT_SYNC &&
+          strstr(component_failure, "list header/rows unavailable, empty or oversized"), "empty vehicle list is identified");
+    hits_test_engine(om, hit_original, hit_original);
+    memcpy((char *)vehicle + 0x850, &many_ptr, 8); put32((char *)vehicle + 0x85c, 7); component_failure[0] = 0;
+    check(hits_test_capture(true, vehicle, rec, 5, other, 6, true) == 123 && hit_calls == 14 && hits_features() == PEER_HIT_SYNC &&
+          strstr(component_failure, "list shape rejected"), "oversized vehicle group shape is identified");
     hits_stop();
 
     // Fake i_animch and its two instance rows. The normal group setter is called only after
@@ -184,12 +233,22 @@ int main()
     put32(instances + 0x140 + 0x104, 1); put32(instances + 0x140 + 0x10c, 1);
     soldier_owned = true; other_owned = false;
     queued.clear();
-    anim_test_engine(om, anim);
-    anim_frame(om, GetTickCount());
-    check(queued.size() == 1 && anim_wire::valid(queued[0]) && queued[0].shooter == ((2ull << 32) | 17),
-          "frame snapshots owned soldier with valid pointer-free values");
+    anim_test_engine(om, anim); anim_transport_epoch(11, 22);
+    anim_frame(om, GetTickCount()); anim_transport_tick(GetTickCount(), capture_anim);
+    animation_channel::Data first = {};
+    if (anim_packets.size() == 1 && anim_packets[0].size() == sizeof first) memcpy(&first, anim_packets[0].data(), sizeof first);
+    check(anim_packets.size() == 1 && anim_wire::valid(first.record) && first.record.shooter == ((2ull << 32) | 17) &&
+          first.h.type == PKT_ANIM && first.h.flags == animation_channel::critical_flag && queued.empty(),
+          "owned soldier enters the independent animation channel, not the shot queue");
+    animation_channel::Ack first_ack = {make_head(PKT_ANIM_ACK), 11, 22, first.record.seq, first.record.shooter};
+    anim_on_packet((const unsigned char *)&first_ack, sizeof first_ack, capture_anim);
+    anim_test_slot4(anim, 0, 33); anim_transport_tick(GetTickCount(), capture_anim);
+    animation_channel::Data changed = {};
+    if (anim_packets.size() == 2 && anim_packets[1].size() == sizeof changed) memcpy(&changed, anim_packets[1].data(), sizeof changed);
+    check(anim_packets.size() == 2 && changed.record.seq > first.record.seq && changed.h.flags == animation_channel::critical_flag && queued.empty(),
+          "checked owner setter publishes a reliable critical change immediately");
     anim_test_slot4(anim, 1, 10);
-    check(setter_calls == 1, "remote setter passes before the first owner snapshot");
+    check(setter_calls == 2, "remote setter passes before the first owner snapshot");
     unsigned char remote[0x140] = {}, human_values[0x1f00] = {};
     put32(remote + 0xa8, 99); put32(remote + 0x104, 1); put32(remote + 0x10c, 2);
     putf(remote + 0xd4, 0.75f); putf(remote + 0x11c, 1.25f); put32(human_values + 0x1e70, 3); putf(human_values + 0x1210, 4.f);
@@ -207,10 +266,10 @@ int main()
     memcpy(&applied_state, (char *)other + 0x1e70, 4);
     check(applied_scalar == 99 && applied_frame == 2 && applied_state == 3, "animation scalars and soldier fields applied");
     anim_test_slot4(anim, 1, 11);
-    check(setter_calls == 1, "recent owner snapshot holds back local remote setter");
+    check(setter_calls == 2, "recent owner snapshot holds back local remote setter");
     anim_test_stale((2ull << 32) | 18);
     anim_test_slot4(anim, 1, 12);
-    check(setter_calls == 2, "stale owner snapshot allows local animation again");
+    check(setter_calls == 3, "stale owner snapshot allows local animation again");
     ShotRec invalid = a; put32(invalid.launch + 8, 2);
     check(anim_received(invalid, om) && group_calls == 1, "malformed animation is refused before engine call");
     memcpy(instances + 0x140 + 0x70, &idle, 8); group_success = false;

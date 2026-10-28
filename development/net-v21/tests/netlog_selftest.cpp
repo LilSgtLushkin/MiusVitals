@@ -97,6 +97,8 @@ int main()
     // ---- 2. read it back
     expect(path, "net_v21: our own network module", "and says which module wrote it");
     expect(path, "build: compiled", "with the build stamp");
+    expect(path, "hit and soldier animation replication are experimental", "experimental features are described without claiming they are active");
+    check(!file_contains(path, "hit and soldier animation replication are not implemented"), "obsolete feature status is absent");
     expect(path, "fnv1a64", "and the hash of the image it runs from");
     // Independently hash the running EXE and compare to the log, not just to the label.
     char image_path[MAX_PATH] = {}, expected[64] = {};

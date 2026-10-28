@@ -18,7 +18,7 @@ static void **g_human_slot, **g_vehicle_slot;
 static ObjMan *g_om;
 static DWORD g_thread, g_wait_at;
 static u32 g_wait_seq;
-static bool g_attempted, g_operational = true, g_log, g_injecting;
+static bool g_attempted, g_operational[2] = {true, true}, g_log, g_injecting;
 static unsigned long long g_sent, g_applied, g_suppressed, g_refused, g_overflow;
 
 static bool writable(void *p, size_t n)
@@ -63,11 +63,14 @@ static bool component_rows(Object *target, const unsigned char **rows, u32 *coun
     return *count && *count <= hit_wire::max_parts && readable(*rows, (size_t)*count * 0x60);
 }
 
-static void disable_sync(const char *reason)
+static void disable_sync(bool vehicle, const char *reason)
 {
-    if (g_operational) mp_log("hit: synchronization stopped for this session: %s; local game remains in control", reason);
-    g_operational = false;
+    unsigned category = vehicle ? 1u : 0u;
+    if (g_operational[category]) mp_log("hit: %s synchronization stopped for this session: %s; local game remains in control",
+                                        vehicle ? "vehicle" : "human", reason);
+    g_operational[category] = false;
 }
+static void disable_all(const char *reason) { disable_sync(false, reason); disable_sync(true, reason); }
 
 static uintptr_t capture(bool vehicle, Object *target, void *record, u32 a3, Object *source, u32 a5, bool a6)
 {
@@ -77,8 +80,9 @@ static uintptr_t capture(bool vehicle, Object *target, void *record, u32 a3, Obj
         g_wrong_thread.fetch_add(1, std::memory_order_relaxed);
         return original(target, record, a3, source, a5, a6);
     }
-    if (g_injecting || !g_operational || !g_installed.load(std::memory_order_acquire) || !session_connected() ||
-        !(session_peer_features() & PEER_HIT_SYNC) || !xlate_ready())
+    unsigned feature = vehicle ? PEER_VEHICLE_HIT_SYNC : PEER_HIT_SYNC;
+    if (g_injecting || !g_operational[vehicle ? 1 : 0] || !g_installed.load(std::memory_order_acquire) || !session_connected() ||
+        !(session_peer_features() & feature) || !xlate_ready())
         return original(target, record, a3, source, a5, a6);
     u64 key = 0;
     if (!unit(target, &key) || (key >> 32) != (vehicle ? 1u : 2u) || !readable(record, hit_wire::engine_size))
@@ -89,7 +93,7 @@ static uintptr_t capture(bool vehicle, Object *target, void *record, u32 a3, Obj
     }
     const size_t seed_offset = vehicle ? 0xb64 : 0x2768;
     if (!readable(target, seed_offset + sizeof(u32))) {
-        disable_sync("target layout is unreadable");
+        disable_sync(vehicle, "target layout is unreadable");
         return original(target, record, a3, source, a5, a6);
     }
     void *d1 = 0, *d2 = 0; Object *object = 0;
@@ -98,24 +102,36 @@ static uintptr_t capture(bool vehicle, Object *target, void *record, u32 a3, Obj
     memcpy(&object, (char *)record + 0x78, sizeof object);
     u32 id1 = 0, id2 = 0, seed = 0;
     if (!description_id(d1, &id1) || !description_id(d2, &id2)) {
-        disable_sync("hit descriptions could not be identified");
+        disable_sync(vehicle, "hit descriptions could not be identified");
         return original(target, record, a3, source, a5, a6);
     }
     memcpy(&seed, (char *)target + seed_offset, sizeof seed);
     ShotRec s;
     hit_wire::encode(s, vehicle, key, optional_unit(source), optional_unit(object), id1, id2, a3, a5, a6, seed, record);
     u32 part = 0; memcpy(&part, (char *)record + 0x60, 4);
-    if (part != 0xffffffffu) {
+    if (vehicle && part != 0xffffffffu) {
         const unsigned char *rows = nullptr; u32 count = 0; hit_wire::PartHint hint = {};
-        if (!component_rows(target, &rows, &count) || !hit_wire::make_hint(rows, count, part, &hint)) {
-            disable_sync("component list cannot be matched safely");
+        if (!component_rows(target, &rows, &count)) {
+            mp_log("hit: component failure target=%llx type=%u part=%08x count=%u: list header/rows unavailable, empty or oversized",
+                   key, vehicle ? 1u : 0u, part, count);
+            disable_sync(vehicle, "component list cannot be matched safely");
+            return original(target, record, a3, source, a5, a6);
+        }
+        if (!hit_wire::make_hint(rows, count, part, &hint)) {
+            // make_hint writes a nonzero shape before searching for the part. This separates a
+            // rejected list shape (>6 groups, for example) from a missing part group, without
+            // sending an untranslated renderer handle or changing the existing fail-safe policy.
+            mp_log("hit: component failure target=%llx type=%u part=%08x count=%u: %s",
+                   key, vehicle ? 1u : 0u, part, count,
+                   hint.shape ? "part group absent from list" : "list shape rejected");
+            disable_sync(vehicle, "component list cannot be matched safely");
             return original(target, record, a3, source, a5, a6);
         }
         hit_wire::put_hint(s, hint);
     }
     if (!shots_try_queue(s, hit_wire::queue_limit)) {
         ++g_overflow;
-        disable_sync("bounded event queue is full or its sequence was exhausted");
+        disable_sync(vehicle, "bounded event queue is full or its sequence was exhausted");
     } else {
         ++g_sent;
         if (g_log) mp_log("hit: queued target=%llx type=%u kind=%u seq=%u", key, vehicle ? 1u : 0u, a3, s.seq);
@@ -132,12 +148,12 @@ void hits_install(ObjMan *om)
 {
     if (g_attempted || !GetModuleHandleA("adv_physic.codelib")) return;
     g_attempted = true;
-    g_om = om; g_thread = GetCurrentThreadId(); g_operational = true;
+    g_om = om; g_thread = GetCurrentThreadId(); g_operational[0] = g_operational[1] = true;
     int value = 0;
-    if (env_integer("MP_SYNC_HITS", &value) && !value) { g_operational = false; mp_log("hit: local simulation only (MP_SYNC_HITS=0)"); return; }
+    if (env_integer("MP_SYNC_HITS", &value) && !value) { disable_all("MP_SYNC_HITS=0"); return; }
     g_log = env_integer("MP_LOG_HITS", &value) && value;
     if (!hook_image_identity("adv_physic.codelib", 0x66f2a91e, 0xf2000)) {
-        disable_sync("unrecognised physics image/layout"); return;
+        disable_all("unrecognised physics image/layout"); return;
     }
     static const unsigned char human_sig[] = { 0x48,0x8b,0xc4,0x48,0x89,0x58,0x20,0x55,0x56,0x41,0x57,0x48,0x83,0xec,0x60,0x80,0xbc,0x24,0xa8,0x00,0x00,0x00,0x00,0x4d,0x8b,0xf9,0x41,0x8b,0xe8,0x48,0x8b,0xf2 };
     static const unsigned char vehicle_sig[] = { 0x48,0x8b,0xc4,0x48,0x89,0x58,0x20,0x44,0x89,0x40,0x18,0x55,0x56,0x57,0x41,0x54,0x41,0x55,0x41,0x56,0x41,0x57,0x48,0x8d,0xa8,0xa8,0xfe,0xff,0xff,0x48,0x81,0xec };
@@ -145,27 +161,32 @@ void hits_install(ObjMan *om)
     const HookSig vs[] = {{0x43230, vehicle_sig, sizeof vehicle_sig}};
     char *h = hook_resolve_checked("adv_physic.codelib", hs, 1, "human hit");
     char *v = hook_resolve_checked("adv_physic.codelib", vs, 1, "vehicle hit");
-    if (!h || !v) { disable_sync("unrecognised hit functions"); return; }
+    if (!h || !v) { disable_all("unrecognised hit functions"); return; }
     HookVtableMember hm[] = {{0, h}}, vm[] = {{0, v}};
     void **ht = hook_vtable_checked("adv_physic.codelib", 0xc6760, hm, 1, "human hit slot");
     void **vt = hook_vtable_checked("adv_physic.codelib", 0xc79d8, vm, 1, "vehicle hit slot");
-    if (!ht || !vt || ht == vt) { disable_sync("unrecognised or ambiguous hit slots"); return; }
+    if (!ht || !vt || ht == vt) { disable_all("unrecognised or ambiguous hit slots"); return; }
     g_human.store((HitFn)h, std::memory_order_release);
     g_vehicle.store((HitFn)v, std::memory_order_release);
-    if (!hook_swap_vtable_slot(ht, h, (void *)human_hook)) { disable_sync("human slot changed or could not be patched"); return; }
+    if (!hook_swap_vtable_slot(ht, h, (void *)human_hook)) { disable_all("human slot changed or could not be patched"); return; }
     if (!hook_swap_vtable_slot(vt, v, (void *)vehicle_hook)) {
         if (!hook_swap_vtable_slot(ht, (void *)human_hook, h)) {
             g_human_slot = ht; // retain the address for another conditional rollback on stop
             mp_log("hit: WARNING: human slot rollback was not possible");
         }
-        disable_sync("vehicle slot changed or could not be patched"); return;
+        disable_all("vehicle slot changed or could not be patched"); return;
     }
     g_human_slot = ht; g_vehicle_slot = vt;
     g_installed.store(true, std::memory_order_release);
     mp_log("hit: experimental checked hooks installed; enabled only when both peers and number tables are ready");
 }
 
-bool hits_available(void) { return g_operational && g_installed.load(std::memory_order_acquire) && xlate_ready(); }
+unsigned hits_features(void)
+{
+    if (!g_installed.load(std::memory_order_acquire) || !xlate_ready()) return 0;
+    return (g_operational[0] ? PEER_HIT_SYNC : 0) | (g_operational[1] ? PEER_VEHICLE_HIT_SYNC : 0);
+}
+bool hits_available(void) { return hits_features() != 0; }
 
 // Wait briefly for a unit/table to appear without acknowledging a later event. Refusal is
 // explicit after the deadline; otherwise a deleted unit could stall every shot indefinitely.
@@ -191,7 +212,9 @@ static bool invoke(HitFn fn, Object *target, void *record, u32 a3, Object *sourc
 bool hits_received(const ShotRec &s, ObjMan *om)
 {
     if (!hit_wire::valid(s)) { ++g_refused; mp_log("hit: malformed event %u refused", s.seq); return true; }
-    if (!g_installed.load(std::memory_order_acquire) || om != g_om) { ++g_refused; mp_log("hit: event %u refused: hook not installed", s.seq); return true; }
+    if (!g_installed.load(std::memory_order_acquire) || !g_operational[s.flags ? 1 : 0] || om != g_om) {
+        ++g_refused; mp_log("hit: event %u refused: category hook unavailable", s.seq); return true;
+    }
     if (!xlate_ready()) return wait_or_refuse(s.seq, "number tables are not ready");
     Object *target = session_unit(s.shooter);
     Object *source = s.obj2 ? session_unit(s.obj2) : 0;
@@ -228,7 +251,7 @@ bool hits_received(const ShotRec &s, ObjMan *om)
     bool ok = invoke(original, target, record, s.arg6, source, s.ammo_code, s.has_pos != 0);
     g_injecting = false;
     g_wait_seq = 0;
-    if (!ok) { ++g_refused; disable_sync("the replayed engine call raised an access violation; effects may be partial"); }
+    if (!ok) { ++g_refused; disable_sync(s.flags != 0, "the replayed engine call raised an access violation; effects may be partial"); }
     else { ++g_applied; if (g_log) mp_log("hit: replayed target=%llx kind=%u seq=%u", s.shooter, s.arg6, s.seq); }
     return true;
 }
@@ -247,7 +270,7 @@ void hits_reset_peer(void) { g_wait_seq = 0; g_wait_at = 0; }
 // No PE/vtable patching in the fixture. The production capture and replay paths are unchanged.
 void hits_test_engine(ObjMan *om, HitFn human_fn, HitFn vehicle_fn)
 {
-    g_om = om; g_thread = GetCurrentThreadId(); g_operational = true; g_attempted = true;
+    g_om = om; g_thread = GetCurrentThreadId(); g_operational[0] = g_operational[1] = true; g_attempted = true;
     g_human.store(human_fn); g_vehicle.store(vehicle_fn); g_installed.store(true);
     g_wait_seq = 0;
 }
@@ -262,5 +285,5 @@ void hits_stop(void)
     if (g_human_slot && !hook_swap_vtable_slot(g_human_slot, (void *)human_hook, (void *)g_human.load())) mp_log("hit: human slot was changed by another module; not overwritten");
     if (g_vehicle_slot && !hook_swap_vtable_slot(g_vehicle_slot, (void *)vehicle_hook, (void *)g_vehicle.load())) mp_log("hit: vehicle slot was changed by another module; not overwritten");
     g_human_slot = g_vehicle_slot = 0;
-    g_attempted = false; g_wait_seq = 0; g_om = 0; g_operational = true;
+    g_attempted = false; g_wait_seq = 0; g_om = 0; g_operational[0] = g_operational[1] = true;
 }

@@ -21,6 +21,14 @@ int main()
                      33, 44, 55, 66, true, 77, record);
     expect(hit_wire::valid(h), "valid human hit");
     expect(!memcmp(h.launch, record, hit_wire::copied), "hit scalar prefix retained");
+    put32(record + 0x60, 0x12345678u);
+    hit_wire::encode(h, false, (2ull << 32) | 17, (1ull << 32) | 3, (2ull << 32) | 4,
+                     33, 44, 55, 66, true, 77, record);
+    uint32_t human_part = 0; memcpy(&human_part, h.launch + 0x60, 4);
+    expect(hit_wire::valid(h) && human_part == 0xffffffffu, "human process-local component is omitted");
+    ShotRec unsafe_human = h; put32(unsafe_human.launch + 0x60, 0x12345678u);
+    expect(!hit_wire::valid(unsafe_human), "human envelope cannot smuggle a component handle");
+    put32(record + 0x60, 0xffffffffu);
     bool zero_tail = true; for (size_t i = hit_wire::copied; i < sizeof h.launch; ++i) zero_tail &= h.launch[i] == 0;
     expect(zero_tail && h.ammo == 33 && h.weapon == 44 && h.arg6 == 55 && h.ammo_code == 66 &&
            h.desc3 == 77 && h.has_pos == 1, "hit pointer tail omitted, metadata retained");
