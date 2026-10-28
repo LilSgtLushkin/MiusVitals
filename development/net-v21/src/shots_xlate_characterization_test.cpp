@@ -170,6 +170,56 @@ int main()
     check(launches == 2 && xlate_desc_checked(41, &local) && local == 9,
           "a late retired stream cannot roll back the new mappings");
 
+    // Characterize a different, still OPEN limitation of the actual matcher and replay path.
+    // The synthetic remote descriptors and local decoys share the first 0x60 bytes, whereas
+    // the fixture's true local equivalents differ in those bytes as process data can. The decoy
+    // ammunition also passes the wire's two-float/code check. In the supplied game binary the
+    // launch function uses ammunition +0xc0 and weapon +0x88, outside that fingerprint/check.
+    // This fixture does not assert that these particular descriptions occur in a real battle.
+    alignas(8) unsigned char remote_ammo[0xc8] = {}, remote_weapon[0xc8] = {};
+    memset(correct_ammo, 0, sizeof correct_ammo); memset(wrong_ammo, 0, sizeof wrong_ammo);
+    memset(correct_weapon, 0, sizeof correct_weapon); memset(wrong_weapon, 0, sizeof wrong_weapon);
+    code = 0x54414548; // HEAT is one category used by the supplied launch routine, not a unique name.
+    void *ammo_fixture[] = { remote_ammo, correct_ammo, wrong_ammo };
+    for (void *ammo : ammo_fixture) {
+        memcpy(ammo, numbers, sizeof numbers);
+        memcpy((char *)ammo + 0xc4, &code, sizeof code);
+    }
+    correct_ammo[0x20] = 0x55;
+    remote_ammo[0x20] = wrong_ammo[0x20] = 0x66;
+    u32 different_flags = 0x80000000u;
+    memcpy(wrong_ammo + 0xc0, &different_flags, sizeof different_flags);
+    correct_weapon[0] = 0x77;
+    remote_weapon[0] = wrong_weapon[0] = 0x4b;
+    wrong_weapon[0x88] = 1;
+    check(xlate_test_fingerprint(remote_ammo) == xlate_test_fingerprint(wrong_ammo) &&
+          xlate_test_fingerprint(remote_ammo) != xlate_test_fingerprint(correct_ammo) &&
+          xlate_test_fingerprint(remote_weapon) == xlate_test_fingerprint(wrong_weapon) &&
+          xlate_test_fingerprint(remote_weapon) != xlate_test_fingerprint(correct_weapon),
+          "fixture gives the wrong local descriptions unique matching prefixes");
+    check(memcmp(remote_ammo, wrong_ammo, 8) == 0 &&
+          memcmp(remote_ammo + 0xc4, wrong_ammo + 0xc4, 4) == 0 &&
+          memcmp(remote_ammo + 0xc0, wrong_ammo + 0xc0, 4) != 0 &&
+          remote_weapon[0x88] != wrong_weapon[0x88],
+          "shallow ammunition check misses game-used fields outside the fingerprint");
+    shots_reset();
+    shots_test_engine(om, (char *)om, launch);
+    shots_test_wait_time(13000);
+    const u32 ambiguous_descriptions[] = { 41, xlate_test_fingerprint(remote_ammo),
+                                           42, xlate_test_fingerprint(remote_weapon) };
+    ShotRec ambiguous_desc = table(3, ambiguous_descriptions, 2), fresh_obj = table(4, objects_table, 1);
+    ambiguous_desc.seq = 1; fresh_obj.seq = 2;
+    ShotRec ambiguous_shot = {};
+    ambiguous_shot.seq = 3; ambiguous_shot.kind = 0; ambiguous_shot.ammo = 41;
+    ambiguous_shot.weapon = 42; ambiguous_shot.desc3 = 0xffffffffu;
+    memcpy(ambiguous_shot.ammo_check, numbers, sizeof numbers); ambiguous_shot.ammo_code = code;
+    unsigned before = launches;
+    incoming(ambiguous_desc, 3333); incoming(fresh_obj, 3333); incoming(ambiguous_shot, 3333);
+    shots_sim_step(om);
+    check(xlate_desc_checked(41, &local) && local == 9 && launches == before + 1 &&
+          last_ammo == wrong_ammo && last_weapon == wrong_weapon && ack_sequence == 3,
+          "KNOWN LIMITATION: unique anchors can replay the fixture's wrong descriptions and ACK");
+
     printf("shots/xlate integration: %u checks, %u failed; mapping heuristics remain unproven\n", checks, failed);
     return failed ? 1 : 0;
 }

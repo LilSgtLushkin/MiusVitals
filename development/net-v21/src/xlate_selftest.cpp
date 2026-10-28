@@ -60,6 +60,19 @@ int main()
     check(mapping.size() == 4 && mapping[2] == 12 && mapping[3] == 13 &&
           mapping[2] != 13 && mapping[3] != 12,
           "KNOWN LIMITATION: fully placed ambiguous entries can disagree with fixture identity");
+    // The supplied engine can register copied weapon records under numbered names. Equal
+    // nonzero fingerprints do not distinguish those variants either; position is still a guess.
+    xlate_test_match(Table{{1, 101}, {2, 505}, {3, 505}, {4, 202}},
+                     Table{{11, 101}, {12, 505}, {13, 505}, {14, 202}}, mapping);
+    check(mapping.size() == 4 && mapping[2] == 12 && mapping[3] == 13,
+          "KNOWN LIMITATION: duplicate nonzero fingerprints are positioned, not unique anchors");
+    // An inserted/deleted element can leave a hole, but an inferred position must not reuse
+    // a slot already taken by an anchor or a prior positional match.
+    xlate_test_match(Table{{10, 101}, {11, 0}, {12, 0}, {13, 202}},
+                     Table{{20, 101}, {21, 0}, {22, 202}}, mapping);
+    check(mapping.size() == 3 && mapping[10] == 20 && mapping[11] == 21 &&
+          mapping.find(12) == mapping.end() && mapping[13] == 22,
+          "an occupied local slot is not used for a second remote description");
 
     SYSTEM_INFO info = {};
     GetSystemInfo(&info);
@@ -174,6 +187,13 @@ int main()
     xlate_test_send_changed((ObjMan *)manager);
     check(queued_kinds.size() == 1 && queued_kinds[0] == 3, "only changed description table is queued");
     queued_kinds.clear();
+    // The supplied game can alter shell +0x20 without changing the number of descriptions.
+    // This is a characterization, not a claim that continuously resending would be safe.
+    u32 before_change = xlate_test_fingerprint(raw_desc);
+    raw_desc[0x20] = 1;
+    check(xlate_test_fingerprint(raw_desc) != before_change, "the fixture really changed its fingerprint");
+    xlate_test_send_changed((ObjMan *)manager);
+    check(queued_kinds.empty(), "KNOWN LIMITATION: unchanged counts hide a changed descriptor fingerprint");
     xlate_resend();
     xlate_test_send_changed((ObjMan *)manager);
     check(queued_kinds.size() == 2 && queued_kinds[0] == 3 && queued_kinds[1] == 4,

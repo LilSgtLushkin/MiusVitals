@@ -108,8 +108,15 @@ jobs:
           :no_committed_installer
           echo First build: no committed 1.0.7 archive yet.
 
-      - name: Install the disassembler the comparison needs
-        run: python -m pip install --quiet capstone
+      - name: Install the disassembler and offline x64 emulator
+        run: python -m pip install --quiet capstone unicorn==2.1.4
+
+      - name: Check description identity evidence against the supplied PE images
+        run: |
+          python development/net-v21/tools/xlate_identity_pe_selftest.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python development/net-v21/tools/xlate_identity_emulation_selftest.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Fetch the two reference modules (pinned, SHA-256 checked)
         run: python development/net-v21/tools/fetch_references.py
