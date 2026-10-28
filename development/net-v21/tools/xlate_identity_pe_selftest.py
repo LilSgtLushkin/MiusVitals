@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+import re
 import struct
 import unittest
 
@@ -133,6 +134,29 @@ class DescriptionIdentityEvidence(unittest.TestCase):
             (0x6c81d, "imul", "rax, rax, 0x170"),
             (0x6c824, "add", "rax, qword ptr [rdi + 0x108]"),
         ])
+
+    def test_experimental_registry_runtime_signatures(self):
+        # Check the actual byte arrays used by the production runtime guard, not a second copy.
+        source = (Path(__file__).resolve().parents[1] / "src" / "shots.cpp").read_text(encoding="utf-8")
+        pe = self.images["adv_game"]
+        self.assertEqual(pe.timestamp, 0x66f2d3a9)
+        pe_header = struct.unpack_from("<I", pe.data, 0x3c)[0]
+        self.assertEqual(struct.unpack_from("<I", pe.data, pe_header + 24 + 56)[0], 0x178000)
+        self.assertIn('hook_image_identity("adv_game.codelib", 0x66f2d3a9, 0x178000)', source)
+        for name, rva in (("weapon_sig", 0x6c6e0), ("ammo_sig", 0x6c790)):
+            with self.subTest(name=name):
+                match = re.search(r"static const unsigned char " + name + r"\[\]\s*=\s*\{([^}]+)\}", source)
+                self.assertIsNotNone(match)
+                sig = bytes(int(value, 16) for value in re.findall(r"0x([0-9a-fA-F]{2})", match.group(1)))
+                self.assertGreaterEqual(len(sig), 20)
+                offset = pe.offset(rva)
+                self.assertIsNotNone(offset)
+                self.assertEqual(pe.data[offset:offset + len(sig)], sig)
+                matches = 0
+                for _, _, raw, length in pe.executable():
+                    section = pe.data[raw:raw + length]
+                    matches += sum(section.startswith(sig, pos) for pos in range(len(section) - len(sig) + 1))
+                self.assertEqual(matches, 1, "fallback scan must have a unique code match")
 
     def test_weapon_name_is_not_always_a_unique_descriptor_identity(self):
         self.assertEqual(self.rip_string("adv_game", 0x6bc44), b"Bad weapon name for shell '%C'")

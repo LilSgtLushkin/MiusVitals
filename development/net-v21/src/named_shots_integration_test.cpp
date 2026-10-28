@@ -162,7 +162,31 @@ int main() {
     shots_reset(); ack = 99; receive(packet, &om);
     check(launches == 2 && last_ammo == shells + 0x170 && last_weapon == weapons + 0x130,
           "KNOWN LIMITATION: long-name fallback still uses the deliberately wrong legacy mapping");
+
+    // The exact payload boundary is 25 bytes across both complete names.
+    row(shell_rows, 0, "1234567890123456789012", 0); // 22 + 3 = 25
+    shots_reset(); packet.clear(); shots_test_queue_launch(rec); shots_frame(capture);
+    ShotRec boundary = {}; memcpy(&boundary, packet.data() + sizeof(ShotHead), sizeof boundary);
+    check(boundary.pad == named_shots::k_marker && named_shots::decode(boundary, &proof),
+          "25 bytes of complete names fit the reserved payload");
+    row(shell_rows, 0, "12345678901234567890123", 0); // 23 + 3 = 26
+    shots_reset(); packet.clear(); shots_test_queue_launch(rec); shots_frame(capture);
+    memcpy(&boundary, packet.data() + sizeof(ShotHead), sizeof boundary);
+    check(boundary.pad == 0, "26 bytes of names fall back rather than truncating");
+
     row(shell_rows, 0, "ammo", 0);
+    corrupt = named_packet;
+    corrupt[sizeof(ShotHead) + offsetof(ShotRec, launch) + 0x67] = 1; // wire[39], in the second pointer span
+    shots_reset(); ack = 99; receive(corrupt, &om);
+    check(launches == 2 && ack == 1, "nonzero unused proof bytes are refused");
+    shots_reset(); ack = 99; shots_test_wait_time(1000); row(shell_rows, 0, "missing", 0);
+    receive(named_packet, &om);
+    check(launches == 2 && ack == 0, "temporarily missing name waits");
+    row(shell_rows, 0, "ammo", 0); shots_test_wait_time(10999); shots_sim_step(&om);
+    check(launches == 3 && ack == 1 && last_ammo == shells,
+          "name arriving before the deadline replays exactly once");
+    receive(named_packet, &om);
+    check(launches == 3 && ack == 1, "retransmission after delayed resolution is not replayed");
     printf("named shots: %u checks, %u failures (synthetic only)\n", checks, failures);
     return failures ? 1 : 0;
 }

@@ -36,7 +36,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write  # temporary: publish the one approved experimental archive after validation
   pull-requests: write
 
 # A new push makes the previous run's validation stale; the newest run wins.
@@ -415,8 +415,27 @@ jobs:
             exit /b %rc%
           )
 
-      # No installer is automatically published while the next version and protocol policy are
-      # undecided. A release must use a new versioned filename after its full validation.
+      # One-shot, branch-scoped publication approved by the user. Remove this step and its
+      # temporary contents:write permission once the new archive is safely in the branch.
+      - name: Publish the validated experimental installer once
+        if: github.event_name == 'push' && github.ref == 'refs/heads/arena/41eedd9d-miusvitals'
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive=MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip
+          test ! -e "$archive"  # never replace any existing archive
+          python scripts/package_net_v21_test.py \
+            --codelib development/net-v21/build/module/basic_network.codelib \
+            --launcher development/net-v21/build/join/mp_join.exe \
+            --output "$archive"
+          cmp "$archive" development/net-v21/build/CI_fixture_NOT_RELEASE.zip
+          python scripts/package_net_v21_test.py --verify "$archive" --verify-source
+          sha256sum "$archive"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- "$archive"
+          git commit -m 'Add validated 1.0.7 experimental installer'
+          git push origin HEAD:refs/heads/arena/41eedd9d-miusvitals
 
       - name: Put the numbers in the job summary
         if: always()

@@ -197,9 +197,9 @@ int main(int argc, char **argv)
         ShotRec shot = {};
         shot.kind = 0; shot.ammo = 41; shot.weapon = 42; shot.desc3 = 0xffffffffu; shot.ammo_code = code;
         if (marked) {
-            // This is deliberately fabricated at the fixture's queue seam. Ordinary production
-            // senders still blank these pointer slots and do not send such a marker. The test
-            // characterizes old/current receivers, not a new wire format or negotiation.
+            // This 0xa7 marker is deliberately fabricated at the fixture's queue seam; no
+            // production sender emits it. The separate "named" case tests the real 0xe7 producer.
+            // This case characterizes old/current handling of ignored bytes, not negotiation.
             shot.pad = 0xa7;
             shot.shooter = 0xa001; shot.obj2 = 0xa002; shot.obj5 = 0xa003;
             shot.desc3 = 41;  // a mapped, non-null synthetic description; not a claim about game data
