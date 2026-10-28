@@ -415,7 +415,8 @@ def build(repo: Path, codelib: Path, archive_path: Path, launcher: Path) -> None
                  "MiusMultiplayer_v1.0.0_TEST_INSTALL.zip", "MiusMultiplayer_v1.0.0_M3M4_INSTALL.zip",
                  "MiusMultiplayer_v1.0.1_INSTALL.zip", "MiusMultiplayer_v1.0.2_TEST_INSTALL.zip",
                  "MiusMultiplayer_v1.0.3_TEST_INSTALL.zip", "MiusMultiplayer_v1.0.4_TEST_INSTALL.zip",
-                 "MiusMultiplayer_v1.0.5_TEST_INSTALL.zip", "MiusMultiplayer_v1.0.6_TEST_INSTALL.zip")
+                 "MiusMultiplayer_v1.0.5_TEST_INSTALL.zip", "MiusMultiplayer_v1.0.6_TEST_INSTALL.zip",
+                 "MiusMultiplayer_v1.0.7_TEST_INSTALL.zip")
     if archive_path.resolve() in {(repo / name).resolve() for name in protected}:
         raise SystemExit("refusing to overwrite a preserved archive")
     if not codelib.is_file():

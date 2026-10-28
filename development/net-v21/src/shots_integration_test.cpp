@@ -20,6 +20,7 @@ static unsigned char ammo[0xc8], weapon[0xc8];
 static unsigned launched, tables, trenches, hit_calls, hit_completed;
 static bool hit_ready;
 static std::vector<ShotAck> acks;
+static std::vector<std::vector<unsigned char>> sent_packets;
 static unsigned datagrams;
 static int checks, failures;
 
@@ -52,7 +53,11 @@ static void capture(const void *data, int size)
     if (size < (int)sizeof(Head)) return;
     const Head *h = (const Head *)data;
     if (h->type == PKT_SHOT_ACK && size == (int)sizeof(ShotAck)) acks.push_back(*(const ShotAck *)data);
-    if (h->type == PKT_SHOT) ++datagrams;
+    if (h->type == PKT_SHOT) {
+        ++datagrams;
+        const unsigned char *bytes = (const unsigned char *)data;
+        sent_packets.emplace_back(bytes, bytes + size);
+    }
 }
 static void check(bool ok, const char *name)
 {
@@ -204,6 +209,38 @@ int main()
     ack.seq = 1;
     shots_on_packet((const unsigned char *)&ack, sizeof ack, capture);
     check(shots_test_outstanding() == 0, "a valid ACK retires the sent event");
+
+    // Characterize the existing 60-event window, not a fix: while a head event stays blocked,
+    // the cumulative ACK cannot move and a table at sequence 61 is not transmitted. This fake
+    // hit remains blocked until the test releases it; production hits currently time out.
+    shots_reset(); acks.clear(); sent_packets.clear(); hit_ready = false;
+    ShotRec blocked_hit = make_record(0, 7); shots_queue(blocked_hit);
+    for (unsigned i = 0; i < 59; ++i) { ShotRec later = make_record(0); shots_queue(later); }
+    ShotRec beyond_window = make_record(0, 3); shots_queue(beyond_window);
+    check(beyond_window.seq == 61 && shots_test_outstanding() == 61, "fixture queues a control table beyond the sender window");
+    shots_frame(capture);
+    u32 highest_sent = 0; bool table_sent = false;
+    // Feed the actual outbound datagrams to the production receiver, reversing the synthetic
+    // endpoint identities. capture() collects ACKs but does not mutate this local packet copy.
+    auto outbound_packets = sent_packets;
+    for (auto packet : outbound_packets) {
+        ShotHead *head = (ShotHead *)packet.data();
+        ShotRec *records = (ShotRec *)(head + 1);
+        for (unsigned i = 0; i < head->h.count; ++i) {
+            if (records[i].seq > highest_sent) highest_sent = records[i].seq;
+            if (records[i].kind == 3) table_sent = true;
+        }
+        head->owner = 202; head->target = 101;
+        shots_on_packet(packet.data(), (int)packet.size(), capture);
+    }
+    check(highest_sent == 60 && !table_sent, "KNOWN LIMITATION: the real sender stops before the table at sequence 61");
+    unsigned table_count = tables;
+    shots_sim_step(&om);
+    check(latest_ack() == 0 && tables == table_count, "blocked head leaves cumulative ACK at zero without delivering the later table");
+    ShotAck blocked_ack = { make_head(PKT_SHOT_ACK), shots_test_epoch(), 0, 101, 202 };
+    shots_on_packet((const unsigned char *)&blocked_ack, sizeof blocked_ack, capture);
+    check(shots_test_outstanding() == 61, "zero ACK cannot free the sender window for the table");
+    printf("shots window characterization: while the head is blocked, a table outside the 60-event window cannot be sent; limitation remains OPEN\n");
 
     shots_reset(); acks.clear();
     incoming(7001, &one, 1, true);

@@ -36,11 +36,10 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write    # the test installer is committed back into the branch, see the last steps
+  contents: read
   pull-requests: write
 
-# A new push makes the previous run's installer stale, and two runs committing the same file would
-# race each other; the newest run wins.
+# A new push makes the previous run's validation stale; the newest run wins.
 concurrency:
   group: network-module-${{ github.ref }}
   cancel-in-progress: true
@@ -267,7 +266,15 @@ jobs:
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log
           if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\trench_thread_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
           development\net-v21\build\selftest\shots_integration_test.exe >> development\net-v21\build\selftest.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\selftest.log
+          if not %rc%==0 exit /b %rc%
+          development\net-v21\build\selftest\shots_xlate_characterization_test.exe >> development\net-v21\build\selftest.log 2>&1
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log
           if not %rc%==0 exit /b %rc%
@@ -358,18 +365,22 @@ jobs:
             2>&1 | tee development/net-v21/build/battle-report-selftest.log
           exit ${PIPESTATUS[0]}
 
-      - name: Package the unified test installer (net_v21 and launcher included)
+      # This fixture uses the old kit metadata for regression testing only. It stays in the
+      # ignored build folder and is not a release; 1.0.7 remains byte-for-byte preserved.
+      - name: Package a disposable unified installer fixture
         shell: bash
         run: |
           python scripts/package_net_v21_test.py \
             --codelib development/net-v21/build/module/basic_network.codelib \
             --launcher development/net-v21/build/join/mp_join.exe \
-            --output MiusMultiplayer_v1.0.7_TEST_INSTALL.zip \
+            --output development/net-v21/build/CI_fixture_NOT_RELEASE.zip \
             2>&1 | tee development/net-v21/build/package.log
           exit ${PIPESTATUS[0]}
 
       - name: Exercise the packaged one-step installer and recovery on Windows
         shell: cmd
+        env:
+          MIUS_TEST_ARCHIVE: development/net-v21/build/CI_fixture_NOT_RELEASE.zip
         run: |
           python tests\test_unified_installer_windows.py > development\net-v21\build\installer-selftest.log 2>&1
           set rc=%errorlevel%
@@ -379,25 +390,8 @@ jobs:
             exit /b %rc%
           )
 
-      # A documentation/packaging-only commit can validate the build without replacing the
-      # separately preserved installer. Normal source builds continue to publish as before.
-      - name: Publish the test installer into the branch
-        if: success() && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/arena/') && !contains(github.event.head_commit.message, '[no-installer]')
-        shell: bash
-        run: |
-          # The archive has to be reachable without the Actions API (artifact downloads are blocked
-          # where this build is checked), so it is committed into the branch it was built from and
-          # travels to main with the pull request.
-          archive=MiusMultiplayer_v1.0.7_TEST_INSTALL.zip
-          if [ ! -f "$archive" ]; then echo "no archive was built; nothing to publish"; exit 0; fi
-          git config user.name "net-v21 build"
-          git config user.email "net-v21-build@users.noreply.github.com"
-          git add "$archive"
-          # The archive is deterministic: the same module produces the same bytes, so an
-          # unchanged source tree does not add a commit every run.
-          if git diff --cached --quiet; then echo "the archive has not changed"; exit 0; fi
-          git commit -m "build: refresh the net_v21 test installer [skip ci]"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+      # No installer is automatically published while the next version and protocol policy are
+      # undecided. A release must use a new versioned filename after its full validation.
 
       - name: Put the numbers in the job summary
         if: always()
@@ -447,9 +441,10 @@ jobs:
             fi
             echo
             if [ -f MiusMultiplayer_v1.0.7_TEST_INSTALL.zip ]; then
-              echo "test installer: MiusMultiplayer_v1.0.7_TEST_INSTALL.zip, sha256 $(sha256sum MiusMultiplayer_v1.0.7_TEST_INSTALL.zip | cut -d' ' -f1)"
-            else
-              echo "test installer: not built"
+              echo "preserved 1.0.7 installer (not the current build): sha256 $(sha256sum MiusMultiplayer_v1.0.7_TEST_INSTALL.zip | cut -d' ' -f1)"
+            fi
+            if [ -f development/net-v21/build/CI_fixture_NOT_RELEASE.zip ]; then
+              echo "current build: disposable installer fixture only, not a release"
             fi
             for name in committed-installer baseline module selftest join launcher-selftest installer-selftest battle-report-selftest package compare-m1 compare-m2; do
               log="development/net-v21/build/$name.log"
@@ -472,6 +467,6 @@ jobs:
           name: network-module
           path: |
             development/net-v21/build/**
-            MiusMultiplayer_v1.0.7_TEST_INSTALL.zip
+            !development/net-v21/build/CI_fixture_NOT_RELEASE.zip
           if-no-files-found: warn
           retention-days: 14

@@ -61,7 +61,8 @@ class Packaging(unittest.TestCase):
                      "MiusMultiplayer_v1.0.3_TEST_INSTALL.zip",
                      "MiusMultiplayer_v1.0.4_TEST_INSTALL.zip",
                      "MiusMultiplayer_v1.0.5_TEST_INSTALL.zip",
-                     "MiusMultiplayer_v1.0.6_TEST_INSTALL.zip"):
+                     "MiusMultiplayer_v1.0.6_TEST_INSTALL.zip",
+                     "MiusMultiplayer_v1.0.7_TEST_INSTALL.zip"):
             archive = ROOT / name
             with self.subTest(name=name):
                 before = hashlib.sha256(archive.read_bytes()).digest()
