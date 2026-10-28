@@ -19,7 +19,7 @@ u32 shots_test_epoch();
 char g_out_dir[MAX_PATH] = ".";
 char g_program[32] = "tacgame";
 static unsigned char ammo[0xc8], weapon[0xc8], third_desc[0xc8];
-static unsigned launched, tables, trenches, hit_calls, hit_completed, anim_calls;
+static unsigned launched, tables, trenches, hit_calls, hit_completed, anim_calls, ammo_queries;
 static unsigned hit_resets, anim_wait_resets, table_resets, trench_forgets;
 static bool hit_ready, anim_ready = true, mapping_ready = true, third_maps_to_null;
 static u32 missing_description = 0xffffffffu;
@@ -32,7 +32,10 @@ static unsigned datagrams;
 static int checks, failures;
 
 void mp_log(const char *, ...) {}
-bool readable(const void *p, size_t) { return p != nullptr && p != unreadable_pointer; }
+bool readable(const void *p, size_t size) {
+    if (p == ammo && size == 0xc8) ++ammo_queries;
+    return p != nullptr && p != unreadable_pointer;
+}
 void netlog_count(const char *, long long) {}
 bool session_connected() { return true; }
 int session_role() { return ROLE_HOST; }
@@ -135,8 +138,10 @@ int main()
     incoming(1001, &one, 1);
     check(latest_ack() == 0, "duplicate while waiting does not advance the ACK");
     shots_test_engine(&om, (char *)ammo, launch);
+    unsigned queries_before = ammo_queries;
     shots_sim_step(&om);
     check(launched == 1 && latest_ack() == 1, "actual launch advances ACK after application");
+    check(ammo_queries == queries_before + 1, "ammunition readability is checked once per replay");
     incoming(1001, &one, 1);
     shots_sim_step(&om);
     check(launched == 1 && latest_ack() == 1, "a retransmission is not applied twice");

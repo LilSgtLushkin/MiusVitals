@@ -75,13 +75,14 @@ static u64 object_key(void *p)
 }
 
 // what identifies an ammunition description besides its id: its first two numbers and its type code
-static void ammo_check(void *ammo, float *two, u32 *code)
+static bool ammo_check(void *ammo, float *two, u32 *code)
 {
     two[0] = two[1] = 0;
     *code = 0;
-    if (!readable(ammo, 0xc8)) return;
+    if (!readable(ammo, 0xc8)) return false;
     memcpy(two, ammo, 8);
     memcpy(code, (char *)ammo + 0xc4, 4);
+    return true;
 }
 
 static const char *name_of(void *p)
@@ -479,13 +480,13 @@ void shots_sim_step(ObjMan *om)
         void *ammo = desc_ptr(ammo_id), *weapon = desc_ptr(weapon_id), *desc3 = desc_ptr(desc3_id);
         float two[2];
         u32 code;
-        ammo_check(ammo, two, &code);
+        bool ammo_readable = ammo_check(ammo, two, &code);
         Object *shooter = s.shooter ? session_unit(s.shooter) : 0;
         Object *obj2 = s.obj2 ? session_unit(s.obj2) : 0;
         Object *obj5 = s.obj5 ? session_unit(s.obj5) : 0;
         // Never replace an identified but absent local object with a null pointer, or use an
         // unreadable mapped description. A fingerprint match is still only a heuristic.
-        if (!readable(ammo, 0xc8) || !readable(weapon, 0x60) ||
+        if (!ammo_readable || !readable(weapon, 0x60) ||
             (s.desc3 != 0xffffffffu && (desc3_id == 0xffffffffu || !readable(desc3, 0x60))) ||
             memcmp(two, s.ammo_check, 8) || code != s.ammo_code ||
             (s.shooter && !readable(shooter, sizeof(Object))) || (s.obj2 && !readable(obj2, sizeof(Object))) ||
