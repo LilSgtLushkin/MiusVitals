@@ -39,6 +39,7 @@ Object *session_unit(u64) { return nullptr; }
 u64 session_battle_ms() { return 0; }
 bool state_remote_loading() { return false; }
 void trench_received(const ShotRec &) {}
+void trench_forget_peer() {}
 void trench_resend() {}
 u32 vitals_epoch() { return sender ? 101 : 202; }
 u32 vitals_peer_epoch() { return sender ? 202 : 101; }

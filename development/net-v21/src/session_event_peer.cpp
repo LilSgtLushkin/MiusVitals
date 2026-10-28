@@ -65,6 +65,7 @@ void trench_install() {}
 void trench_sim_step(ObjMan *) {}
 void trench_report() {}
 void trench_received(const ShotRec &) {}
+void trench_forget_peer() {}
 void trench_resend() {}
 static Object *find_nothing(ObjMan *, Dep *) { return nullptr; }
 static u32 desc_id(ObjMan *, void *) { return 0xffffffffu; }

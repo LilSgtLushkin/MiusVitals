@@ -14,6 +14,7 @@ char *trench_test_current();
 size_t trench_test_pending();
 u64 trench_test_queue_full();
 u64 trench_test_unavailable();
+u64 trench_test_retired();
 bool trench_test_install(void *target);
 
 static DWORD owner;
@@ -100,6 +101,10 @@ int main()
     // capacity/hook boundaries must be visible instead of silently disappearing.
     trench_test_engine(nullptr);
     ShotRec incoming = {}; incoming.kind = 2;
+    trench_received(incoming); trench_received(incoming);
+    trench_forget_peer();
+    check(trench_test_pending() == 0 && trench_test_retired() == 2,
+          "retiring a peer refuses its handed-off, not-yet-applied digs");
     for (unsigned i = 0; i < 4097; ++i) trench_received(incoming);
     check(trench_test_pending() == 4096 && trench_test_queue_full() == 1,
           "full trench queue records the refused dig without exceeding its capacity");

@@ -20,7 +20,7 @@ char g_out_dir[MAX_PATH] = ".";
 char g_program[32] = "tacgame";
 static unsigned char ammo[0xc8], weapon[0xc8], third_desc[0xc8];
 static unsigned launched, tables, trenches, hit_calls, hit_completed, anim_calls;
-static unsigned hit_resets, anim_wait_resets, table_resets;
+static unsigned hit_resets, anim_wait_resets, table_resets, trench_forgets;
 static bool hit_ready, anim_ready = true, mapping_ready = true, third_maps_to_null;
 static u32 missing_description = 0xffffffffu;
 static void *unreadable_pointer, *last_obj2, *last_obj5, *last_desc3;
@@ -41,6 +41,7 @@ bool session_unit_key(Object *, u64 *) { return false; }
 Object *session_unit(u64 key) { return key == known_key ? &known_object : nullptr; }
 u64 session_battle_ms() { return 0; }
 void trench_received(const ShotRec &) { ++trenches; }
+void trench_forget_peer() { ++trench_forgets; }
 void trench_resend() {}
 void xlate_received(const ShotRec &, ObjMan *) { ++tables; }
 void xlate_resend() { ++table_resets; }
@@ -253,11 +254,12 @@ int main()
 
     shots_reset(); acks.clear(); shots_test_engine(&om, nullptr, launch); shots_test_wait_time(800);
     incoming(1017, &one, 1); shots_sim_step(&om);
-    unsigned old_hit_resets = hit_resets, old_anim_resets = anim_wait_resets, old_table_resets = table_resets;
+    unsigned old_hit_resets = hit_resets, old_anim_resets = anim_wait_resets, old_table_resets = table_resets, old_trench_forgets = trench_forgets;
     shots_test_wait_time(10800); incoming(1018, &one, 1); shots_sim_step(&om);
     check(latest_ack() == 0, "a new epoch starts a fresh deadline even with the same sequence");
-    check(hit_resets == old_hit_resets + 1 && anim_wait_resets == old_anim_resets + 1 && table_resets == old_table_resets + 1,
-          "stream restart also invalidates number tables and both feature-specific wait clocks");
+    check(hit_resets == old_hit_resets + 1 && anim_wait_resets == old_anim_resets + 1 &&
+          table_resets == old_table_resets + 1 && trench_forgets == old_trench_forgets + 1,
+          "stream restart invalidates tables, feature wait clocks and old handed-off trenches");
     shots_test_wait_time(20799); shots_sim_step(&om);
     check(latest_ack() == 0, "the new epoch still waits just before its own deadline");
     shots_test_wait_time(20800); shots_sim_step(&om);
@@ -313,7 +315,9 @@ int main()
     shots_test_engine(&om, (char *)ammo, launch); shots_sim_step(&om);
     check(latest_ack() == 3, "after both shots replay, the cumulative ACK includes the completed table");
 
+    unsigned forget_before_reset = trench_forgets;
     shots_reset();
+    check(trench_forgets == forget_before_reset + 1, "a full event reset retires handed-off trenches");
     ShotRec bounded = make_record(0, 7);
     check(!shots_try_queue(bounded, 0) && shots_test_outstanding() == 0 && bounded.seq == 0,
           "zero limit refuses without consuming a sequence");

@@ -357,6 +357,7 @@ void shots_on_packet(const unsigned char *data, int size, void (*send)(const voi
             xlate_resend();
             hits_reset_peer();
             anim_reset_wait();
+            trench_forget_peer();
             mp_log("shots: peer restarted its event stream; number tables invalidated, %zu unfinished events discarded", old_pending);
         }
     }
@@ -409,6 +410,7 @@ void shots_reset(void)
     g_epoch = (GetTickCount() ^ (GetCurrentProcessId() << 16) ^ (g_epoch * 2654435761u)) | 1;
     hits_reset_peer();
     anim_reset_peer();
+    trench_forget_peer();
     trench_resend();
     xlate_resend();
 }

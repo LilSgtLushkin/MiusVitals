@@ -122,6 +122,7 @@ void anim_stop(void);
 void trench_install(void);
 void trench_received(const ShotRec &s);
 void trench_sim_step(ObjMan *om);
+void trench_forget_peer(void);           // refuse handed-off digs from a retired stream
 void trench_resend(void);                // a new connection: this game's digs once more
 void trench_report(void);
 void trench_test_move(int squads, float metres);

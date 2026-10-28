@@ -34,7 +34,7 @@ static std::atomic<Dig> g_dig{nullptr};
 static char *g_trencher;
 static bool g_injecting, g_enabled = true, g_trace;
 static DWORD g_main_thread;
-static u64 g_stat_own, g_stat_dropped, g_stat_applied, g_stat_missing, g_stat_queue_full, g_stat_unavailable;
+static u64 g_stat_own, g_stat_dropped, g_stat_applied, g_stat_missing, g_stat_queue_full, g_stat_unavailable, g_stat_retired;
 static std::atomic<u64> g_stat_off_thread{0};
 static std::vector<ShotRec> g_wait;         // received, carried out before the next simulation step
 static std::vector<ShotRec> g_mine;         // squads this game's player has placed, for a player who connects later
@@ -129,6 +129,7 @@ char *trench_test_current() { return g_trencher; }
 size_t trench_test_pending() { return g_wait.size(); }
 u64 trench_test_queue_full() { return g_stat_queue_full; }
 u64 trench_test_unavailable() { return g_stat_unavailable; }
+u64 trench_test_retired() { return g_stat_retired; }
 bool trench_test_install(void *target)
 {
     g_main_thread = GetCurrentThreadId();
@@ -138,6 +139,16 @@ bool trench_test_install(void *target)
     return install_published_detour(target, 14, dig_hook, g_dig);
 }
 #endif
+
+// These digs were ACKed when handed off, but have not yet run in the engine. Retiring
+// their stream must not replay them against a different peer or restarted battle.
+void trench_forget_peer(void)
+{
+    if (g_wait.empty()) return;
+    g_stat_retired += (u64)g_wait.size();
+    mp_log("trench: %zu handed-off digs refused without application when the peer stream was retired", g_wait.size());
+    g_wait.clear();
+}
 
 // A player has connected (again): he gets this game's digs of its own player's squads.
 void trench_resend(void)
@@ -267,8 +278,8 @@ void trench_install(void)
 void trench_report(void)
 {
     u64 off_thread = g_stat_off_thread.exchange(0, std::memory_order_relaxed);
-    if (!g_stat_own && !g_stat_dropped && !g_stat_applied && !g_stat_missing && !g_stat_queue_full && !g_stat_unavailable && !off_thread) return;
-    mp_log("trench: %llu squads of this player dug in and sent, %llu of the other player dug in here from his values, %llu local digs for his squads dropped, %llu for squads this game does not have, %llu refused for a full queue, %llu refused for an unavailable hook, %llu other-thread calls passed through",
-           g_stat_own, g_stat_applied, g_stat_dropped, g_stat_missing, g_stat_queue_full, g_stat_unavailable, off_thread);
-    g_stat_own = g_stat_dropped = g_stat_applied = g_stat_missing = g_stat_queue_full = g_stat_unavailable = 0;
+    if (!g_stat_own && !g_stat_dropped && !g_stat_applied && !g_stat_missing && !g_stat_queue_full && !g_stat_unavailable && !g_stat_retired && !off_thread) return;
+    mp_log("trench: %llu squads of this player dug in and sent, %llu of the other player dug in here from his values, %llu local digs for his squads dropped, %llu for squads this game does not have, %llu refused for a full queue, %llu refused for an unavailable hook, %llu refused from retired streams, %llu other-thread calls passed through",
+           g_stat_own, g_stat_applied, g_stat_dropped, g_stat_missing, g_stat_queue_full, g_stat_unavailable, g_stat_retired, off_thread);
+    g_stat_own = g_stat_dropped = g_stat_applied = g_stat_missing = g_stat_queue_full = g_stat_unavailable = g_stat_retired = 0;
 }
