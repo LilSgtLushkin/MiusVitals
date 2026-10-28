@@ -154,6 +154,19 @@ int main()
     check(render_test_fault(&xp) == EXCEPTION_CONTINUE_EXECUTION && ctx.Rip == (DWORD64)(uintptr_t)(code + 0x129c6), "exact stale cache write uses native allocator");
     ctx.Rip = (DWORD64)(uintptr_t)(code + 0x129a2); er.ExceptionInformation[1]++;
     check(render_test_fault(&xp) == EXCEPTION_CONTINUE_SEARCH, "other write address is not hidden");
+    store(record, 0x34, (u32)0xab000002u);
+    ctx.Rip = (DWORD64)(uintptr_t)(code + 0x129a2); ctx.Rdx = 2;
+    er.ExceptionInformation[1] = ctx.Rax + (2u << 6);
+    check(render_test_fault(&xp) == EXCEPTION_CONTINUE_EXECUTION && ctx.Rip == (DWORD64)(uintptr_t)(code + 0x129c6),
+          "exact write-AV accepts high record flags after the engine masks RDX");
+    store(record, 0x34, (u32)0xfffffffeu);
+    ctx.Rip = (DWORD64)(uintptr_t)(code + 0x129a2); ctx.Rdx = 0x00fffffeu;
+    er.ExceptionInformation[1] = ctx.Rax + ((u64)ctx.Rdx << 6);
+    check(render_test_fault(&xp) == EXCEPTION_CONTINUE_SEARCH, "sentinel record is not hidden at the write site");
+    store(record, 0x34, (u32)2);
+    ctx.Rip = (DWORD64)(uintptr_t)(code + 0x129a2); ctx.Rdx = 0x01000002u;
+    er.ExceptionInformation[1] = ctx.Rax + (2u << 6);
+    check(render_test_fault(&xp) == EXCEPTION_CONTINUE_SEARCH, "unmasked RDX is not a legitimate write-site state");
 
     alignas(8) unsigned char query[0xa8] = {};
     er.ExceptionInformation[0] = 0;

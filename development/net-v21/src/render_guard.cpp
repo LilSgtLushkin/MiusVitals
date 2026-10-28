@@ -391,8 +391,12 @@ static LONG WINAPI render_fault_guard(EXCEPTION_POINTERS *xp)
         u64 target, record;
         u32 slot;
         u64 slot_offset = ((u64)((u32)ctx->Rdx & 0xffffffu)) << 6;
+        // At this site AND EDX,0xffffff has already cleared the upper bits, while the
+        // record may still contain the original high byte until the later writeback. Accept
+        // only a non-sentinel record with the same masked slot and an actually masked RDX.
         if (!add_u64(ctx->Rbp, 0x34, &record) || !add_u64(ctx->Rax, slot_offset, &target) ||
-            (u64)er->ExceptionInformation[1] != target || !load_at(record, 0, &slot) || slot != (u32)ctx->Rdx)
+            (u64)er->ExceptionInformation[1] != target || !load_at(record, 0, &slot) ||
+            slot >= cache_missing || ctx->Rdx > 0xffffffu || (slot & 0xffffffu) != (u32)ctx->Rdx)
             return EXCEPTION_CONTINUE_SEARCH;
         ctx->Rip = (u64)(uintptr_t)CACHE(0x129c6); // native cache allocator updates the record
         g_cache_repairs.fetch_add(1, std::memory_order_relaxed);
