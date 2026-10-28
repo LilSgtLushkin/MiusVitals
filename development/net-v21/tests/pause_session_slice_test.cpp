@@ -2,6 +2,7 @@
 // transport, clock and global environment mocked. This is not a real detour or game test.
 #include "pause_sync.h"
 #include "transform_inbox.h"
+#include <cmath>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
