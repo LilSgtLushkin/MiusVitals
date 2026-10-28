@@ -37,6 +37,7 @@ void session_note_phase(u32 phase);     // the engine announced a battle phase c
 int session_role(void);
 int session_host_mode(void);
 bool session_connected(void);
+unsigned session_peer_features(void);     // advertised by the currently connected tactical peer
 bool session_versus(void);
 bool session_state_wanted(Object *o);      // false: this unit is followed by position only
 void session_test_resign(void);     // tests: leave the battle the way the game's own "to the operation" box does
@@ -96,6 +97,25 @@ void shots_report(void);
 #ifdef __cplusplus
 struct ShotRec;
 void shots_queue(ShotRec &s);            // sends a record on the shots' reliable, ordered channel
+bool shots_try_queue(ShotRec &s, size_t limit); // bounded admission for new experimental events
+bool shots_queue_latest(ShotRec &s, size_t limit); // coalesce only unsent snapshots after the last event
+
+// ---- experimental, target-owner hit replay (hit_sync.cpp)
+void hits_install(ObjMan *om);
+bool hits_available(void);
+bool hits_received(const ShotRec &s, ObjMan *om); // false: temporarily wait, true: completed/refused
+void hits_report(void);
+void hits_reset_peer(void);
+void hits_stop(void);
+
+// ---- experimental human animation snapshots and checked vtable hooks (anim_sync.cpp)
+void anim_install(ObjMan *om);
+bool anim_available(void);
+void anim_frame(ObjMan *om, DWORD now);
+bool anim_received(const ShotRec &s, ObjMan *om);
+void anim_report(void);
+void anim_reset_peer(void);
+void anim_stop(void);
 
 // ---- trenches (trench.cpp)
 void trench_install(void);
@@ -111,6 +131,7 @@ void xlate_received(const ShotRec &s, ObjMan *om);
 void xlate_resend(void);
 bool xlate_ready(void);                  // the other game's numbers can be translated
 u32 xlate_desc(u32 theirs);              // the other game's description number -> this game's
+bool xlate_desc_checked(u32 theirs, u32 *local); // fail closed if the remote id has no match
 #endif
 bool session_owns_squad(u32 id);         // a squad (or unit) id of a squad this game's player commands
 u32 session_phase(void);                 // battle phase here: 0 deployment, 1 initial orders, 2 battle, 3 over

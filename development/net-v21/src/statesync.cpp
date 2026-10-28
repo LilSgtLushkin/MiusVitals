@@ -198,7 +198,7 @@ void statesync_owner_frame(ObjMan *om, DWORD now, bool (*owns)(Object *), void (
         if (!state_save(o, blob)) continue;
         if (unit && blob.size() >= UNIT_MOTION_SIZE) memset(blob.data(), 0, UNIT_MOTION_SIZE);
         const Blob &newest = t.sent_versions.empty() ? t.base : t.sent_versions.back().blob;
-        if (blob.size() == newest.size() && !memcmp(blob.data(), newest.data(), blob.size())) {
+        if (blob.size() == newest.size() && (blob.empty() || !memcmp(blob.data(), newest.data(), blob.size()))) {
             if (!t.sent_versions.empty() && now - t.sent > 400) send_object(statesync_key(o), t, now);    // not confirmed: again
             continue;
         }

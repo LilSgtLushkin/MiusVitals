@@ -11,7 +11,7 @@
 set -e
 cd "$(dirname "$0")/../.."
 ZIG=${ZIG:-zig}
-MODULE="basic_network.cpp netlog.cpp hooks.cpp render_guard.cpp session.cpp ui.cpp state.cpp statesync.cpp statesync_legacy.cpp shots.cpp
+MODULE="basic_network.cpp netlog.cpp hooks.cpp render_guard.cpp vitals.cpp hit_sync.cpp anim_sync.cpp session.cpp ui.cpp state.cpp statesync.cpp statesync_legacy.cpp shots.cpp
 trench.cpp xlate.cpp steam.cpp steam_module.cpp"
 PROGRAMS="steam_logger.cpp mp_join.cpp protocol_selftest.cpp opsave_test.cpp netlog_selftest.cpp
 steam_selftest.cpp steam_friends_test.cpp atomic_file_selftest.cpp battle_file_test.cpp retry_gate_test.cpp transform_gc_test.cpp"
@@ -77,5 +77,5 @@ if [ $fail = 0 ]; then
         fail=1
     fi
 fi
-[ $fail = 0 ] && echo "check: 14 module files compile and link ($OUT/basic_network.check.dll)"
+[ $fail = 0 ] && echo "check: 17 module files compile and link ($OUT/basic_network.check.dll)"
 exit $fail

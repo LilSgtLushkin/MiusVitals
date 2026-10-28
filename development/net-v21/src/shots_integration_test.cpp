@@ -17,7 +17,8 @@ u32 shots_test_epoch();
 char g_out_dir[MAX_PATH] = ".";
 char g_program[32] = "tacgame";
 static unsigned char ammo[0xc8], weapon[0xc8];
-static unsigned launched, tables, trenches;
+static unsigned launched, tables, trenches, hit_calls, hit_completed;
+static bool hit_ready;
 static std::vector<ShotAck> acks;
 static unsigned datagrams;
 static int checks, failures;
@@ -36,6 +37,12 @@ void trench_resend() {}
 void xlate_received(const ShotRec &, ObjMan *) { ++tables; }
 void xlate_resend() {}
 u32 xlate_desc(u32 n) { return n; }
+u32 vitals_epoch() { return 101; }
+u32 vitals_peer_epoch() { return 202; }
+bool hits_received(const ShotRec &, ObjMan *) { ++hit_calls; if (!hit_ready) return false; ++hit_completed; return true; }
+bool anim_received(const ShotRec &, ObjMan *) { return true; }
+void hits_reset_peer() {}
+void anim_reset_peer() {}
 
 static void *lookup(ObjMan *, u32 id) { return id == 1 ? ammo : id == 2 ? weapon : nullptr; }
 static Object *find(ObjMan *, Dep *) { return nullptr; }
@@ -67,7 +74,7 @@ static ShotRec make_record(u32 seq, unsigned char kind = 0)
 static void incoming(u32 epoch, const ShotRec *records, unsigned count, bool legacy = false)
 {
     unsigned char packet[sizeof(ShotHead) + 5 * sizeof(ShotRec)] = {};
-    ShotHead h = { make_head(PKT_SHOT, count), epoch };
+    ShotHead h = { make_head(PKT_SHOT, count), epoch, 202, 101 };
     memcpy(packet, &h, sizeof h);
     memcpy(packet + sizeof h, records, count * sizeof(ShotRec));
     if (legacy) shots_on_packet_legacy(packet, (int)(sizeof h + count * sizeof(ShotRec)), capture);
@@ -89,6 +96,13 @@ int main()
     shots_reset();
     shots_test_engine(&om, nullptr, launch);
     ShotRec one = make_record(1);
+    struct { ShotHead head; ShotRec rec; } stale = {};
+    stale.head = { make_head(PKT_SHOT, 1), 1001, 999, 101 }; stale.rec = one;
+    shots_on_packet((const unsigned char *)&stale, sizeof stale, capture);
+    check(acks.empty(), "packet from a retired sender epoch is rejected without ACK");
+    stale.head.owner = 202; stale.head.target = 999;
+    shots_on_packet((const unsigned char *)&stale, sizeof stale, capture);
+    check(acks.empty(), "packet addressed to an old local process is rejected without ACK");
     incoming(1001, &one, 1);
     check(latest_ack() == 0, "receipt is not acknowledged as application");
     shots_sim_step(&om);
@@ -129,14 +143,61 @@ int main()
     shots_sim_step(&om);
     check(launched == 4 && latest_ack() == 6, "mismatched ammunition is explicitly refused, not launched");
 
+    shots_reset(); acks.clear();
+    ShotRec hit_then_shot[2] = { make_record(1, 7), make_record(2) };
+    unsigned before_launch = launched;
+    incoming(2002, hit_then_shot, 2);
+    hit_ready = false;
+    shots_sim_step(&om);
+    check(hit_calls == 1 && hit_completed == 0 && launched == before_launch && latest_ack() == 0,
+          "waiting hit blocks a later shot and does not advance ACK");
+    hit_ready = true;
+    shots_sim_step(&om);
+    check(hit_completed == 1 && launched == before_launch + 1 && latest_ack() == 2,
+          "hit then shot complete in order and are ACKed after replay");
+    incoming(2002, hit_then_shot, 2);
+    shots_sim_step(&om);
+    check(hit_completed == 1 && launched == before_launch + 1, "retransmission does not replay the hit twice");
+
+    shots_reset();
+    ShotRec bounded = make_record(0, 7);
+    check(!shots_try_queue(bounded, 0) && shots_test_outstanding() == 0 && bounded.seq == 0,
+          "zero limit refuses without consuming a sequence");
+    check(shots_try_queue(bounded, 1) && bounded.seq == 1, "bounded queue accepts within its limit");
+    ShotRec blocked = make_record(0, 7);
+    check(!shots_try_queue(blocked, 1) && blocked.seq == 0 && shots_test_outstanding() == 1,
+          "full bounded queue refuses without creating a sequence gap");
+
+    shots_reset();
+    ShotRec snapshot = make_record(0, 8); snapshot.shooter = (2ull << 32) | 7;
+    check(shots_queue_latest(snapshot, 8) && snapshot.seq == 1, "new animation snapshot queued");
+    snapshot.launch[0] = 42;
+    check(shots_queue_latest(snapshot, 8) && snapshot.seq == 1 && shots_test_outstanding() == 1,
+          "unsent snapshot for the same unit is coalesced");
+    ShotRec causal_hit = make_record(0, 7); shots_queue(causal_hit);
+    snapshot.launch[0] = 43;
+    check(shots_queue_latest(snapshot, 8) && snapshot.seq == 3 && shots_test_outstanding() == 3,
+          "a newer snapshot is not moved across an intervening hit");
+    shots_frame(capture);
+    snapshot.launch[0] = 44;
+    check(shots_queue_latest(snapshot, 8) && snapshot.seq == 4 && shots_test_outstanding() == 4,
+          "already-sent snapshot is never rewritten under the same sequence");
+
     shots_reset();
     ShotRec outbound = make_record(0);
     shots_queue(outbound);
-    ShotAck ack = { make_head(PKT_SHOT_ACK), shots_test_epoch(), 1 };
+    ShotAck ack = { make_head(PKT_SHOT_ACK), shots_test_epoch(), 1, 101, 202 };
     shots_on_packet((const unsigned char *)&ack, sizeof ack, capture);
     check(shots_test_outstanding() == 1, "an ACK cannot remove an event never sent");
     shots_frame(capture);
     check(datagrams > 0, "outbound event is sent");
+    ack.owner = 999;
+    shots_on_packet((const unsigned char *)&ack, sizeof ack, capture);
+    check(shots_test_outstanding() == 1, "ACK for an old local process cannot retire an event");
+    ack.owner = 101; ack.target = 999;
+    shots_on_packet((const unsigned char *)&ack, sizeof ack, capture);
+    check(shots_test_outstanding() == 1, "ACK from an old peer cannot retire an event");
+    ack.target = 202;
     ack.seq = 2;
     shots_on_packet((const unsigned char *)&ack, sizeof ack, capture);
     check(shots_test_outstanding() == 1, "an ACK beyond the latest sequence is rejected");

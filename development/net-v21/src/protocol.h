@@ -4,11 +4,14 @@
 #include <stddef.h>
 #include <string.h>
 
-enum { PKT_HELLO = 1, PKT_WELCOME, PKT_KEEPALIVE, PKT_IMAGE_REQUEST, PKT_IMAGE_DATA, PKT_STATE, PKT_BYE, PKT_OBJECT, PKT_OBJECT_ACK, PKT_SHOT, PKT_SHOT_ACK, PKT_END };
+enum { PKT_HELLO = 1, PKT_WELCOME, PKT_KEEPALIVE, PKT_IMAGE_REQUEST, PKT_IMAGE_DATA, PKT_STATE, PKT_BYE, PKT_OBJECT, PKT_OBJECT_ACK, PKT_SHOT, PKT_SHOT_ACK, PKT_END, PKT_VITALS, PKT_VITALS_ACK };
 enum { HOST_MODE_SKIRMISH = 1, HOST_MODE_OPERATION = 2, HOST_MODE_MISSION = 3 };       // mission: made in the battle editor
+// Hello/Welcome Head.flags: a tactical peer advertises only hooks actually installed and ready.
+// Absence means do not suppress the local simulation for that feature.
+enum { PEER_HIT_SYNC = 1, PEER_ANIM_SYNC = 2, PEER_FEATURES = PEER_HIT_SYNC | PEER_ANIM_SYNC };
 static const unsigned k_magic = 0x504d5447;          // "GTMP"
-static const unsigned k_version = 15;      // 15: host-authoritative spectator snapshots, no guest orders
-static const char k_wire_tag[] = "NETV21_WIRE_PROTOCOL_15"; // embedded in both binaries and checked by the packager
+static const unsigned k_version = 17;      // 17: ordered events bind both tactical process epochs
+static const char k_wire_tag[] = "NETV21_WIRE_PROTOCOL_17"; // embedded in both binaries and checked by the packager
 static const char k_protocol[12] = "GTMF_TA_A1";     // the engine's own protocol id for this game
 static const unsigned k_chunk = 1000;
 static const unsigned short k_default_port = 1943;   // the port the engine's own network settings name
@@ -31,6 +34,7 @@ struct Hello {
     unsigned map_size, map_hash, turn_done, map_epoch;
     unsigned force_size, force_hash;
     unsigned map_revision; // exact snapshot loaded by the map process, including same-turn refreshes
+    unsigned vitals_epoch; // tactical process identity; 0 outside a battle
 };
 // battle description = the file the operational phase hands to the tactical phase (units, map, sides, seed).
 // in_battle 0: the host is still in its menus or on the operational map; the joining game waits.
@@ -46,6 +50,7 @@ struct Welcome {
     unsigned map_flags;
     unsigned map_revision; // changes on each snapshot, even if its bytes have not changed
     unsigned map_ack_epoch, map_ack_revision; // reserved; always zero for spectator mode
+    unsigned vitals_epoch; // tactical process identity; 0 outside a battle
 };
 // Head.flags: 0 = battle description, 1 = operation map, 2 = tactical force. Map fragments
 // carry the host epoch/revision; other image transfers set both fields to zero.
@@ -68,8 +73,10 @@ struct ObjectAck { Head h; unsigned long long key; unsigned version; };
 // to its feature. A shot is acknowledged only after replay or an explicit validation refusal; a control
 // event is acknowledged after it is handed to its handler. The sender repeats what is not acknowledged.
 // epoch changes when the sender starts counting again (a new battle, a new connection).
-struct ShotHead { Head h; unsigned epoch; };
-struct ShotAck { Head h; unsigned epoch, seq; };
+// owner/target are the process epochs negotiated in Hello/Welcome. They prevent an old event
+// or ACK addressed to a different tactical process from entering the current ordered stream.
+struct ShotHead { Head h; unsigned epoch, owner, target; };
+struct ShotAck { Head h; unsigned epoch, seq, owner, target; };
 // kind 0: one launch; kind 2: one squad digging in (trench.cpp; its values are in `launch`); kind 3, 4: a
 // piece of the sender's table of description / object numbers (xlate.cpp). launch: the engine's launch record with its pointers blanked - they travel as ammo / weapon /
 // desc3 (the engine's savegame ids of the descriptions, 0xffffffff: none) and shooter / obj2 / obj5 (unit

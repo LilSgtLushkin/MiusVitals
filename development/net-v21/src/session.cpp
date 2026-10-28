@@ -21,6 +21,7 @@
 #include "peer_guard.h"
 #include "transport_policy.h"
 #include "render_guard.h"
+#include "vitals.h"
 #include "netlog.h"
 #include "steam.h"
 #include "protocol.h"
@@ -64,6 +65,8 @@ static unsigned g_prefer_side;
 static SOCKET g_sock = INVALID_SOCKET;
 static sockaddr_in g_peer;
 static bool g_have_peer, g_connected, g_bind_pending, g_upnp_started;
+static unsigned g_peer_features; // feature bits from the current tactical peer's Hello/Welcome
+static u32 g_event_local_epoch, g_event_peer_epoch; // identity bound to the current ordered stream
 static unsigned short g_port = k_default_port;
 static DWORD g_last_rx, g_last_hello, g_last_snapshot, g_last_report, g_last_bind_try;
 static char g_root[MAX_PATH], g_local_ip[64] = "?", g_external_ip[64], g_status[320];
@@ -127,6 +130,24 @@ static u32 g_stat_packets, g_stat_rx_bytes, g_stat_tx_bytes, g_stat_snaps;
 static unsigned g_test_hello_rejected;
 static bool g_test_map_no_game, g_test_map_faults, g_test_map_on_screen, g_test_battle_notice, g_test_spawn_battle_lobby;
 static unsigned g_test_map_dropped, g_test_map_duplicates, g_test_map_stale;
+static bool g_test_vitals_faults;
+static unsigned g_test_vitals_dropped, g_test_vitals_duplicates, g_test_vitals_ack_dropped;
+void session_test_vitals_faults() { g_test_vitals_faults = true; }
+unsigned session_test_vitals_dropped() { return g_test_vitals_dropped; }
+unsigned session_test_vitals_duplicates() { return g_test_vitals_duplicates; }
+unsigned session_test_vitals_ack_dropped() { return g_test_vitals_ack_dropped; }
+static bool g_test_event_faults;
+static unsigned g_test_event_dropped, g_test_event_duplicates, g_test_event_ack_dropped;
+void session_test_event_faults() { g_test_event_faults = true; }
+unsigned session_test_event_dropped() { return g_test_event_dropped; }
+unsigned session_test_event_duplicates() { return g_test_event_duplicates; }
+unsigned session_test_event_ack_dropped() { return g_test_event_ack_dropped; }
+void session_test_owned(u64 key) { g_versus = true; g_my_units.clear(); g_my_units.insert(key); }
+void session_test_event_disconnect() {
+    g_connected = false;
+    if (g_tactical) { vitals_pause(); hits_reset_peer(); anim_reset_peer(); }
+    if (g_role == ROLE_HOST) g_have_peer = false;
+}
 static std::set<u64> g_test_map_dropped_pieces;
 unsigned session_test_hello_rejected() { return g_test_hello_rejected; }
 void session_test_map_enable(bool faults) { g_test_map_no_game = g_test_map_on_screen = true; g_test_battle_notice = g_test_spawn_battle_lobby = false; g_map_hooks_ready = true; g_test_map_faults = faults; }
@@ -186,6 +207,7 @@ static void force_publish(void);           // M4: this player's force, offered t
 int session_role(void) { return g_role; }
 int session_host_mode(void) { return g_host_mode; }
 bool session_connected(void) { return g_connected; }
+unsigned session_peer_features(void) { return g_tactical && g_connected ? g_peer_features : 0; }
 bool session_versus(void) { return g_versus; }
 const char *session_local_ip(void) { return g_local_ip; }
 unsigned short session_port(void) { return g_port; }
@@ -354,8 +376,24 @@ static void send_to(const sockaddr_in &to, const void *data, int size)
 
 static void send_peer(const void *data, int size)
 {
-    if (transport_policy::send_peer(g_tactical, g_sock != INVALID_SOCKET, g_have_peer, g_peer.sin_family == STEAM_FAMILY))
-        send_to(g_peer, data, size);
+    if (!transport_policy::send_peer(g_tactical, g_sock != INVALID_SOCKET, g_have_peer, g_peer.sin_family == STEAM_FAMILY)) return;
+#ifdef NETV21_TEST_HOOKS
+    if (g_test_vitals_faults && data && size >= (int)sizeof(Head)) {
+        const Head *h = (const Head *)data;
+        if (h->type == PKT_VITALS && !g_test_vitals_dropped) { ++g_test_vitals_dropped; return; }
+        if (h->type == PKT_VITALS_ACK && !g_test_vitals_ack_dropped) { ++g_test_vitals_ack_dropped; return; }
+        if (h->type == PKT_VITALS && !g_test_vitals_duplicates) { send_to(g_peer, data, size); ++g_test_vitals_duplicates; }
+    }
+    if (g_test_event_faults && data && size >= (int)sizeof(Head)) {
+        const Head *h = (const Head *)data;
+        if (h->type == PKT_SHOT && !g_test_event_dropped) { ++g_test_event_dropped; return; }
+        if (h->type == PKT_SHOT_ACK && size >= (int)sizeof(ShotAck) && ((const ShotAck *)data)->seq && !g_test_event_ack_dropped) {
+            ++g_test_event_ack_dropped; return;
+        }
+        if (h->type == PKT_SHOT && !g_test_event_duplicates) { send_to(g_peer, data, size); ++g_test_event_duplicates; }
+    }
+#endif
+    send_to(g_peer, data, size);
 }
 
 // Full-state replication. MP_SYNC_STATE=0 switches it off (positions only), =1 forces it on.
@@ -1336,6 +1374,11 @@ void session_start(ObjMan *)
     steam_install();
     mp_log("net: wire protocol %u (%s)", k_version, k_wire_tag);
     g_tactical = !strcmp(g_program, "tacgame");
+    if (g_tactical) {
+        vitals_start();
+        shots_reset();
+        g_event_local_epoch = vitals_epoch(); g_event_peer_epoch = 0;
+    } else vitals_pause();
     g_watch_host_worker.store(false, std::memory_order_release);
     g_block_guest_turn.store(false, std::memory_order_release);
     strcpy_s(g_root, g_out_dir);
@@ -1450,6 +1493,7 @@ void session_start(ObjMan *)
 
 void session_stop(void)
 {
+    vitals_pause();
     g_block_guest_turn.store(false, std::memory_order_release);
     g_watch_host_worker.store(false, std::memory_order_release);
     if (transport_policy::send_peer(g_tactical, g_sock != INVALID_SOCKET, g_have_peer, g_peer.sin_family == STEAM_FAMILY)) {
@@ -1460,7 +1504,10 @@ void session_stop(void)
         g_sock = INVALID_SOCKET;
     }
     g_have_peer = g_connected = g_bind_pending = false;
+    g_peer_features = 0;
     if (g_tactical) {
+        hits_stop();
+        anim_stop();
         g_pending.clear();
         g_held.clear();
         statesync_forget_peer();
@@ -1494,6 +1541,12 @@ static void send_transforms(ObjMan *om, DWORD now)
         g_stat_packets++;
         n = 0;
     };
+    static int idle_ms = -2;
+    if (idle_ms == -2) {
+        int value;
+        idle_ms = env_integer("MP_IDLE_MS", &value) && value >= 0 && value <= 6000 ? value : -1;
+        if (idle_ms >= 0 && idle_ms != 2000) mp_log("net: stationary units repeat every %d ms (MP_IDLE_MS diagnostic override)", idle_ms);
+    }
     u32 count, sent = 0;
     Object **all = all_objects(om, &count);
     g_snapshot++;
@@ -1506,7 +1559,7 @@ static void send_transforms(ObjMan *om, DWORD now)
         transforms::Sent &s = g_sent[key];
         // Compare every rotation row (roll/pitch can change while row 0 stays unchanged). Unchanged
         // units still repeat at the native staggered two-second cadence.
-        if (!s.due(pos, rot, now, r.id)) continue;
+        if (!s.due(pos, rot, now, r.id, idle_ms)) continue;
         s.remember(pos, rot, now);
         memcpy(r.pos, pos, 12);
         for (int row = 0; row < 3; row++) memcpy(r.rot + row * 3, rot + row * 4, 12);
@@ -2427,6 +2480,27 @@ static void force_frame(ObjMan *om, DWORD now)
     }
 }
 
+// A changed local or accepted peer process must not reuse the previous ordered stream.
+// A zero peer while a handshake is in progress does not by itself mean a different peer.
+static void refresh_event_epochs()
+{
+    if (!g_tactical) return;
+    u32 local = vitals_epoch(), peer = vitals_peer_epoch();
+    if ((g_event_local_epoch && local != g_event_local_epoch) ||
+        (g_event_peer_epoch && peer && peer != g_event_peer_epoch)) {
+        mp_log("net: tactical process identity changed; rekeying the ordered event stream");
+        shots_reset();
+    }
+    g_event_local_epoch = local;
+    g_event_peer_epoch = peer;
+}
+static void tactical_peer_epoch(u32 epoch)
+{
+    if (!g_tactical || !epoch) return;
+    vitals_peer(epoch); // may reject a retired identity
+    refresh_event_epochs();
+}
+
 // ---------------------------------------------------------------- receive
 static void on_packet(const sockaddr_in &from, const unsigned char *data, int size, DWORD now)
 {
@@ -2460,6 +2534,14 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
         const Hello *in = (const Hello *)data;
         if (memcmp(in->proto, k_protocol, sizeof k_protocol)) return;
         bool full = size >= (int)sizeof(Hello) && in->version == k_version;
+        // A battle peer needs an identity, but menu and operation-map processes (phases
+        // 0xff/0xfe) do not have one: they must still receive the host's battle notice and
+        // description. Short/old Hello messages receive only a version reply and are not accepted.
+        if (g_tactical && full && in->phase < 0xfe && !in->vitals_epoch) return;
+        if (g_tactical && full && in->vitals_epoch) {
+            tactical_peer_epoch(in->vitals_epoch);
+            if (vitals_peer_epoch() != in->vitals_epoch) return; // retired identity, do not disturb the current peer
+        }
         if (full && !spectator_policy::accept_hello(!g_tactical && g_host_mode == HOST_MODE_OPERATION, in->phase)) {
             mp_log("map: ignoring a tactical peer while the host is on the operation");
             return;
@@ -2468,6 +2550,8 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
         // The joining player commands the opponent unless it asked for the side the host plays.
         bool versus = !(prefer && prefer == g_user_side);
         Welcome w = { make_head(PKT_WELCOME) };
+        if (g_tactical && hits_available()) w.h.flags |= PEER_HIT_SYNC;
+        if (g_tactical && anim_available()) w.h.flags |= PEER_ANIM_SYNC;
         memcpy(w.proto, k_protocol, sizeof k_protocol);
         w.version = k_version;
         w.image_size = g_tactical ? (u32)g_image.size() : 0;
@@ -2488,6 +2572,7 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
         }
         w.map_flags = operation_turn::flags(g_map_epoch, operation_turn::Phase::host, false, false);
         w.map_revision = g_map_revision;
+        w.vitals_epoch = g_tactical ? vitals_epoch() : 0;
         send_to(from, &w, sizeof w);
         if (!full) return;                              // the caller reads the version from the reply and gives up
         char name[24];
@@ -2505,11 +2590,14 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
             if (g_tactical) g_pending.clear(); // never apply the previous tactical peer's queued transforms
             g_held.clear();
             reset_state_for_mode();
-            shots_reset();
+            // A temporary timeout from the same tactical process must retain the unacked stream;
+            // a genuinely new process gets a fresh one after its identity is accepted below.
+            if (!g_tactical || !vitals_peer_epoch() || in->vitals_epoch != vitals_peer_epoch()) shots_reset();
             if (g_tactical) { g_end.new_peer(); g_end_last_tx = 0; }
             g_peer_ready = 0;
             g_peer_swap_known = false;
         }
+        g_peer_features = g_tactical ? (in->h.flags & PEER_FEATURES) : 0;
         if (name[0]) strcpy_s(g_peer_name, name);
         g_peer_lobby_ready = in->lobby_ready != 0;
         g_peer_on_map = in->phase == 0xfe && in->map_epoch == g_map_epoch && in->map_revision == g_map_revision;
@@ -2540,7 +2628,8 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
         return;
     }
     if (!from_peer) return;
-    if (g_role == ROLE_JOIN && h->type == PKT_WELCOME && !valid_welcome(data, (size_t)size)) {
+    if (g_role == ROLE_JOIN && h->type == PKT_WELCOME &&
+        (!valid_welcome(data, (size_t)size) || (g_tactical && !((const Welcome *)data)->vitals_epoch))) {
         // The lobby checks this too, but a tactical game can reconnect without going through it.
         // Never mark another protocol/version as a connected peer or apply its battle state.
         static DWORD last_bad_welcome;
@@ -2550,6 +2639,11 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
         }
         g_connected = false;
         return;
+    }
+    if (g_role == ROLE_JOIN && g_tactical && h->type == PKT_WELCOME) {
+        const Welcome *w = (const Welcome *)data; // already validated, including nonzero identity
+        tactical_peer_epoch(w->vitals_epoch);
+        if (vitals_peer_epoch() != w->vitals_epoch) return;
     }
     bool operation_host = !g_tactical && g_role == ROLE_HOST && g_host_mode == HOST_MODE_OPERATION;
     if (!spectator_policy::incoming(operation_host, !g_tactical && g_map_mode, h->type, h->flags)) return;
@@ -2614,6 +2708,7 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
                         ((const Welcome *)data)->user_side, ((const Welcome *)data)->enemy_side,
                         (int)((const Welcome *)data)->versus, (int)((const Welcome *)data)->in_battle);
             const Welcome *w = (const Welcome *)data;
+            g_peer_features = g_tactical ? (w->h.flags & PEER_FEATURES) : 0;
             if (!g_connected) {
                 if (g_tactical) {
                     g_sent.clear(); g_pending.clear(); g_held.clear();
@@ -2739,12 +2834,17 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
     case PKT_SHOT_ACK:
         shot_packet_for_mode(data, size, send_peer);
         break;
+    case PKT_VITALS:
+    case PKT_VITALS_ACK:
+        if (g_tactical && g_connected) vitals_on_packet(data, size, send_peer);
+        break;
     case PKT_END:
         end_on_packet(data, size, now);
         break;
     case PKT_BYE:
         mp_log("net: the other player's game closed");
         g_connected = false;
+        if (g_tactical) vitals_pause();
         if (g_role == ROLE_JOIN && g_tactical && !g_host_lost) g_host_lost = now ? now : 1;
         if (g_role == ROLE_HOST) { g_have_peer = false; g_peer_on_map = false; }
         break;
@@ -2847,7 +2947,7 @@ void session_frame(ObjMan *om)
     update_ai_commander();
     if (g_tactical && g_role != ROLE_NONE) { render_guard_install(); render_guard_report(now); }
     if (g_tactical && (g_role != ROLE_NONE || GetEnvironmentVariableA("MP_LOG_SHOTS", 0, 0))) shots_install(om);
-    if (g_tactical && g_role != ROLE_NONE) trench_install();
+    if (g_tactical && g_role != ROLE_NONE) { trench_install(); hits_install(om); anim_install(om); }
     shorten_battle_for_tests(om);
     if (g_role == ROLE_HOST && g_bind_pending && now - g_last_bind_try >= 500) host_listen();
     // Map input safety and leaving its screen must not depend on UDP or Steam being up.
@@ -2922,6 +3022,8 @@ void session_frame(ObjMan *om)
             g_last_hello = now;
             // the hello doubles as keep-alive and carries the side wish, so a restarted host learns it again
             Hello hello = { make_head(PKT_HELLO) };
+            if (g_tactical && hits_available()) hello.h.flags |= PEER_HIT_SYNC;
+            if (g_tactical && anim_available()) hello.h.flags |= PEER_ANIM_SYNC;
             memcpy(hello.proto, k_protocol, sizeof k_protocol);
             hello.version = k_version;
             hello.prefer_side = g_prefer_side;
@@ -2931,6 +3033,7 @@ void session_frame(ObjMan *om)
             strcpy_s(hello.name, g_my_name);
             hello.map_epoch = g_map_base_epoch;
             hello.map_revision = g_map_base_revision;
+            hello.vitals_epoch = g_tactical ? vitals_epoch() : 0;
             force_offer_to_hello(&hello);
             send_to(g_peer, &hello, sizeof hello);
         }
@@ -2944,7 +3047,10 @@ void session_frame(ObjMan *om)
         if (sync_state_enabled()) statesync_owner_frame(om, now, owns_object, send_peer);
         g_prof_save += seconds_now() - t0;
         xlate_frame(om);
+        anim_frame(om, now);
         shots_frame(send_peer);
+        vitals_frame(om, now, send_peer);
+        refresh_event_epochs(); // vitals_frame may discover a new local object manager
     }
 
     // The other game is quiet while it loads a battle (its menu closes and the tactical game takes over),
@@ -2954,6 +3060,7 @@ void session_frame(ObjMan *om)
     if (g_connected && now - g_last_rx > patience) {
         mp_log("net: connection lost (nothing received for %u s)", (unsigned)(patience / 1000));
         g_connected = false;
+        if (g_tactical) { vitals_pause(); hits_reset_peer(); anim_reset_peer(); }
         g_peer_ready = 0;
         if (g_role == ROLE_JOIN && g_tactical && !g_host_lost) g_host_lost = now ? now : 1;
         if (g_role == ROLE_HOST) { g_have_peer = false; g_peer_on_map = false; }
@@ -2966,6 +3073,8 @@ void session_frame(ObjMan *om)
                    g_stat_rx_bytes / 5120.0, g_stat_tx_bytes / 5120.0, g_stat_zero_steps, g_stat_zero_skipped, g_stat_cache_pruned);
             statesync_report();
             shots_report();
+            hits_report();
+            anim_report();
             trench_report();
             if (g_role == ROLE_JOIN && g_have_host_clock)
                 mp_log("clock: battle time here %.1f s, on the host %.1f s (time scaled by %.2f to stay on it)",

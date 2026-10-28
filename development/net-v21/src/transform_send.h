@@ -11,14 +11,18 @@ struct Sent {
     uint32_t when = 0;
     bool valid = false;
 
-    bool due(const float *p, const float *r, uint32_t now, uint32_t id) const {
+    bool due(const float *p, const float *r, uint32_t now, uint32_t id, int idle_ms = -1) const {
         if (!valid) return true;
         if (fabsf(p[0] - pos[0]) + fabsf(p[1] - pos[1]) + fabsf(p[2] - pos[2]) > 0.002f) return true;
         for (int row = 0; row < 3; ++row) {
             const float *cur = r + row * 4, *old = rot + row * 3;
             if (fabsf(cur[0] - old[0]) + fabsf(cur[1] - old[1]) + fabsf(cur[2] - old[2]) > 0.0005f) return true;
         }
-        return (uint32_t)(now - when) >= 2000u + (id % 16u) * 30u;
+        // Legacy MP_IDLE_MS is an explicit diagnostic override, not an in-memory code patch.
+        // Exactly 2000 keeps the historical stagger, as did the original patch.
+        uint32_t interval = idle_ms >= 0 && idle_ms <= 6000 && idle_ms != 2000
+                              ? (uint32_t)idle_ms : 2000u + (id % 16u) * 30u;
+        return (uint32_t)(now - when) >= interval;
     }
     void remember(const float *p, const float *r, uint32_t now) {
         memcpy(pos, p, sizeof pos);

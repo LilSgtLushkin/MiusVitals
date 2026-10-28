@@ -2,8 +2,8 @@
 //
 // The protocol is a packed struct in protocol.h, read by casting a datagram.  A field added, a pack
 // pragma lost, a chunk size changed - none of that fails to compile, and all of it makes two games
-// that "run the same version" disagree about what a packet means. Protocol 15 intentionally
-// differs from v20: map fragments carry an epoch and revision; tactical record sizes are unchanged.
+// that "run the same version" disagree about what a packet means. Protocol 17 intentionally
+// differs from v20: map fragments carry an epoch/revision; ordered event headers bind both peers.
 //
 // Build: build.bat selftest   Run: build\selftest\protocol_selftest.exe
 #include <stdio.h>
@@ -47,8 +47,8 @@ struct Assembly
 int main()
 {
     expect(sizeof(Head), 8, "Head");
-    expect(sizeof(Hello), 84, "Hello (forces and map revision)");
-    expect(sizeof(Welcome), 192, "Welcome");
+    expect(sizeof(Hello), 88, "Hello (forces and map revision)");
+    expect(sizeof(Welcome), 196, "Welcome");
     expect(sizeof(ImageRequest), 20, "ImageRequest");
     expect(sizeof(ImageData), 24 + k_chunk, "ImageData");
     expect(sizeof(StateHead), 28, "StateHead");
@@ -56,7 +56,9 @@ int main()
     expect(sizeof(UnitRec), 80, "UnitRec");
     expect(sizeof(ObjectFrag), 36, "ObjectFrag");
     expect(sizeof(ObjectAck), 20, "ObjectAck");
-    expect(sizeof(ShotHead) + 5 * sizeof(ShotRec), 1112, "a five-shot datagram as the logs show it");
+    expect(sizeof(ShotHead), 20, "event header binds both process epochs");
+    expect(sizeof(ShotAck), 24, "event ACK binds both process epochs");
+    expect(sizeof(ShotHead) + 5 * sizeof(ShotRec), 1120, "a five-event datagram below MTU");
     expect(sizeof(StateHead) + 14 * sizeof(UnitRec), 1148, "a fourteen-unit state datagram");
     expect(k_chunk, 1000, "image piece size");
 

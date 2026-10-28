@@ -1,5 +1,5 @@
 @echo off
-rem Restore files saved before the unified 1.0.6 test installation; also recover an interrupted install.
+rem Restore files saved before the unified 1.0.7 test installation; also recover an interrupted install.
 setlocal EnableExtensions DisableDelayedExpansion
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0Apply_Multiplayer.ps1" -Action Uninstall
 set "RC=%ERRORLEVEL%"

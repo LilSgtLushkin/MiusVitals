@@ -36,7 +36,7 @@ where cl
 cd /d "%~dp0"
 
 rem Our tree: the published sources copied into src\ and changed where we need them.
-set BASE=src\basic_network.cpp src\netlog.cpp src\hooks.cpp src\render_guard.cpp src\session.cpp src\ui.cpp src\state.cpp src\statesync.cpp src\statesync_legacy.cpp src\shots.cpp src\trench.cpp src\xlate.cpp
+set BASE=src\basic_network.cpp src\netlog.cpp src\hooks.cpp src\render_guard.cpp src\vitals.cpp src\hit_sync.cpp src\anim_sync.cpp src\session.cpp src\ui.cpp src\state.cpp src\statesync.cpp src\statesync_legacy.cpp src\shots.cpp src\trench.cpp src\xlate.cpp
 set STEAM=src\steam.cpp src\steam_module.cpp
 rem The published sources untouched: the baseline is built from these, not from src\, so M1 keeps
 rem measuring the toolchain instead of our edits. development\upstream\ is the frozen copy.
@@ -72,6 +72,16 @@ if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\steam_friends_test.cpp /link /OUT:build\selftest\steam_friends_test.exe
 if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\netlog.cpp src\netlog_selftest.cpp /link /OUT:build\selftest\netlog_selftest.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\vitals_core_test.cpp /link /OUT:build\selftest\vitals_core_test.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\vitals_randomized_test.cpp /link /OUT:build\selftest\vitals_randomized_test.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\hit_anim_wire_test.cpp /link /OUT:build\selftest\hit_anim_wire_test.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\hit_sync.cpp src\anim_sync.cpp src\hooks.cpp src\hit_anim_integration_test.cpp /link /OUT:build\selftest\hit_anim_integration_test.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\vitals.cpp src\hooks.cpp src\vitals_integration_test.cpp /link /OUT:build\selftest\vitals_integration_test.exe
 if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\protocol_selftest.cpp /link /OUT:build\selftest\protocol_selftest.exe
 if errorlevel 1 exit /b %errorlevel%
@@ -131,7 +141,9 @@ cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\sta
 if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\loopback_peer.cpp /link ws2_32.lib /OUT:build\selftest\loopback_peer.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\session.cpp src\hooks.cpp src\steam.cpp src\steam_module.cpp src\session_loopback_peer.cpp /link ws2_32.lib ole32.lib oleaut32.lib user32.lib /OUT:build\selftest\session_loopback_peer.exe
+cl /nologo /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\session.cpp src\vitals.cpp src\hooks.cpp src\steam.cpp src\steam_module.cpp src\session_loopback_peer.cpp /link ws2_32.lib ole32.lib oleaut32.lib user32.lib /OUT:build\selftest\session_loopback_peer.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\session.cpp src\vitals.cpp src\hooks.cpp src\steam.cpp src\steam_module.cpp src\shots.cpp src\hit_sync.cpp src\anim_sync.cpp src\session_event_peer.cpp /link ws2_32.lib ole32.lib oleaut32.lib user32.lib /OUT:build\selftest\session_event_peer.exe
 exit /b %errorlevel%
 
 :join
