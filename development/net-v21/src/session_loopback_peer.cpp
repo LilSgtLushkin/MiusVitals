@@ -4,6 +4,7 @@
 #include "steam.h"
 #include "netlog.h"
 #include "render_guard.h"
+#include "vitals.h"
 #include "protocol.h"
 #include "joiner.h"
 #include "opsave_fixture.h"
@@ -56,6 +57,10 @@ void session_test_map_disconnect();
 void session_test_map_leave_screen();
 void session_test_map_old_hello();
 void session_test_map_forbidden_packets();
+void session_test_vitals_faults();
+unsigned session_test_vitals_dropped();
+unsigned session_test_vitals_duplicates();
+unsigned session_test_vitals_ack_dropped();
 
 char g_program[32] = "tacgame";
 char g_out_dir[MAX_PATH] = "C:\\mius-no-game\\out";
@@ -83,7 +88,8 @@ void statesync_owner_frame(ObjMan *, DWORD, bool (*)(Object *), void (*)(const v
 void statesync_on_packet(const unsigned char *, int, void (*)(const void *, int), bool) { ++tactical_packets; }
 void statesync_legacy_on_packet(const unsigned char *, int, void (*)(const void *, int), bool) { ++legacy_packets; }
 void statesync_report() {}
-bool xlate_ready() { return false; }
+static bool test_xlate_ready;
+bool xlate_ready() { return test_xlate_ready; }
 void xlate_frame(ObjMan *) {}
 static unsigned shot_steps, trench_steps, tactical_shot_packets, legacy_shot_packets;
 void shots_install(ObjMan *) {}
@@ -564,9 +570,92 @@ static int host_battle_transition(bool host, bool steam, const char *our_port, c
     RemoveDirectoryA(root); CloseHandle(ready); CloseHandle(done); return ok ? 0 : 1;
 }
 
+// Real session routing and Vitals adapter in two OS processes. Only the game objects and
+// number-exchange readiness are synthetic; both UDP and the Steam stand-in use real sockets.
+static int vitals_pair(bool host, bool steam, const char *own_port, const char *peer_port)
+{
+    SetEnvironmentVariableA("MP_ROLE", host ? "host" : "join");
+    SetEnvironmentVariableA("MP_HOST_MODE", "operation");
+    SetEnvironmentVariableA("MP_STEAM", steam ? nullptr : "0");
+    SetEnvironmentVariableA("MP_STEAM_FAKE", steam ? own_port : nullptr);
+    SetEnvironmentVariableA("MP_PORT", host ? own_port : "0");
+    SetEnvironmentVariableA("MP_VITALS", nullptr); SetEnvironmentVariableA("MP_VEHICLES", nullptr);
+    SetEnvironmentVariableA("MP_MAP", nullptr);
+    char address[80];
+    if (steam) sprintf_s(address, "steam:%s", peer_port);
+    else sprintf_s(address, "127.0.0.1:%s", peer_port);
+    SetEnvironmentVariableA("MP_PEER", address);
+    strcpy_s(g_program, "tacgame");
+    session_test_disable_upnp(true); session_test_disable_udp(steam); session_test_vitals_faults();
+    vitals_test_mock_layout(true); test_xlate_ready = true;
+
+    alignas(8) unsigned char manager[0x1800] = {}, h1[0x2400] = {}, h2[0x2400] = {},
+        squad1[0x1a00] = {}, squad2[0x1a00] = {}, rec1[0x140] = {}, rec2[0x140] = {}, veh[0x1000] = {};
+    void *vt[16] = {}; vt[9] = (void *)find_nothing; ((ObjMan *)manager)->vtbl = vt;
+    ObjMan *om = (ObjMan *)manager;
+    Object *people[] = { (Object *)h1, (Object *)h2 };
+    unsigned char *squads[] = { squad1, squad2 }, *records[] = { rec1, rec2 };
+    for (int i = 0; i < 2; ++i) {
+        Object *o = people[i]; o->objman = om; o->iface = "i_human";
+        sprintf_s(o->full, "i_human:human_%08x", i + 1);
+        *(float *)((char *)o + 0x7c8) = 1.f;
+        *(void **)((char *)o + 0x2388) = squads[i]; *(void **)((char *)o + 0x7d0) = squads[i];
+        *(int *)((char *)o + 0x1da4) = 0;
+        *(void **)(squads[i] + 0x1900) = records[i]; *(u32 *)(squads[i] + 0x190c) = 1;
+        *(void **)(records[i] + 0xc8) = o; *(float *)(records[i] + 0x60) = 1.f;
+    }
+    Object *v = (Object *)veh; v->objman = om; v->iface = "i_techn"; strcpy_s(v->full, "i_techn:vehicle_00000010");
+    Object *objects[] = { people[0], people[1], v };
+    *(Object ***)(manager + 0xf0) = objects; *(u32 *)(manager + 0xfc) = 3;
+
+    char event_name[128];
+    const char *host_port = host ? own_port : peer_port;
+    sprintf_s(event_name, "Local\\netv21_vitals_ready_%s_%s", steam ? "steam" : "ip", host_port);
+    HANDLE ready = CreateEventA(nullptr, TRUE, FALSE, event_name);
+    sprintf_s(event_name, "Local\\netv21_vitals_host_%s_%s", steam ? "steam" : "ip", host_port);
+    HANDLE host_done = CreateEventA(nullptr, TRUE, FALSE, event_name);
+    sprintf_s(event_name, "Local\\netv21_vitals_join_%s_%s", steam ? "steam" : "ip", host_port);
+    HANDLE join_done = CreateEventA(nullptr, TRUE, FALSE, event_name);
+    if (!ready || !host_done || !join_done) return 2;
+    session_start(om); session_note_phase(2);
+    if (host) SetEvent(ready);
+    else if (WaitForSingleObject(ready, 5000) != WAIT_OBJECT_0) return 3;
+    DWORD start = GetTickCount(), connected_at = 0;
+    bool changed = false, local_ok = false;
+    while ((uint32_t)(GetTickCount() - start) < 16000) {
+        DWORD now = GetTickCount(); session_frame(om);
+        if (session_connected() && vitals_test_peer_epoch() && !connected_at) connected_at = now ? now : 1;
+        if (connected_at && !changed && (uint32_t)(now - connected_at) >= 3500) {
+            if (host) *(float *)(h1 + 0x7c8) = 0.25f;
+            else { *(float *)(h2 + 0x7c8) = 0.6f; veh[0xd07] = 5; }
+            changed = true;
+        }
+        bool merged = host ? (*(float *)(h2 + 0x7c8) == 0.6f && veh[0xd07] == 5) :
+                             (*(float *)(h1 + 0x7c8) == 0.25f && *(u32 *)(rec1 + 0x2c) == 5 && !*(void **)(h1 + 0x2388));
+        if (changed && merged && vitals_test_received() && !vitals_test_outstanding() &&
+            session_test_vitals_dropped() && session_test_vitals_ack_dropped() && session_test_vitals_duplicates()) {
+            local_ok = true; SetEvent(host ? host_done : join_done);
+        }
+        if (local_ok && WaitForSingleObject(host_done, 0) == WAIT_OBJECT_0 &&
+            WaitForSingleObject(join_done, 0) == WAIT_OBJECT_0) break;
+        Sleep(10);
+    }
+    bool both = WaitForSingleObject(host_done, 0) == WAIT_OBJECT_0 && WaitForSingleObject(join_done, 0) == WAIT_OBJECT_0;
+    bool ok = local_ok && both;
+    printf("VITALS_%s_RESULT %s ok=%d connected=%d merged=%d drop=%u duplicate=%u ack_drop=%u rx=%llu\n",
+           steam ? "STEAM" : "IP", host ? "host" : "join", (int)ok, (int)(connected_at != 0), (int)local_ok,
+           session_test_vitals_dropped(), session_test_vitals_duplicates(), session_test_vitals_ack_dropped(), vitals_test_received());
+    session_stop(); steam_shutdown(); CloseHandle(ready); CloseHandle(host_done); CloseHandle(join_done);
+    return ok ? 0 : 1;
+}
+
 int main(int argc, char **argv)
 {
     if (argc != 4) return 2;
+    if (!strcmp(argv[1], "vitals-steam-host") || !strcmp(argv[1], "vitals-steam-join"))
+        return vitals_pair(!strcmp(argv[1], "vitals-steam-host"), true, argv[2], argv[3]);
+    if (!strcmp(argv[1], "vitals-ip-host") || !strcmp(argv[1], "vitals-ip-join"))
+        return vitals_pair(!strcmp(argv[1], "vitals-ip-host"), false, argv[2], argv[3]);
     if (!strcmp(argv[1], "battle-steam-host") || !strcmp(argv[1], "battle-steam-join"))
         return host_battle_transition(!strcmp(argv[1], "battle-steam-host"), true, argv[2], argv[3]);
     if (!strcmp(argv[1], "battle-ip-host") || !strcmp(argv[1], "battle-ip-join"))

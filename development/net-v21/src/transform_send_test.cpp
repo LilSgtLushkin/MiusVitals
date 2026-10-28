@@ -26,6 +26,10 @@ int main()
     p[2] -= .003f;
     check(!s.due(p, r, 2000, 0) && s.due(p, r, 2001, 0), "two-second refresh");
     check(!s.due(p, r, 2450, 15) && s.due(p, r, 2451, 15), "staggered refresh");
+    check(s.due(p, r, 2, 15, 0), "explicit zero repeats every tick");
+    check(!s.due(p, r, 500, 15, 500) && s.due(p, r, 501, 15, 500), "explicit interval removes stagger");
+    check(!s.due(p, r, 2450, 15, 2000) && s.due(p, r, 2451, 15, 2000), "explicit 2000 retains stagger");
+    check(!s.due(p, r, 2, 15, 6001), "invalid interval preserves default");
     s.remember(p, r, 0xfffffff0u);
     check(!s.due(p, r, 0x00000010u, 0) && s.due(p, r, 0x000007c0u, 0), "32-bit clock wrap");
     printf("transform send selftest: %d checks, %d failed\n", checks, failures);

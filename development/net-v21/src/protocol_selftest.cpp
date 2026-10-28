@@ -2,7 +2,7 @@
 //
 // The protocol is a packed struct in protocol.h, read by casting a datagram.  A field added, a pack
 // pragma lost, a chunk size changed - none of that fails to compile, and all of it makes two games
-// that "run the same version" disagree about what a packet means. Protocol 15 intentionally
+// that "run the same version" disagree about what a packet means. Protocol 16 intentionally
 // differs from v20: map fragments carry an epoch and revision; tactical record sizes are unchanged.
 //
 // Build: build.bat selftest   Run: build\selftest\protocol_selftest.exe
@@ -47,8 +47,8 @@ struct Assembly
 int main()
 {
     expect(sizeof(Head), 8, "Head");
-    expect(sizeof(Hello), 84, "Hello (forces and map revision)");
-    expect(sizeof(Welcome), 192, "Welcome");
+    expect(sizeof(Hello), 88, "Hello (forces and map revision)");
+    expect(sizeof(Welcome), 196, "Welcome");
     expect(sizeof(ImageRequest), 20, "ImageRequest");
     expect(sizeof(ImageData), 24 + k_chunk, "ImageData");
     expect(sizeof(StateHead), 28, "StateHead");

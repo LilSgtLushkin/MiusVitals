@@ -17,7 +17,7 @@ import unittest
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-ARCHIVE = Path(os.environ.get("MIUS_TEST_ARCHIVE", ROOT / "MiusMultiplayer_v1.0.6_TEST_INSTALL.zip"))
+ARCHIVE = Path(os.environ.get("MIUS_TEST_ARCHIVE", ROOT / "MiusMultiplayer_v1.0.7_TEST_INSTALL.zip"))
 FILES = ("mp_vitals.dll", "bin/rel/x64/basic_network.codelib", "mp_join.exe",
          "root/programs/opgame.progpack", "root/programs/tacgame.progpack", "steam_appid.txt")
 
@@ -45,7 +45,7 @@ class UnifiedInstaller(unittest.TestCase):
         os.chmod(self.readonly, stat.S_IREAD)
         self.sentinel = self.game / "untouched.txt"
         self.sentinel.write_bytes(b"unrelated user data")
-        self.state = self.kit / "state/unified_test_v106"
+        self.state = self.kit / "state/unified_test_v107"
         self.baseline = self.state / "baseline"
         self.pending = self.state / "pending"
 
@@ -137,6 +137,26 @@ class UnifiedInstaller(unittest.TestCase):
         self.assertFalse(self.baseline.exists())
         self.succeed(self.bat("Disable_Multiplayer.bat"))
         self.check_original()
+
+    def test_upgrade_from_106_restores_its_runtime_and_preserves_its_backup(self):
+        old = ROOT / "MiusMultiplayer_v1.0.6_TEST_INSTALL.zip"
+        with zipfile.ZipFile(old) as archive:
+            os.chmod(self.readonly, stat.S_IREAD | stat.S_IWRITE)
+            for relative in FILES:
+                path = self.game / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(archive.read("MiusMultiplayer/files/" + relative))
+        previous = self.snapshot()
+        old_state = self.kit / "state/unified_test_v106/baseline"
+        old_state.mkdir(parents=True)
+        marker = old_state / "old-backup-preserved.txt"
+        marker.write_bytes(b"do not overwrite the previous installer's backup")
+        self.succeed(self.bat("Enable_Multiplayer.bat"))
+        self.check_installed()
+        self.assertEqual(marker.read_bytes(), b"do not overwrite the previous installer's backup")
+        self.succeed(self.bat("Disable_Multiplayer.bat"))
+        self.assertEqual(self.snapshot(), previous)
+        self.assertEqual(marker.read_bytes(), b"do not overwrite the previous installer's backup")
 
     def test_corrupt_or_missing_payload_and_manifest_do_not_change_anything(self):
         payload = self.kit / "files" / FILES[1]

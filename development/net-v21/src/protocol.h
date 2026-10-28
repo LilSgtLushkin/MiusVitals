@@ -4,11 +4,11 @@
 #include <stddef.h>
 #include <string.h>
 
-enum { PKT_HELLO = 1, PKT_WELCOME, PKT_KEEPALIVE, PKT_IMAGE_REQUEST, PKT_IMAGE_DATA, PKT_STATE, PKT_BYE, PKT_OBJECT, PKT_OBJECT_ACK, PKT_SHOT, PKT_SHOT_ACK, PKT_END };
+enum { PKT_HELLO = 1, PKT_WELCOME, PKT_KEEPALIVE, PKT_IMAGE_REQUEST, PKT_IMAGE_DATA, PKT_STATE, PKT_BYE, PKT_OBJECT, PKT_OBJECT_ACK, PKT_SHOT, PKT_SHOT_ACK, PKT_END, PKT_VITALS, PKT_VITALS_ACK };
 enum { HOST_MODE_SKIRMISH = 1, HOST_MODE_OPERATION = 2, HOST_MODE_MISSION = 3 };       // mission: made in the battle editor
 static const unsigned k_magic = 0x504d5447;          // "GTMP"
-static const unsigned k_version = 15;      // 15: host-authoritative spectator snapshots, no guest orders
-static const char k_wire_tag[] = "NETV21_WIRE_PROTOCOL_15"; // embedded in both binaries and checked by the packager
+static const unsigned k_version = 16;      // 16: advertised per-process Vitals epoch and state channel
+static const char k_wire_tag[] = "NETV21_WIRE_PROTOCOL_16"; // embedded in both binaries and checked by the packager
 static const char k_protocol[12] = "GTMF_TA_A1";     // the engine's own protocol id for this game
 static const unsigned k_chunk = 1000;
 static const unsigned short k_default_port = 1943;   // the port the engine's own network settings name
@@ -31,6 +31,7 @@ struct Hello {
     unsigned map_size, map_hash, turn_done, map_epoch;
     unsigned force_size, force_hash;
     unsigned map_revision; // exact snapshot loaded by the map process, including same-turn refreshes
+    unsigned vitals_epoch; // tactical process identity; 0 outside a battle
 };
 // battle description = the file the operational phase hands to the tactical phase (units, map, sides, seed).
 // in_battle 0: the host is still in its menus or on the operational map; the joining game waits.
@@ -46,6 +47,7 @@ struct Welcome {
     unsigned map_flags;
     unsigned map_revision; // changes on each snapshot, even if its bytes have not changed
     unsigned map_ack_epoch, map_ack_revision; // reserved; always zero for spectator mode
+    unsigned vitals_epoch; // tactical process identity; 0 outside a battle
 };
 // Head.flags: 0 = battle description, 1 = operation map, 2 = tactical force. Map fragments
 // carry the host epoch/revision; other image transfers set both fields to zero.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the single MiusMultiplayer 1.0.6 TEST archive.
+"""Build the single MiusMultiplayer 1.0.7 TEST archive.
 
 The matched net_v21 module and launcher are the actual files installed by Enable_Multiplayer.bat;
 there is no separate patch switch. The archive is experimental and does not claim real-game or
@@ -17,8 +17,8 @@ import struct
 import tempfile
 import zipfile
 
-VERSION = "1.0.6"
-WIRE_TAG = b"NETV21_WIRE_PROTOCOL_15"
+VERSION = "1.0.7"
+WIRE_TAG = b"NETV21_WIRE_PROTOCOL_16"
 ROOT = "MiusMultiplayer"
 PROVEN = Path("development/unified-fps-kit-source")
 KIT = Path("development/net-v21-kit")
@@ -344,7 +344,7 @@ def verify(archive_path: Path) -> None:
         stamp = archive.read(f"{ROOT}/{PASSPORT}").decode("utf-8")
         # Preserve the independently verifiable historical unified 1.0.5 archive.
         match = re.search(r"^MiusMultiplayer (\d+\.\d+\.\d+) - test archive\r?$", stamp, re.M)
-        tags = {"1.0.5": b"NETV21_WIRE_PROTOCOL_14", VERSION: WIRE_TAG}
+        tags = {"1.0.5": b"NETV21_WIRE_PROTOCOL_14", "1.0.6": b"NETV21_WIRE_PROTOCOL_15", VERSION: WIRE_TAG}
         version = match.group(1) if match else ""
         tag = tags.get(version)
         if not tag or f"wire protocol: {tag.decode('ascii')}" not in stamp:
@@ -415,7 +415,7 @@ def build(repo: Path, codelib: Path, archive_path: Path, launcher: Path) -> None
                  "MiusMultiplayer_v1.0.0_TEST_INSTALL.zip", "MiusMultiplayer_v1.0.0_M3M4_INSTALL.zip",
                  "MiusMultiplayer_v1.0.1_INSTALL.zip", "MiusMultiplayer_v1.0.2_TEST_INSTALL.zip",
                  "MiusMultiplayer_v1.0.3_TEST_INSTALL.zip", "MiusMultiplayer_v1.0.4_TEST_INSTALL.zip",
-                 "MiusMultiplayer_v1.0.5_TEST_INSTALL.zip")
+                 "MiusMultiplayer_v1.0.5_TEST_INSTALL.zip", "MiusMultiplayer_v1.0.6_TEST_INSTALL.zip")
     if archive_path.resolve() in {(repo / name).resolve() for name in protected}:
         raise SystemExit("refusing to overwrite a preserved archive")
     if not codelib.is_file():
