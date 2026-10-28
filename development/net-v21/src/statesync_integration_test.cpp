@@ -12,6 +12,7 @@ size_t statesync_test_incoming_count();
 bool statesync_test_fresh(u64);
 double statesync_test_budget();
 static int checks, failed, ack_count, loads;
+static bool save_empty;
 static Object *last_loaded;
 static ObjectAck last_ack = {};
 static std::vector<unsigned char> loaded;
@@ -19,7 +20,7 @@ void mp_log(const char *, ...) {}
 void netlog_count(const char *, long long) {}
 bool session_state_wanted(Object *) { return true; }
 bool state_is_unit(Object *o) { return !strcmp(o->iface, "i_techn") || !strcmp(o->iface, "i_human"); }
-bool state_save(Object *, std::vector<unsigned char> &) { return false; }
+bool state_save(Object *, std::vector<unsigned char> &out) { if (save_empty) out.clear(); return save_empty; }
 bool state_handles_match(Object *, const unsigned char *, size_t) { return true; }
 int state_load(Object *o, const unsigned char *p, size_t n) { last_loaded = o; loaded.assign(p, p + n); ++loads; return 0; }
 int state_load_keep_motion(Object *o, const unsigned char *p, size_t n, bool) { return state_load(o, p, n); }
@@ -59,6 +60,12 @@ int main() {
     Object unit = {}; unit.iface = "i_techn"; strcpy_s(unit.full, "i_techn:unit_7b");
     Object *all[] = {&unit};
     *(Object ***)(storage + 0xf0) = all; *(u32 *)(storage + 0xfc) = 1;
+    save_empty = true;
+    int empty_before = ack_count;
+    statesync_owner_frame(manager, 3000, owns, send_packet);
+    statesync_owner_frame(manager, 4000, owns, send_packet);
+    save_empty = false;
+    check(ack_count == empty_before, "empty owner state compares safely without emitting a packet");
     statesync_apply(manager);
     const unsigned char expect_a[] = {1,2,3,4};
     check(loads == 1 && loaded.size() == 4 && !memcmp(loaded.data(), expect_a, 4), "late-created object receives state");
