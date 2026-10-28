@@ -1,8 +1,40 @@
-# MiusMultiplayer v1.0.1
+# MiusMultiplayer
+
+## 1.0.7 EXPERIMENTAL — единый тестовый установщик
+
+**Скачать:** [`MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip`](MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip)
+
+SHA-256: `60e7b7a2f2914ae75cf203f48aacc89e9469f71b15b654f70805d50e50736f78`.
+
+Это эксперимент для **Graviteam Tactics: Mius-Front**, Steam build 3598/1, а не стабильный релиз.
+Игра и настоящий Steam с этой сборкой не проверены: возможны вылеты, рассинхронизация, неверные
+итоги боя и повреждение сохранений. На обоих ПК используйте **один и тот же новый архив**;
+предыдущий [`1.0.7 TEST`](MiusMultiplayer_v1.0.7_TEST_INSTALL.zip) сохранён отдельно.
+
+1. Закройте игру на обоих ПК и отдельно скопируйте профили и сохранения операции.
+2. Распакуйте папку `MiusMultiplayer` из архива рядом со `starter_x64.exe` и запустите
+   `MiusMultiplayer\Enable_Multiplayer.bat`. `net_v21` уже входит в установку: `Switch` не нужен.
+3. Для проверки файлов запустите `Check_Install.bat`. Хост отдаёт приказы и выполняет ходы на
+   оперативной карте, клиент наблюдает и участвует в бою. F9 не завершает бой автоматически:
+   оба игрока завершают его штатными средствами игры.
+4. Для отката после закрытия игры запустите `Disable_Multiplayer.bat`. Если EXPERIMENTAL стоял
+   поверх прежнего мода, этот шаг вернёт его файлы; для возврата к исходной игре затем распакуйте
+   архив прежней версии и выполните её `Disable_Multiplayer.bat`, сохраняя каталог `state`.
+
+Протокол остаётся 17. Именное сопоставление выстрелов используется только при выполнении его
+проверок; иначе остаётся рискованная старая эвристика. Старый приёмник 1.0.7 не получает защиту
+этого эксперимента. Подробности, условия проверки и ограничения — в
+[`docs/NET_V21_NAMED_SHOTS_EXPERIMENTAL.md`](docs/NET_V21_NAMED_SHOTS_EXPERIMENTAL.md)
+и `README.txt` внутри архива. Отдельного переключения модулей и замены архива 1.0.7 нет.
+
+## История: MiusMultiplayer v1.0.1
+
+Разделы ниже относятся к **старой v1.0.1**, а не к установщику 1.0.7 EXPERIMENTAL; их описание
+файлов, диагностики, импорта DLL, глобальной карты и отката не следует переносить на новую сборку.
 
 Единый multiplayer-мод для **Graviteam Tactics: Mius-Front** (Steam game build 3598/1). v1.0.1 объединяет Steam-compatible FPS candidate, MiusPlayer runtime и проверенный MiusVitals sidecar в одном устанавливаемом наборе.
 
-## Скачать и установить
+## Скачать и установить v1.0.1
 
 **Основной установщик:** [`MiusMultiplayer_v1.0.1_INSTALL.zip`](MiusMultiplayer_v1.0.1_INSTALL.zip). Отдельно доступен [тестовый архив 1.0.3](MiusMultiplayer_v1.0.3_TEST_INSTALL.zip): по умолчанию он ставит те же файлы v1.0.1, а собственный модуль `net_v21` включается вручную и ещё не проверен в игре.
 
@@ -17,7 +49,7 @@
 | Архив | Назначение |
 |---|---|
 | [`MiusMultiplayer_v1.0.1_INSTALL.zip`](MiusMultiplayer_v1.0.1_INSTALL.zip) | основной установщик |
-| [`MiusMultiplayer_v1.0.3_TEST_INSTALL.zip`](MiusMultiplayer_v1.0.3_TEST_INSTALL.zip) | текущий тест собственного `net_v21`, включается отдельно |
+| [`MiusMultiplayer_v1.0.3_TEST_INSTALL.zip`](MiusMultiplayer_v1.0.3_TEST_INSTALL.zip) | прежний тест собственного `net_v21`, тогда включавшийся отдельно |
 | [`MiusMultiplayer_v1.0.0_TEST_INSTALL_known_good.zip`](MiusMultiplayer_v1.0.0_TEST_INSTALL_known_good.zip) | сохранённая контрольная копия для отката |
 | [`MiusMultiplayer_v1.0.0_TEST_INSTALL.zip`](MiusMultiplayer_v1.0.0_TEST_INSTALL.zip), [`MiusMultiplayer_v1.0.2_TEST_INSTALL.zip`](MiusMultiplayer_v1.0.2_TEST_INSTALL.zip) | разные прежние тестовые сборки `net_v21` |
 | [`GTMP_alpha_INSTALL.zip`](GTMP_alpha_INSTALL.zip) | эксперимент с другой `mp_vitals.dll` |
@@ -39,7 +71,7 @@ Alpha нужна для проверки исправлений DLL на жив�
 
 Перед campaign/FPS comparison обязателен Steam two-PC regression: rich-presence host → friend Join Game → P2P lobby → tactical session → reconnect/exit, в обеих host directions. До этой живой проверки Steam/FPS результат не следует считать gameplay-certified.
 
-> Не устанавливайте [`development/`](development/). Это расширенная рабочая область: source MiusPlayer/MiusVitals, manifests и проверки. Для игры используйте только `MiusMultiplayer_v1.0.1_INSTALL.zip`; для редактирования/полной source rebuild цепочки см. [`development/merged-source/`](development/merged-source/). Переданная папка игры `x64` сохранена как справочный снимок в [`development/game-build-3598-1/`](development/game-build-3598-1/) и не является установщиком.
+> Не устанавливайте [`development/`](development/). Это расширенная рабочая область: source MiusPlayer/MiusVitals, manifests и проверки. Для старой v1.0.1 использовался `MiusMultiplayer_v1.0.1_INSTALL.zip`; для редактирования/полной source rebuild цепочки см. [`development/merged-source/`](development/merged-source/). Переданная папка игры `x64` сохранена как справочный снимок в [`development/game-build-3598-1/`](development/game-build-3598-1/) и не является установщиком.
 
 Оба игрока должны установить один и тот же v1.0.1 archive. Откат: после закрытия игры запустите `MiusMultiplayer\\Disable_Multiplayer.bat`; если нужен именно прежний v1.0.0, распакуйте `MiusMultiplayer_OUTDATED_INSTALL.zip` и выполните его `Enable_Multiplayer.bat`.
 

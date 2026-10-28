@@ -36,7 +36,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write  # temporary: publish the one approved experimental archive after validation
+  contents: read
   pull-requests: write
 
 # A new push makes the previous run's validation stale; the newest run wins.
@@ -111,6 +111,30 @@ jobs:
           exit /b %rc%
           :no_committed_installer
           echo First build: no committed 1.0.7 archive yet.
+
+      - name: Verify the committed experimental installer and rollback
+        shell: cmd
+        env:
+          MIUS_TEST_ARCHIVE: MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip
+          MIUS_TEST_STATE: unified_test_v107_experimental
+          MIUS_TEST_UPGRADE: '1'
+        run: |
+          if not exist development\net-v21\build mkdir development\net-v21\build
+          python scripts\package_net_v21_test.py --verify "%MIUS_TEST_ARCHIVE%" > development\net-v21\build\experimental-installer.log 2>&1
+          set rc=%errorlevel%
+          if not %rc%==0 goto :experimental_installer_failed
+          python -c "import hashlib,pathlib; p=pathlib.Path('MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip'); assert hashlib.sha256(p.read_bytes()).hexdigest()=='60e7b7a2f2914ae75cf203f48aacc89e9469f71b15b654f70805d50e50736f78'" >> development\net-v21\build\experimental-installer.log 2>&1
+          set rc=%errorlevel%
+          if not %rc%==0 goto :experimental_installer_failed
+          python tests\test_unified_installer_windows.py >> development\net-v21\build\experimental-installer.log 2>&1
+          set rc=%errorlevel%
+          if not %rc%==0 goto :experimental_installer_failed
+          type development\net-v21\build\experimental-installer.log
+          exit /b 0
+          :experimental_installer_failed
+          type development\net-v21\build\experimental-installer.log
+          powershell -NoProfile -Command "$m = ((Get-Content development/net-v21/build/experimental-installer.log -Tail 100) -join ' | ').Replace('%%','%%25'); Write-Output ('::error title=Experimental installer verification::' + $m)"
+          exit /b %rc%
 
       - name: Install the disassembler and offline x64 emulator
         run: python -m pip install --quiet capstone unicorn==2.1.4
@@ -415,27 +439,8 @@ jobs:
             exit /b %rc%
           )
 
-      # One-shot, branch-scoped publication approved by the user. Remove this step and its
-      # temporary contents:write permission once the new archive is safely in the branch.
-      - name: Publish the validated experimental installer once
-        if: github.event_name == 'push' && github.ref == 'refs/heads/arena/41eedd9d-miusvitals'
-        shell: bash
-        run: |
-          set -euo pipefail
-          archive=MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip
-          test ! -e "$archive"  # never replace any existing archive
-          python scripts/package_net_v21_test.py \
-            --codelib development/net-v21/build/module/basic_network.codelib \
-            --launcher development/net-v21/build/join/mp_join.exe \
-            --output "$archive"
-          cmp "$archive" development/net-v21/build/CI_fixture_NOT_RELEASE.zip
-          python scripts/package_net_v21_test.py --verify "$archive" --verify-source
-          sha256sum "$archive"
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- "$archive"
-          git commit -m 'Add validated 1.0.7 experimental installer'
-          git push origin HEAD:refs/heads/arena/41eedd9d-miusvitals
+      # Released archives are preserved; new candidates require a separately named archive and
+      # explicit validation. The workflow never publishes or replaces one automatically.
 
       - name: Put the numbers in the job summary
         if: always()
@@ -487,10 +492,13 @@ jobs:
             if [ -f MiusMultiplayer_v1.0.7_TEST_INSTALL.zip ]; then
               echo "preserved 1.0.7 installer (not the current build): sha256 $(sha256sum MiusMultiplayer_v1.0.7_TEST_INSTALL.zip | cut -d' ' -f1)"
             fi
+            if [ -f MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip ]; then
+              echo "preserved 1.0.7 EXPERIMENTAL installer: sha256 $(sha256sum MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip | cut -d' ' -f1)"
+            fi
             if [ -f development/net-v21/build/CI_fixture_NOT_RELEASE.zip ]; then
               echo "current build: disposable installer fixture only, not a release"
             fi
-            for name in committed-installer baseline module selftest join launcher-selftest installer-selftest battle-report-selftest package compare-m1 compare-m2; do
+            for name in committed-installer experimental-installer baseline module selftest join launcher-selftest installer-selftest battle-report-selftest package compare-m1 compare-m2; do
               log="development/net-v21/build/$name.log"
               echo
               echo "<details><summary>$name log</summary>"

@@ -64,8 +64,8 @@ static void *lookup(ObjMan *, u32 id)
     switch (id) {
     case 7: return correct_ammo;
     case 8: return correct_weapon;
-    case 41: return wrong_ammo;
-    case 42: return wrong_weapon;
+    case 9: case 41: return wrong_ammo;
+    case 10: case 42: return wrong_weapon;
     default: return nullptr;
     }
 }
@@ -149,16 +149,18 @@ static ShotRec table(unsigned char kind, const u32 *pairs, u32 count)
 int main(int argc, char **argv)
 {
     if (argc != 5 || (strcmp(argv[1], "send") && strcmp(argv[1], "receive")) ||
-        (strcmp(argv[4], "mapped") && strcmp(argv[4], "marked") && strcmp(argv[4], "named") && strcmp(argv[4], "unknown"))) return 2;
+        (strcmp(argv[4], "mapped") && strcmp(argv[4], "marked") && strcmp(argv[4], "named") &&
+         strcmp(argv[4], "named_badmap") && strcmp(argv[4], "unknown"))) return 2;
     sender = !strcmp(argv[1], "send");
     bool marked = !strcmp(argv[4], "marked");
-    bool named = !strcmp(argv[4], "named");
+    bool badmap = !strcmp(argv[4], "named_badmap");
+    bool named = badmap || !strcmp(argv[4], "named");
     bool mapped = marked || named || !strcmp(argv[4], "mapped");
 #ifdef COMPAT_LEGACY
     if (sender && named) return 2; // an unmodified 1.0.7 producer does not create the extension
 #endif
 
-    alignas(8) unsigned char manager[0x1800] = {}, rows[2 * 0x10] = {};
+    alignas(8) unsigned char manager[0x1800] = {}, rows[4 * 0x10] = {};
     void *vtbl[58] = {}; vtbl[56] = (void *)id_for; vtbl[57] = (void *)lookup;
     ObjMan *om = (ObjMan *)manager; om->vtbl = vtbl;
     Object local_object = {};
@@ -166,13 +168,16 @@ int main(int argc, char **argv)
     fixture_unit = &local_object;
     Object *objects[] = { &local_object };
     *(Object ***)(manager + 0x150) = objects; *(u32 *)(manager + 0x15c) = 1;
-    correct_ammo[0x20] = 0x55; wrong_ammo[0x20] = 0x66; correct_weapon[0] = 0x77;
+    correct_ammo[0x20] = 0x55; wrong_ammo[0x20] = 0x66;
+    correct_weapon[0] = 0x77; wrong_weapon[0] = 0x88;
     u32 code = 0x12345678;
     memcpy(correct_ammo + 0xc4, &code, 4); memcpy(wrong_ammo + 0xc4, &code, 4);
-    u32 local_a = 7, local_w = 8;
+    u32 local_a = 7, local_w = 8, wrong_a = 9, wrong_w = 10;
     void *p = correct_ammo; memcpy(rows, &local_a, 4); memcpy(rows + 8, &p, sizeof p);
     p = correct_weapon; memcpy(rows + 0x10, &local_w, 4); memcpy(rows + 0x18, &p, sizeof p);
-    *(void **)(manager + 0x1748) = rows; *(u32 *)(manager + 0x1754) = 2;
+    p = wrong_ammo; memcpy(rows + 0x20, &wrong_a, 4); memcpy(rows + 0x28, &p, sizeof p);
+    p = wrong_weapon; memcpy(rows + 0x30, &wrong_w, 4); memcpy(rows + 0x38, &p, sizeof p);
+    *(void **)(manager + 0x1748) = rows; *(u32 *)(manager + 0x1754) = badmap ? 4 : 2;
     void *ammo_base = correct_ammo, *weapon_base = correct_weapon;
     void *ammo_rows = named_ammo_row, *weapon_rows = named_weapon_row;
     const u32 one = 1; const uint16_t four = 4, three = 3;
@@ -189,7 +194,10 @@ int main(int argc, char **argv)
 
     if (sender) {
         if (mapped) {
-            const u32 descriptions[] = { 41, fingerprint(correct_ammo), 42, fingerprint(correct_weapon) };
+            // badmap is a deliberately fabricated stale/colliding numeric table; the shot below
+            // is still created by the real named producer with the correct source pointers.
+            const u32 descriptions[] = { 41, fingerprint(badmap ? wrong_ammo : correct_ammo),
+                                         42, fingerprint(badmap ? wrong_weapon : correct_weapon) };
             const u32 objects_table[] = { 0, 123 };
             ShotRec desc = table(3, descriptions, 2), obj = table(4, objects_table, 1);
             shots_queue(desc); shots_queue(obj);
@@ -254,8 +262,15 @@ int main(int argc, char **argv)
 #endif
     shots_sim_step(om);
     if (mapped) {
-        if (!require(launches == 1 && last_ammo == correct_ammo && last_weapon == correct_weapon && last_ack.seq == 3,
-                     "contiguous legacy/current tables and shot replay with the expected synthetic pointers")) return 1;
+#ifdef COMPAT_LEGACY
+        void *expected_ammo = badmap ? wrong_ammo : correct_ammo;
+        void *expected_weapon = badmap ? wrong_weapon : correct_weapon;
+#else
+        void *expected_ammo = correct_ammo;
+        void *expected_weapon = correct_weapon;
+#endif
+        if (!require(launches == 1 && last_ammo == expected_ammo && last_weapon == expected_weapon && last_ack.seq == 3,
+                     "contiguous tables and shot replay with expected synthetic pointers")) return 1;
         if (marked && !require(last_shooter == fixture_unit && last_obj2 == fixture_unit &&
                                last_desc3 == correct_ammo && last_obj5 == fixture_unit && last_launch_byte == 0x37,
                                "the receiver reconstructs five non-null pointer fields, obj5 and a non-pointer byte")) return 1;
@@ -283,6 +298,7 @@ int main(int argc, char **argv)
 #else
            "current",
 #endif
-           named ? "actual named" : marked ? "marked synthetic" : mapped ? "mapped" : "unknown-ID");
+           badmap ? "actual named + fabricated bad numeric map" : named ? "actual named" :
+           marked ? "marked synthetic" : mapped ? "mapped" : "unknown-ID");
     return 0;
 }

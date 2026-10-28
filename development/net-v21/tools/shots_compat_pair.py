@@ -52,8 +52,9 @@ def main() -> None:
             for mode in ("mapped", "marked", "unknown"):
                 case(sender, receiver, mode)
     for receiver in (legacy, current):
-        case(current, receiver, "named")
-    print("14 no-game process pairs passed; legacy fallback remains unsafe for unknown IDs")
+        for mode in ("named", "named_badmap"):
+            case(current, receiver, mode)
+    print("16 no-game process pairs passed; legacy fallback remains unsafe for unknown IDs")
 
 
 if __name__ == "__main__":

@@ -72,6 +72,13 @@ class Packaging(unittest.TestCase):
                 self.assertEqual(before, hashlib.sha256(archive.read_bytes()).digest())
 
     def test_existing_experimental_archive_is_protected(self):
+        released = ROOT / "MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip"
+        if released.exists():
+            self.assertEqual(hashlib.sha256(released.read_bytes()).hexdigest(),
+                             "60e7b7a2f2914ae75cf203f48aacc89e9469f71b15b654f70805d50e50736f78")
+            pkg.verify(released)
+            with self.assertRaisesRegex(SystemExit, "refusing to overwrite"):
+                pkg.build(ROOT, Path("nonexistent.codelib"), released, Path("nonexistent.exe"))
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
             archive = repo / "MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip"
