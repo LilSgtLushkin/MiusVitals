@@ -8,6 +8,7 @@ from __future__ import annotations
 import ctypes
 from ctypes import wintypes
 import hashlib
+import io
 import os
 from pathlib import Path
 import stat
@@ -15,6 +16,8 @@ import subprocess
 import tempfile
 import unittest
 import zipfile
+
+from historical_106_fixture import read_106
 
 ROOT = Path(__file__).resolve().parents[1]
 ARCHIVE = Path(os.environ.get("MIUS_TEST_ARCHIVE", ROOT / "MiusMultiplayer_v1.0.7_TEST_INSTALL.zip"))
@@ -139,8 +142,9 @@ class UnifiedInstaller(unittest.TestCase):
         self.check_original()
 
     def test_upgrade_from_106_restores_its_runtime_and_preserves_its_backup(self):
-        old = ROOT / "MiusMultiplayer_v1.0.6_TEST_INSTALL.zip"
-        with zipfile.ZipFile(old) as archive:
+        # This is the actual released 1.0.6, read from a pinned commit and SHA-256 checked;
+        # the retired ZIP is not kept in the current working tree.
+        with zipfile.ZipFile(io.BytesIO(read_106())) as archive:
             os.chmod(self.readonly, stat.S_IREAD | stat.S_IWRITE)
             for relative in FILES:
                 path = self.game / relative

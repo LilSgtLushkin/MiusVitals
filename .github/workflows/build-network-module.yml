@@ -429,7 +429,19 @@ jobs:
           cmp "$archive" development/net-v21/build/CI_fixture_NOT_RELEASE.zip
           sha256sum "$archive"
 
-      - name: Exercise the committed one-step installer and both historical upgrades on Windows
+      # The retired ZIP is not restored into the checkout. The Windows test reads the
+      # historical Git blob in memory and verifies its SHA-256 before exercising rollback.
+      - name: Fetch the pinned historical commit for the 1.0.6 upgrade fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          revision=047195f1b16f034cf06f4a204402e6e800ca05ea
+          if ! git cat-file -e "$revision:MiusMultiplayer_v1.0.6_TEST_INSTALL.zip" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$revision"
+          fi
+          git cat-file -e "$revision:MiusMultiplayer_v1.0.6_TEST_INSTALL.zip"
+
+      - name: Exercise the committed one-step installer and historical upgrades on Windows
         shell: cmd
         env:
           MIUS_TEST_ARCHIVE: MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip

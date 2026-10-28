@@ -30,6 +30,7 @@ jobs:
           cmp /tmp/basic_network.codelib development/fps-candidate/basic_network.codelib
           python3 scripts/build_steam_compatible_fps_candidate.py verify
 
-      - name: Verify the current installer carrying that candidate
+      - name: Rebuild and verify the retired FPS kit as a temporary fixture
         run: |
-          python3 scripts/package_unified_fps_mod.py --verify MiusMultiplayer_v1.0.1_INSTALL.zip
+          python3 scripts/verify_legacy_fps_fixture.py
+          python3 scripts/verify_legacy_fps_fixture_selftest.py

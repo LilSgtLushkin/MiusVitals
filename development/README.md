@@ -21,13 +21,13 @@ python3 scripts/check_artifacts.py     # одинаковые бинарники
 
 ## Установка игрока
 
-Актуальный installable archive: [`../MiusMultiplayer_v1.0.1_INSTALL.zip`](../MiusMultiplayer_v1.0.1_INSTALL.zip). Единственный устаревший архив — [`../MiusMultiplayer_OUTDATED_INSTALL.zip`](../MiusMultiplayer_OUTDATED_INSTALL.zip) (бывший v1.0.0, только для rollback/provenance). Оба содержат один `MiusMultiplayer/` root с runtime MiusPlayer assets, проверенным `basic_network.codelib` и `mp_vitals.dll`; отдельные `mpmod1`/`MiusVitals` archives больше не устанавливаются.
+Текущий экспериментальный установщик: [`../MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip`](../MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET%2BFPS_INSTALL.zip). Он сразу устанавливает `net_v21`; инструкции и ограничения — в [корневом README](../README.md). Архивы 1.0.1–1.0.6 удалены из текущего дерева; сохранены `_known_good`, 1.0.7 и исторический [`../MiusMultiplayer_OUTDATED_INSTALL.zip`](../MiusMultiplayer_OUTDATED_INSTALL.zip).
 
-Архив создаётся и проверяется `../scripts/package_unified_mod.py`. `kit-source/` сохраняется как implementation layer и test input, а не как отдельная player install directory.
+Текущий установщик создаётся и проверяется `../scripts/package_net_v21_test.py`. `kit-source/` и старые unified-kit-деревья сохраняются как исторические источники и тестовые входы, а не как отдельная player install directory.
 
 ## Steam-preserving FPS candidate
 
-`fps-candidate/` хранит воспроизводимый candidate `basic_network.codelib`: `scripts/build_steam_compatible_fps_candidate.py` получает его детерминированно из проверенного Steam 3598/1 module, а workflow `../.github/workflows/verify-fps-codelib.yml` заново собирает файл и сравнивает его byte-for-byte с checked-in копией. Этот же candidate входит в актуальный `MiusMultiplayer_v1.0.1_INSTALL.zip`, поэтому `scripts/package_unified_fps_mod.py` требует с ним полного совпадения.
+`fps-candidate/` хранит воспроизводимый candidate `basic_network.codelib`: `scripts/build_steam_compatible_fps_candidate.py` получает его детерминированно из проверенного Steam 3598/1 module, а workflow `../.github/workflows/verify-fps-codelib.yml` заново собирает файл и сравнивает его byte-for-byte с checked-in копией. Этот candidate входил в исторический `MiusMultiplayer_v1.0.1_INSTALL.zip`; проверка `scripts/verify_legacy_fps_fixture.py` воспроизводит временный архив и сравнивает содержимое с закреплёнными хешами, не сохраняя старый ZIP.
 
 Отдельный `MiusMultiplayer_beta_FPS_fix_INSTALL.zip` и `fps-beta-kit-source/` удалены: второй installer с собственным codelib больше не публикуется. В игре, где остался прежний beta module (включая withdrawn `78e271…2916e`), `MiusMultiplayer\Enable_Multiplayer.bat` из v1.0.1 всё равно заменяет codelib и program packs безусловно.
 
