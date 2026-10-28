@@ -2534,10 +2534,10 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
         const Hello *in = (const Hello *)data;
         if (memcmp(in->proto, k_protocol, sizeof k_protocol)) return;
         bool full = size >= (int)sizeof(Hello) && in->version == k_version;
-        // A battle peer needs an identity, but a menu Joiner legitimately has no tactical
-        // process yet (phase 0xff): it must still download the host's battle description.
-        // Short/old Hello messages receive only a version reply and are never accepted below.
-        if (g_tactical && full && in->phase != 0xff && !in->vitals_epoch) return;
+        // A battle peer needs an identity, but menu and operation-map processes (phases
+        // 0xff/0xfe) do not have one: they must still receive the host's battle notice and
+        // description. Short/old Hello messages receive only a version reply and are not accepted.
+        if (g_tactical && full && in->phase < 0xfe && !in->vitals_epoch) return;
         if (g_tactical && full && in->vitals_epoch) {
             tactical_peer_epoch(in->vitals_epoch);
             if (vitals_peer_epoch() != in->vitals_epoch) return; // retired identity, do not disturb the current peer

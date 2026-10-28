@@ -53,9 +53,15 @@ int main(int argc, char **argv)
 #else
     fcntl(sock, F_SETFL, fcntl(sock, F_GETFL, 0) | O_NONBLOCK);
 #endif
-    unsigned attempted = 0, dropped = 0, duplicates = 0, gaps = 0, data_sent = 0;
+    unsigned dropped = 0, duplicates = 0, gaps = 0, data_sent = 0;
+    // A periodic every-seventh drop can stay phase-locked with the retry burst and discard the
+    // same sequence forever. A reproducible PRNG exercises loss without that artificial deadlock.
+    unsigned fault_rng = 0x9e3779b9u ^ ((unsigned)id * 0x85ebca6bu);
     auto send_packet = [&](const void *data, int size, bool may_drop) {
-        if (may_drop && (++attempted % 7) == 0) { ++dropped; return; }
+        if (may_drop) {
+            fault_rng ^= fault_rng << 13; fault_rng ^= fault_rng >> 17; fault_rng ^= fault_rng << 5;
+            if (fault_rng % 7 == 0) { ++dropped; return; }
+        }
         if (sendto(sock, (const char *)data, size, 0, (const sockaddr *)&peer, sizeof peer) == size)
             ++data_sent;
     };
