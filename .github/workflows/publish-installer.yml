@@ -30,13 +30,6 @@ concurrency:
   group: publish-installer-${{ github.event.workflow_run.head_branch || github.ref_name }}
   cancel-in-progress: false
 
-env:
-  # The single 1.0.7 archive in the tree: every older 1.0.7 installer was removed, so this name is
-  # what users download and what this workflow replaces with a newer gated build.
-  ARCHIVE: MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip
-  LOCAL_CODELIB: development/net-v21/build/module/basic_network.codelib
-  LOCAL_LAUNCHER: development/net-v21/build/join/mp_join.exe
-
 jobs:
   publish:
     name: Build the installer and publish it to the gated branch
@@ -52,6 +45,22 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Choose the installer to publish
+        id: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The shipped installer is the only 1.0.7 archive in the tree. Taking its name from the
+          # tree, instead of from a constant here, means this workflow cannot publish a second
+          # archive under a name only this file knows - it updates the one that exists.
+          shipped=(MiusMultiplayer_v1.0.7_*_INSTALL.zip)
+          if [ "${#shipped[@]}" -ne 1 ] || [ ! -f "${shipped[0]}" ]; then
+            echo "::error title=Publish target::expected exactly one MiusMultiplayer_v1.0.7_*_INSTALL.zip in the tree, found: ${shipped[*]}"
+            exit 1
+          fi
+          echo "archive=${shipped[0]}" >> "$GITHUB_OUTPUT"
+          echo "publishing ${shipped[0]}"
 
       - name: Take the module and launcher the gate verified
         if: github.event_name == 'workflow_run'
@@ -100,13 +109,15 @@ jobs:
       - name: Assemble the installer and check it against this source tree
         shell: bash
         env:
+          ARCHIVE: ${{ steps.target.outputs.archive }}
           CODELIB: ${{ steps.choose.outputs.codelib }}
           LAUNCHER: ${{ steps.choose.outputs.launcher }}
         run: |
           set -euo pipefail
+          mkdir -p development/net-v21/build
           python scripts/package_net_v21_test.py \
-            --codelib "${CODELIB:-$LOCAL_CODELIB}" \
-            --launcher "${LAUNCHER:-$LOCAL_LAUNCHER}" \
+            --codelib "${CODELIB:-development/net-v21/build/module/basic_network.codelib}" \
+            --launcher "${LAUNCHER:-development/net-v21/build/join/mp_join.exe}" \
             --output "$ARCHIVE" 2>&1 | tee development/net-v21/build/publish-package.log
           # --verify-source proves the kit inside the archive matches this exact checkout.
           python scripts/package_net_v21_test.py --verify "$ARCHIVE" --verify-source
@@ -117,6 +128,7 @@ jobs:
           BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
           SOURCE_COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
           PROVENANCE: ${{ steps.choose.outputs.provenance }}
+          ARCHIVE: ${{ steps.target.outputs.archive }}
         run: |
           set -euo pipefail
           digest=$(sha256sum "$ARCHIVE" | cut -d' ' -f1)
