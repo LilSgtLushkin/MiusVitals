@@ -165,6 +165,10 @@ if errorlevel 1 exit /b %errorlevel%
 cl /nologo /Isrc /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\session.cpp src\vitals.cpp src\hooks.cpp src\steam.cpp src\steam_module.cpp tests\session_loopback_peer.cpp /link ws2_32.lib ole32.lib oleaut32.lib user32.lib /OUT:build\selftest\session_loopback_peer.exe
 if errorlevel 1 exit /b %errorlevel%
 cl /nologo /Isrc /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\session.cpp src\vitals.cpp src\hooks.cpp src\steam.cpp src\steam_module.cpp src\shots.cpp src\hit_sync.cpp src\anim_sync.cpp tests\session_event_peer.cpp /link ws2_32.lib ole32.lib oleaut32.lib user32.lib /OUT:build\selftest\session_event_peer.exe
+if errorlevel 1 exit /b %errorlevel%
+rem The pause/state-header slice compiles real functions out of session.cpp; it needs the same
+rem compiler this script has just put on PATH, so it runs here and not from the workflow.
+python tools\pause_session_slice_selftest.py
 exit /b %errorlevel%
 
 :render_test

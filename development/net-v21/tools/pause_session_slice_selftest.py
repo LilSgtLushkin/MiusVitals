@@ -86,7 +86,17 @@ def main() -> int:
                    f"-I{directory}", str(test), "-o", str(executable)]
             if args.sanitize:
                 cmd[1:1] = ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
-        subprocess.run(cmd, cwd=directory, check=True)
+        # A traceback here hides what actually went wrong in CI: say which compiler was missing or
+        # what the compiler said, and fail like a test instead of like a crashed script.
+        try:
+            subprocess.run(cmd, cwd=directory, check=True)
+        except FileNotFoundError:
+            print(f"pause session source-slice selftest: the compiler {args.cxx!r} was not found; "
+                  f"on Windows run it where the MSVC environment is set up (build.bat selftest)")
+            return 1
+        except subprocess.CalledProcessError as error:
+            print(f"pause session source-slice selftest: the compiler failed: {error}")
+            return 1
         return subprocess.run([str(executable)], cwd=directory, check=False).returncode
 
 

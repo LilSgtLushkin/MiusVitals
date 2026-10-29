@@ -203,10 +203,8 @@ jobs:
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          python development\net-v21\tools\pause_session_slice_selftest.py >> development\net-v21\build\selftest.log 2>&1
-          set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
-          if not %rc%==0 exit /b %rc%
+          rem The pause/state-header slice runs inside build.bat selftest: it needs the compiler that
+          rem script puts on PATH, which the step's own shell does not have.
           development\net-v21\build\selftest\hit_anim_integration_test.exe >> development\net-v21\build\selftest.log 2>&1
           set rc=%errorlevel%
           type development\net-v21\build\selftest.log
