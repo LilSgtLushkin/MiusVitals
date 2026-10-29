@@ -90,7 +90,7 @@ static bool probe(const void *addr, Region *out, void *)
     case PAGE_READWRITE: case PAGE_WRITECOPY:
     case PAGE_EXECUTE_READWRITE: case PAGE_EXECUTE_WRITECOPY:
         out->protection = k_read | k_write; break;
-    case PAGE_READONLY: case PAGE_EXECUTE_READ: case PAGE_EXECUTE_WRITECOPY:
+    case PAGE_READONLY: case PAGE_EXECUTE_READ:
         out->protection = k_read; break;
     default:
         out->protection = 0; break;      // PAGE_NOACCESS и всё остальное — недоступно
