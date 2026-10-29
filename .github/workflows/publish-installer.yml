@@ -4,6 +4,8 @@ name: Publish the current installer
 # gate has already passed. The module and launcher are taken from that gated run, so the archive
 # holds the exact binaries that ran the two-process sessions and the v12/v20 comparisons; when the
 # gated build is unavailable the module is rebuilt here with the author's own settings (build.bat).
+# Which of the two happened is written into the commit message, so provenance is visible in the
+# history and not only in a log that expires.
 #
 # The gate runs on pull requests, so publishing commits onto the gated pull request branch and the
 # merge brings the installer into main with the same tree. A manual dispatch publishes from the
@@ -30,6 +32,8 @@ concurrency:
 
 env:
   ARCHIVE: MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_CURRENT_INSTALL.zip
+  LOCAL_CODELIB: development/net-v21/build/module/basic_network.codelib
+  LOCAL_LAUNCHER: development/net-v21/build/join/mp_join.exe
 
 jobs:
   publish:
@@ -57,8 +61,28 @@ jobs:
           github-token: ${{ github.token }}
           path: gated
 
-      - name: Build the module and launcher when the gated build is unavailable
-        if: ${{ !hashFiles('gated/development/net-v21/build/module/basic_network.codelib') || !hashFiles('gated/development/net-v21/build/join/mp_join.exe') }}
+      - name: Choose which module and launcher to publish
+        id: choose
+        shell: bash
+        run: |
+          set -euo pipefail
+          # upload-artifact v4 picks the layout inside the archive, so search for the files instead
+          # of assuming one path. Rebuilding is the same source and the same build.bat, but the
+          # binaries the gate actually exercised are the stronger provenance.
+          codelib=$(find gated -type f -name basic_network.codelib -print -quit 2>/dev/null || true)
+          launcher=$(find gated -type f -name mp_join.exe -print -quit 2>/dev/null || true)
+          if [ -n "$codelib" ] && [ -n "$launcher" ]; then
+            echo "codelib=$codelib" >> "$GITHUB_OUTPUT"
+            echo "launcher=$launcher" >> "$GITHUB_OUTPUT"
+            echo "provenance=из проверенного прогона gate" >> "$GITHUB_OUTPUT"
+            echo "publishing the module and launcher the release gate verified"
+          else
+            echo "provenance=пересобран в этом прогоне" >> "$GITHUB_OUTPUT"
+            echo "no gated build was found; the module will be rebuilt here"
+          fi
+
+      - name: Build the module and launcher when no gated build was found
+        if: steps.choose.outputs.provenance == 'пересобран в этом прогоне'
         shell: cmd
         run: |
           if not exist development\net-v21\build mkdir development\net-v21\build
@@ -73,17 +97,14 @@ jobs:
 
       - name: Assemble the installer and check it against this source tree
         shell: bash
+        env:
+          CODELIB: ${{ steps.choose.outputs.codelib }}
+          LAUNCHER: ${{ steps.choose.outputs.launcher }}
         run: |
           set -euo pipefail
-          codelib=development/net-v21/build/module/basic_network.codelib
-          launcher=development/net-v21/build/join/mp_join.exe
-          if [ -f gated/development/net-v21/build/module/basic_network.codelib ] \
-             && [ -f gated/development/net-v21/build/join/mp_join.exe ]; then
-            codelib=gated/development/net-v21/build/module/basic_network.codelib
-            launcher=gated/development/net-v21/build/join/mp_join.exe
-            echo "publishing the module and launcher the release gate verified"
-          fi
-          python scripts/package_net_v21_test.py --codelib "$codelib" --launcher "$launcher" \
+          python scripts/package_net_v21_test.py \
+            --codelib "${CODELIB:-$LOCAL_CODELIB}" \
+            --launcher "${LAUNCHER:-$LOCAL_LAUNCHER}" \
             --output "$ARCHIVE" 2>&1 | tee development/net-v21/build/publish-package.log
           # --verify-source proves the kit inside the archive matches this exact checkout.
           python scripts/package_net_v21_test.py --verify "$ARCHIVE" --verify-source
@@ -93,6 +114,7 @@ jobs:
         env:
           BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
           SOURCE_COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
+          PROVENANCE: ${{ steps.choose.outputs.provenance }}
         run: |
           set -euo pipefail
           digest=$(sha256sum "$ARCHIVE" | cut -d' ' -f1)
@@ -107,6 +129,7 @@ jobs:
             echo "- archive: \`$ARCHIVE\`"
             echo "- SHA-256: \`$digest\`"
             echo "- source commit: \`$SOURCE_COMMIT\`"
+            echo "- module: ${PROVENANCE:-unknown}"
           } >> "$GITHUB_STEP_SUMMARY"
           git add -- "$ARCHIVE" "$ARCHIVE.sha256.txt"
           if git diff --cached --quiet; then
@@ -119,7 +142,7 @@ jobs:
           fi
           git -c user.name='github-actions[bot]' \
               -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-              commit -q -m "net-v21: готовый установщик 1.0.7 experimental net+fps из ${SOURCE_COMMIT::9} [skip ci]"
+              commit -q -m "net-v21: готовый установщик 1.0.7 experimental net+fps из ${SOURCE_COMMIT::9} (${PROVENANCE:-происхождение не определено}) [skip ci]"
           for attempt in 1 2 3; do
             git fetch --quiet origin "$BRANCH"
             if git rebase "origin/$BRANCH" && git push --quiet origin "HEAD:$BRANCH"; then
