@@ -1,7 +1,11 @@
 // A harmless CreateProcess target used by standalone-launcher tests, not the game.
+//
+// It reports which part of the inherited environment was wrong, not merely that something was:
+// a launcher test that only prints "invalid" costs a full CI run per guess.
 #include <windows.h>
 #include <stdio.h>
 #include <string.h>
+#include <string>
 #include <vector>
 #include "battle_identity.h"
 #include "protocol.h"
@@ -25,13 +29,20 @@ int main() {
     DWORD pn = GetEnvironmentVariableA("MP_PEER", peer, sizeof peer);
     DWORD an = GetEnvironmentVariableA("MP_AUTOJOIN", requested, sizeof requested);
     bool same_host = pn && pn < sizeof peer && an && an < sizeof requested && !strcmp(peer, requested);
-    bool ok = equals("MP_HOST_MODE", "operation") && pn && pn < sizeof peer;
+    std::string bad;
+    auto want = [&bad](bool ok, const char *name) {
+        if (!ok) { if (!bad.empty()) bad += ", "; bad += name; }
+    };
+    want(equals("MP_HOST_MODE", "operation"), "MP_HOST_MODE");
+    want(pn && pn < sizeof peer, "MP_PEER");
     char identity[64] = {};
     if (tactical) {
         // A battle offered by the host must not inherit the spectator marker: otherwise
         // session_start correctly isolates an unhosted local launch from the network.
-        ok = ok && equals("MP_ROLE", "join") && !GetEnvironmentVariableA("MP_MAP", autojoin, sizeof autojoin) &&
-             same_host && equals("MP_VERSUS", "1");
+        want(equals("MP_ROLE", "join"), "MP_ROLE");
+        want(!GetEnvironmentVariableA("MP_MAP", autojoin, sizeof autojoin), "MP_MAP set");
+        want(same_host, "MP_AUTOJOIN");
+        want(equals("MP_VERSUS", "1"), "MP_VERSUS");
         // Validate the actual child's inherited ticket against the image it was launched with.
         DWORD n = GetEnvironmentVariableA(battle_identity::k_environment, identity, sizeof identity);
         FILE *image = nullptr; std::vector<unsigned char> prepared;
@@ -41,25 +52,30 @@ int main() {
             fclose(image);
         }
         unsigned source = 0;
-        ok = ok && n && n < sizeof identity && !prepared.empty() &&
-             battle_identity::resolve(identity, prepared.data(), prepared.size(), &source);
+        want(n && n < sizeof identity, "battle ticket");
+        want(!prepared.empty(), "prepared image");
+        want(!prepared.empty() && battle_identity::resolve(identity, prepared.data(), prepared.size(), &source),
+             "battle ticket does not match the image");
     } else if (operation) {
-        ok = ok && equals("MP_ROLE", "join") && equals("MP_MAP", "1") && !an &&
-             equals_expected("MP_MAP_EPOCH", "MIUS_EXPECT_EPOCH") &&
-             equals_expected("MP_MAP_REV", "MIUS_EXPECT_REV") &&
-             !GetEnvironmentVariableA(battle_identity::k_environment, autojoin, sizeof autojoin);
+        want(equals("MP_ROLE", "join"), "MP_ROLE");
+        want(equals("MP_MAP", "1"), "MP_MAP");
+        want(equals_expected("MP_MAP_EPOCH", "MIUS_EXPECT_EPOCH"), "MP_MAP_EPOCH");
+        want(equals_expected("MP_MAP_REV", "MIUS_EXPECT_REV"), "MP_MAP_REV");
+        want(!an, "MP_AUTOJOIN set");
+        want(!GetEnvironmentVariableA(battle_identity::k_environment, autojoin, sizeof autojoin), "battle ticket set");
     } else {
         // The actual map->lobby CreateProcess must clear the map/role and battle ticket,
         // and retain the host address.
-        ok = ok && !GetEnvironmentVariableA("MP_ROLE", autojoin, sizeof autojoin) &&
-             !GetEnvironmentVariableA("MP_MAP", autojoin, sizeof autojoin) &&
-             !GetEnvironmentVariableA(battle_identity::k_environment, autojoin, sizeof autojoin) && same_host;
+        want(!GetEnvironmentVariableA("MP_ROLE", autojoin, sizeof autojoin), "MP_ROLE set");
+        want(!GetEnvironmentVariableA("MP_MAP", autojoin, sizeof autojoin), "MP_MAP set");
+        want(!GetEnvironmentVariableA(battle_identity::k_environment, autojoin, sizeof autojoin), "battle ticket set");
+        want(same_host, "MP_AUTOJOIN");
     }
     FILE *f = nullptr;
     if (fopen_s(&f, "starter_fixture_result.tmp", "wb") || !f) return 2;
-    if (ok) fprintf(f, "ok:%lu:%s", GetCurrentProcessId(), identity);
-    else fputs("invalid environment or command", f);
+    if (bad.empty()) fprintf(f, "ok:%lu:%s", GetCurrentProcessId(), identity);
+    else fprintf(f, "fail:%s", bad.c_str());
     if (fclose(f) || !MoveFileExA("starter_fixture_result.tmp", "starter_fixture_result.txt",
                                  MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) return 2;
-    return ok ? 0 : 1;
+    return bad.empty() ? 0 : 1;
 }
