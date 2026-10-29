@@ -31,7 +31,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  ARCHIVE: MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_CURRENT_INSTALL.zip
+  # The single 1.0.7 archive in the tree: every older 1.0.7 installer was removed, so this name is
+  # what users download and what this workflow replaces with a newer gated build.
+  ARCHIVE: MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip
   LOCAL_CODELIB: development/net-v21/build/module/basic_network.codelib
   LOCAL_LAUNCHER: development/net-v21/build/join/mp_join.exe
 

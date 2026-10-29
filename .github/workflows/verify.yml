@@ -12,20 +12,17 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify hashes, PE surface, exact kit and native logic
         run: scripts/verify_release.sh
-      - name: Upload current experimental net+fps installer
+      # The one shipped installer. It is rebuilt by publish-installer.yml from the gated source, so
+      # its SHA-256 changes with the source; the file recorded beside it carries the current value.
+      - name: Upload the shipped installer and its recorded SHA-256
         uses: actions/upload-artifact@v4
         with:
           name: MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET_FPS_INSTALL
-          path: MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip
+          path: |
+            MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip
+            MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip.sha256.txt
           if-no-files-found: error
-      # Published by publish-installer.yml from the gated source. It is absent until that workflow
-      # has run once for this branch, so a missing file is a warning and not a broken check.
-      - name: Upload the rolling installer built from main
-        uses: actions/upload-artifact@v4
-        with:
-          name: MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET_FPS_CURRENT_INSTALL
-          path: MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_CURRENT_INSTALL.zip
-          if-no-files-found: warn
+
       - name: Upload outdated rollback installer
         uses: actions/upload-artifact@v4
         with:

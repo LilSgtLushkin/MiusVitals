@@ -88,14 +88,15 @@ ARTIFACTS: dict[str, tuple[str, tuple[str, ...]]] = {
     ),
 }
 
-# Immutable archives only. The rolling installer that publish-installer.yml builds from the gated
-# source is deliberately absent: its hash is recorded beside it by the same job that produces the
-# file, so a pin here would be self-fulfilling and would prove nothing. verify_release.sh checks
-# that archive structurally and against its own recorded hash instead.
+# Immutable archives only. The shipped installer MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip
+# is deliberately absent: it is the single current 1.0.7 archive and publish-installer.yml rebuilds
+# and commits it from the gated source, so a pin here would be written by the same job that produces
+# the file and would prove nothing. verify_release.sh checks that archive structurally and against
+# the SHA-256 recorded beside it instead. The older 1.0.7 archives were removed from the tree when
+# the releases were consolidated; their names stay reserved in scripts/package_net_v21_test.py.
 ARCHIVES: dict[str, str] = {
     "MiusMultiplayer_OUTDATED_INSTALL.zip": "67661473d1f8e6bcd67d7cf9117e92e19d30e5adda456dab5ee347aa851fa027",
     "GTMP_alpha_INSTALL.zip": "aacfe7dfd0cca82c0ed771e5a9088faa75565f3bf7d5757ceef8d3f532955924",
-    "MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip": "d733efa9f085f65d1f5db36bf8b004e5945329625d0bb6b468590d936b490bb8",
 }
 
 BINARY_SUFFIXES = {".codelib", ".dll", ".exe", ".progpack"}

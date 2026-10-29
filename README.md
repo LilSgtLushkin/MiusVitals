@@ -2,24 +2,26 @@
 
 ## 1.0.7 EXPERIMENTAL net+fps — единый тестовый установщик
 
-**Скачать:** [`MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_CURRENT_INSTALL.zip`](MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET%2BFPS_CURRENT_INSTALL.zip)
-— текущая сборка из `main`. Её собирает CI из коммита, прошедшего полный gate, и публикует в ту же
-ветку, поэтому архив обновляется вместе с исходником. SHA-256 сборки и коммит, из которого она
-собрана, записаны рядом, в
-[`…_CURRENT_INSTALL.zip.sha256.txt`](MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET%2BFPS_CURRENT_INSTALL.zip.sha256.txt);
-совпадение проверяется при каждой проверке релиза.
+**Скачать:** [`MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip`](MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET%2BFPS_INSTALL.zip)
 
-Закреплённый архив
-[`MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip`](MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET%2BFPS_INSTALL.zip)
-(SHA-256 `d733efa9f085f65d1f5db36bf8b004e5945329625d0bb6b468590d936b490bb8`) остаётся прежним и не
-перезаписывается: это сборка, испытанная в сетевой игре 27–29.10.2026, без последующих правок.
-Новый архив отличается от неё составом модуля.
+Это **единственный** установщик 1.0.7 в репозитории: прежние архивы `1.0.7`, `1.0.7 EXPERIMENTAL`
+и первая сборка `1.0.7 EXPERIMENTAL net+fps` (протокол 17) удалены из дерева и остаются только в
+истории Git. Здесь лежит самая свежая сборка (протокол 18), и её пересобирает CI из коммита,
+прошедшего полный gate. SHA-256 сборки и коммит, из которого она собрана, записаны рядом, в
+[`MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip.sha256.txt`](MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET%2BFPS_INSTALL.zip.sha256.txt);
+совпадение проверяется при каждой проверке релиза. Архив обновляется вместе с исходником, поэтому
+на обоих ПК нужно сверить один и тот же SHA-256.
 
-Это отдельный экспериментальный архив на основе 1.0.7 EXPERIMENTAL со всеми её сетевыми
-изменениями и новым быстрым контролем кэша рендера. Используйте один и тот же архив на обоих ПК;
-установщик сразу включает `net_v21`. Сохранённые резервные копии не заменяются; архивы
-1.0.1–1.0.6 удалены из текущего дерева. Реальная игра, Steam, FPS и отсутствие вылетов не
-проверены; заранее сохраните профили и операции.
+Установка — **один `.bat`**: распаковать папку `MiusMultiplayer` рядом с `starter_x64.exe` и запустить
+`Enable_Multiplayer.bat`. Он сам ставит все шесть файлов, включая сетевой модуль `net_v21` и его
+`mp_join.exe`; никаких дополнительных переключателей запускать не нужно. Проверка —
+`Check_Install.bat`, откат — `Disable_Multiplayer.bat`.
+
+Это экспериментальная сборка на основе 1.0.7 EXPERIMENTAL со всеми её сетевыми изменениями и
+новым быстрым контролем кэша рендера. Установщик сразу включает `net_v21`; сохранённые резервные
+копии не заменяются. Архивы 1.0.1–1.0.6 и прежние сборки 1.0.7 удалены из текущего дерева и
+остаются в истории Git. Реальная игра, Steam, FPS и отсутствие вылетов не проверены; заранее
+сохраните профили и операции.
 
 По умолчанию строгая дорогостоящая проверка кэша не включается. Она возможна только при явно
 заданном `MP_RENDER_CACHE_GUARD=strict`. Если быстрый перехват не установлен, строгий режим сам
@@ -77,9 +79,8 @@ SHA-256: `60e7b7a2f2914ae75cf203f48aacc89e9469f71b15b654f70805d50e50736f78`.
 
 | Архив | Назначение |
 |---|---|
-| [`MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_CURRENT_INSTALL.zip`](MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET%2BFPS_CURRENT_INSTALL.zip) | текущий установщик из `main`, публикуется CI после зелёного gate |
-| [`MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip`](MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET%2BFPS_INSTALL.zip) | закреплённая сборка 27.10.2026, испытанная в игре, больше не перезаписывается |
-| [`MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip`](MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip), [`MiusMultiplayer_v1.0.7_TEST_INSTALL.zip`](MiusMultiplayer_v1.0.7_TEST_INSTALL.zip) | предыдущие сборки 1.0.7 |
+| [`MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip`](MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET%2BFPS_INSTALL.zip) | единственный текущий установщик, пересобирается CI после зелёного gate |
+| `MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip`, `MiusMultiplayer_v1.0.7_TEST_INSTALL.zip` | прежние сборки 1.0.7, удалены из дерева и остались в истории Git |
 | [`MiusMultiplayer_v1.0.0_TEST_INSTALL_known_good.zip`](MiusMultiplayer_v1.0.0_TEST_INSTALL_known_good.zip) | сохранённая контрольная копия для отката |
 | [`MiusMultiplayer_v1.0.0_TEST_INSTALL.zip`](MiusMultiplayer_v1.0.0_TEST_INSTALL.zip) | прежняя тестовая сборка `net_v21` |
 | [`GTMP_alpha_INSTALL.zip`](GTMP_alpha_INSTALL.zip) | исторический эксперимент с другой `mp_vitals.dll` |
