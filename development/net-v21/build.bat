@@ -8,6 +8,17 @@ rem   build.bat render_test  only the renderer guard test (fast feedback)
 rem   build.bat join       the command-line join launcher (mp_join.exe), with Steam
 rem   build.bat all        all three
 rem
+rem A second argument chooses the configuration. Release is the default and keeps the exact flags
+rem the CI has always used; debug only turns optimization off, adds symbols and defines
+rem NETV21_DEBUG. Debug output goes to build\<target>-debug\, so both can sit side by side.
+rem
+rem   build.bat module            release
+rem   build.bat module debug      /Od /Zi /MD, symbols, build\module-debug\
+rem   build.bat module release    the same as no second argument
+rem
+rem The debug build still links the release C runtime on purpose: the module is loaded by the
+rem game, and the game's process has no reason to carry the debug runtime DLLs.
+rem
 rem Every module link writes a .map: the DLL carries no symbol table, and the map is what makes the
 rem comparison against v12/v20 readable (tools/compare.py --candidate-map).
 setlocal
@@ -37,6 +48,29 @@ if not defined VCToolsInstallDir (
 where cl
 cd /d "%~dp0"
 
+rem Configuration: release keeps the CI flags exactly; debug only adds symbols and slows down.
+set CONFIG=%2
+if not defined CONFIG set CONFIG=release
+if /i "%CONFIG%"=="debug" goto cfg_debug
+if /i "%CONFIG%"=="release" goto cfg_release
+echo build.bat: configuration must be release or debug
+exit /b 2
+:cfg_release
+set CL_MD=/MD /O1
+set CL_BREPRO=/Brepro
+set CL_T=/MD /O1
+set LINK_DBG=
+set SUFFIX=
+goto cfg_done
+:cfg_debug
+set CL_MD=/Od /MD /Zi /DNETV21_DEBUG
+set CL_BREPRO=
+set CL_T=/Od /MD /Zi /DNETV21_DEBUG
+set LINK_DBG=/DEBUG
+set SUFFIX=-debug
+goto cfg_done
+:cfg_done
+
 rem Our tree: the published sources copied into src\ and changed where we need them.
 set BASE=src\basic_network.cpp src\netlog.cpp src\hooks.cpp src\render_guard.cpp src\vitals.cpp src\hit_sync.cpp src\anim_sync.cpp src\session.cpp src\ui.cpp src\state.cpp src\statesync.cpp src\statesync_legacy.cpp src\shots.cpp src\trench.cpp src\xlate.cpp
 set STEAM=src\steam.cpp src\steam_module.cpp
@@ -52,119 +86,121 @@ if /i "%~1"=="render_test" goto render_test
 if /i "%~1"=="join" goto join
 
 :all
-call "%~f0" baseline || exit /b 1
-call "%~f0" module || exit /b 1
-call "%~f0" selftest || exit /b 1
-call "%~f0" join || exit /b 1
+call "%~f0" baseline %CONFIG% || exit /b 1
+call "%~f0" module %CONFIG% || exit /b 1
+call "%~f0" selftest %CONFIG% || exit /b 1
+call "%~f0" join %CONFIG% || exit /b 1
 exit /b 0
 
 :baseline
-if not exist build\baseline mkdir build\baseline
-cl /nologo /LD /MD /O1 /EHa /W3 /Brepro /Fo"build\baseline\\" /Fd"build\baseline\\" %BASELINE% /link user32.lib gdi32.lib ws2_32.lib ole32.lib oleaut32.lib /OUT:build\baseline\basic_network.codelib /IMPLIB:build\baseline\basic_network.lib /MAP:build\baseline\basic_network.map
+if not exist build\baseline%SUFFIX% mkdir build\baseline%SUFFIX%
+cl /nologo /LD %CL_MD% /EHa /W3 %CL_BREPRO% /Fo"build\baseline%SUFFIX%\\" /Fd"build\baseline%SUFFIX%\\" %BASELINE% /link user32.lib gdi32.lib ws2_32.lib ole32.lib oleaut32.lib /OUT:build\baseline%SUFFIX%\basic_network.codelib /IMPLIB:build\baseline%SUFFIX%\basic_network.lib /MAP:build\baseline%SUFFIX%\basic_network.map %LINK_DBG%
 exit /b %errorlevel%
 
 :module
-if not exist build\module mkdir build\module
-cl /nologo /LD /MD /O1 /EHa /W3 /Brepro /Fo"build\module\\" /Fd"build\module\\" %BASE% %STEAM% /link /Brepro user32.lib gdi32.lib ws2_32.lib ole32.lib oleaut32.lib /OUT:build\module\basic_network.codelib /IMPLIB:build\module\basic_network.lib /MAP:build\module\basic_network.map
+if not exist build\module%SUFFIX% mkdir build\module%SUFFIX%
+cl /nologo /LD %CL_MD% /EHa /W3 %CL_BREPRO% /Fo"build\module%SUFFIX%\\" /Fd"build\module%SUFFIX%\\" %BASE% %STEAM% /link /Brepro %LINK_DBG% user32.lib gdi32.lib ws2_32.lib ole32.lib oleaut32.lib /OUT:build\module%SUFFIX%\basic_network.codelib /IMPLIB:build\module%SUFFIX%\basic_network.lib /MAP:build\module%SUFFIX%\basic_network.map %LINK_DBG%
 exit /b %errorlevel%
 
 :selftest
-if not exist build\selftest mkdir build\selftest
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\steam.cpp src\steam_logger.cpp tests\steam_selftest.cpp /link ws2_32.lib /OUT:build\selftest\steam_selftest.exe
+if not exist build\selftest%SUFFIX% mkdir build\selftest%SUFFIX%
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" src\steam.cpp src\steam_logger.cpp tests\steam_selftest.cpp /link ws2_32.lib /OUT:build\selftest%SUFFIX%\steam_selftest.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\steam_friends_test.cpp /link /OUT:build\selftest\steam_friends_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\steam_friends_test.cpp /link /OUT:build\selftest%SUFFIX%\steam_friends_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\netlog.cpp tests\netlog_selftest.cpp /link /OUT:build\selftest\netlog_selftest.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" src\netlog.cpp tests\netlog_selftest.cpp /link /OUT:build\selftest%SUFFIX%\netlog_selftest.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\vitals_core_test.cpp /link /OUT:build\selftest\vitals_core_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\vitals_core_test.cpp /link /OUT:build\selftest%SUFFIX%\vitals_core_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\vitals_randomized_test.cpp /link /OUT:build\selftest\vitals_randomized_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\vitals_randomized_test.cpp /link /OUT:build\selftest%SUFFIX%\vitals_randomized_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\hit_anim_wire_test.cpp /link /OUT:build\selftest\hit_anim_wire_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\hit_anim_wire_test.cpp /link /OUT:build\selftest%SUFFIX%\hit_anim_wire_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\animation_channel_test.cpp /link /OUT:build\selftest\animation_channel_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\animation_channel_test.cpp /link /OUT:build\selftest%SUFFIX%\animation_channel_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\pause_sync_test.cpp /link /OUT:build\selftest\pause_sync_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\pause_sync_test.cpp /link /OUT:build\selftest%SUFFIX%\pause_sync_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\hit_sync.cpp src\anim_sync.cpp src\hooks.cpp tests\hit_anim_integration_test.cpp /link /OUT:build\selftest\hit_anim_integration_test.exe
+cl /nologo /Isrc %CL_T% /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" src\hit_sync.cpp src\anim_sync.cpp src\hooks.cpp tests\hit_anim_integration_test.cpp /link /OUT:build\selftest%SUFFIX%\hit_anim_integration_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\vitals.cpp src\hooks.cpp tests\vitals_integration_test.cpp /link /OUT:build\selftest\vitals_integration_test.exe
+cl /nologo /Isrc %CL_T% /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" src\vitals.cpp src\hooks.cpp tests\vitals_integration_test.cpp /link /OUT:build\selftest%SUFFIX%\vitals_integration_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\protocol_selftest.cpp /link /OUT:build\selftest\protocol_selftest.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\protocol_selftest.cpp /link /OUT:build\selftest%SUFFIX%\protocol_selftest.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\operation_turn_test.cpp /link /OUT:build\selftest\operation_turn_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\operation_turn_test.cpp /link /OUT:build\selftest%SUFFIX%\operation_turn_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\opsave_checked_test.cpp /link /OUT:build\selftest\opsave_checked_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\opsave_checked_test.cpp /link /OUT:build\selftest%SUFFIX%\opsave_checked_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\map_file_test.cpp /link /OUT:build\selftest\map_file_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\map_file_test.cpp /link /OUT:build\selftest%SUFFIX%\map_file_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\map_file_windows_test.cpp /link /OUT:build\selftest\map_file_windows_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\map_file_windows_test.cpp /link /OUT:build\selftest%SUFFIX%\map_file_windows_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\force_test.cpp /link /OUT:build\selftest\force_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\force_test.cpp /link /OUT:build\selftest%SUFFIX%\force_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\battle_file_test.cpp /link /OUT:build\selftest\battle_file_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\battle_file_test.cpp /link /OUT:build\selftest%SUFFIX%\battle_file_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\retry_gate_test.cpp /link /OUT:build\selftest\retry_gate_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\retry_gate_test.cpp /link /OUT:build\selftest%SUFFIX%\retry_gate_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\atomic_file_selftest.cpp /link /OUT:build\selftest\atomic_file_selftest.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\atomic_file_selftest.cpp /link /OUT:build\selftest%SUFFIX%\atomic_file_selftest.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\reliable_inbox_test.cpp /link /OUT:build\selftest\reliable_inbox_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\reliable_inbox_test.cpp /link /OUT:build\selftest%SUFFIX%\reliable_inbox_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\ceasefire_test.cpp /link /OUT:build\selftest\ceasefire_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\ceasefire_test.cpp /link /OUT:build\selftest%SUFFIX%\ceasefire_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\env_value_test.cpp /link /OUT:build\selftest\env_value_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\env_value_test.cpp /link /OUT:build\selftest%SUFFIX%\env_value_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\tactical_mode_test.cpp /link /OUT:build\selftest\tactical_mode_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\tactical_mode_test.cpp /link /OUT:build\selftest%SUFFIX%\tactical_mode_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\transform_write_test.cpp /link /OUT:build\selftest\transform_write_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\transform_write_test.cpp /link /OUT:build\selftest%SUFFIX%\transform_write_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\transform_gc_test.cpp /link /OUT:build\selftest\transform_gc_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\transform_gc_test.cpp /link /OUT:build\selftest%SUFFIX%\transform_gc_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\state_apply_delay_test.cpp /link /OUT:build\selftest\state_apply_delay_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\transform_object_check_test.cpp /link /OUT:build\selftest%SUFFIX%\transform_object_check_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\squad_ownership_test.cpp /link /OUT:build\selftest\squad_ownership_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\state_apply_delay_test.cpp /link /OUT:build\selftest%SUFFIX%\state_apply_delay_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\image_mirror_identity_test.cpp /link /OUT:build\selftest\image_mirror_identity_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\squad_ownership_test.cpp /link /OUT:build\selftest%SUFFIX%\squad_ownership_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\transform_send_test.cpp /link /OUT:build\selftest\transform_send_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\image_mirror_identity_test.cpp /link /OUT:build\selftest%SUFFIX%\image_mirror_identity_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\transform_inbox_test.cpp /link /OUT:build\selftest\transform_inbox_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\transform_send_test.cpp /link /OUT:build\selftest%SUFFIX%\transform_send_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\transport_policy_test.cpp /link /OUT:build\selftest\transport_policy_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\transform_inbox_test.cpp /link /OUT:build\selftest%SUFFIX%\transform_inbox_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\peer_guard_test.cpp /link /OUT:build\selftest\peer_guard_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\transport_policy_test.cpp /link /OUT:build\selftest%SUFFIX%\transport_policy_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\state_fragments_test.cpp /link /OUT:build\selftest\state_fragments_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\peer_guard_test.cpp /link /OUT:build\selftest%SUFFIX%\peer_guard_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\statesync.cpp src\statesync_legacy.cpp tests\statesync_integration_test.cpp /link /OUT:build\selftest\statesync_integration_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\state_fragments_test.cpp /link /OUT:build\selftest%SUFFIX%\state_fragments_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\state.cpp src\hooks.cpp tests\state_memory_test.cpp /link /OUT:build\selftest\state_memory_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" src\statesync.cpp src\statesync_legacy.cpp tests\statesync_integration_test.cpp /link /OUT:build\selftest%SUFFIX%\statesync_integration_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\shots.cpp src\hooks.cpp tests\shots_integration_test.cpp /link /OUT:build\selftest\shots_integration_test.exe
+cl /nologo /Isrc %CL_T% /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" src\state.cpp src\hooks.cpp tests\state_memory_test.cpp /link /OUT:build\selftest%SUFFIX%\state_memory_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\shots.cpp src\hooks.cpp src\named_shots_integration_test.cpp /link /OUT:build\selftest\named_shots_integration_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" src\shots.cpp src\hooks.cpp tests\shots_integration_test.cpp /link /OUT:build\selftest%SUFFIX%\shots_integration_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\shots.cpp src\xlate.cpp src\hooks.cpp tests\shots_xlate_characterization_test.cpp /link /OUT:build\selftest\shots_xlate_characterization_test.exe
+cl /nologo /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" src\shots.cpp src\hooks.cpp src\named_shots_integration_test.cpp /link /OUT:build\selftest%SUFFIX%\named_shots_integration_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\hooks.cpp tests\hooks_selftest.cpp /link /OUT:build\selftest\hooks_selftest.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" src\shots.cpp src\xlate.cpp src\hooks.cpp tests\shots_xlate_characterization_test.cpp /link /OUT:build\selftest%SUFFIX%\shots_xlate_characterization_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\xlate.cpp src\hooks.cpp tests\xlate_selftest.cpp /link /OUT:build\selftest\xlate_selftest.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" src\hooks.cpp tests\hooks_selftest.cpp /link /OUT:build\selftest%SUFFIX%\hooks_selftest.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\trench.cpp src\hooks.cpp tests\trench_thread_test.cpp /link /OUT:build\selftest\trench_thread_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" src\xlate.cpp src\hooks.cpp tests\xlate_selftest.cpp /link /OUT:build\selftest%SUFFIX%\xlate_selftest.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\render_guard.cpp src\hooks.cpp tests\render_guard_test.cpp /link /OUT:build\selftest\render_guard_test.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" src\trench.cpp src\hooks.cpp tests\trench_thread_test.cpp /link /OUT:build\selftest%SUFFIX%\trench_thread_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /LD /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\late_input_fixture.cpp /link user32.lib /OUT:build\selftest\late_input_fixture.dll /IMPLIB:build\selftest\late_input_fixture.lib
+cl /nologo /Isrc %CL_T% /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" src\render_guard.cpp src\hooks.cpp tests\render_guard_test.cpp /link /OUT:build\selftest%SUFFIX%\render_guard_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\late_input_test.cpp /link user32.lib /OUT:build\selftest\late_input_test.exe
+cl /nologo /Isrc /LD /MD /O1 /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\late_input_fixture.cpp /link user32.lib /OUT:build\selftest%SUFFIX%\late_input_fixture.dll /IMPLIB:build\selftest%SUFFIX%\late_input_fixture.lib %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\starter_fixture.cpp /link /OUT:build\selftest\starter_fixture.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\late_input_test.cpp /link user32.lib /OUT:build\selftest%SUFFIX%\late_input_test.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\loopback_peer.cpp /link ws2_32.lib /OUT:build\selftest\loopback_peer.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\starter_fixture.cpp /link /OUT:build\selftest%SUFFIX%\starter_fixture.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\session.cpp src\vitals.cpp src\hooks.cpp src\steam.cpp src\steam_module.cpp tests\session_loopback_peer.cpp /link ws2_32.lib ole32.lib oleaut32.lib user32.lib /OUT:build\selftest\session_loopback_peer.exe
+cl /nologo /Isrc %CL_T% /EHsc /W3 /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" tests\loopback_peer.cpp /link ws2_32.lib /OUT:build\selftest%SUFFIX%\loopback_peer.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /Isrc /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\session.cpp src\vitals.cpp src\hooks.cpp src\steam.cpp src\steam_module.cpp src\shots.cpp src\hit_sync.cpp src\anim_sync.cpp tests\session_event_peer.cpp /link ws2_32.lib ole32.lib oleaut32.lib user32.lib /OUT:build\selftest\session_event_peer.exe
+cl /nologo /Isrc %CL_T% /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" src\session.cpp src\vitals.cpp src\hooks.cpp src\steam.cpp src\steam_module.cpp tests\session_loopback_peer.cpp /link ws2_32.lib ole32.lib oleaut32.lib user32.lib /OUT:build\selftest%SUFFIX%\session_loopback_peer.exe %LINK_DBG%
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /Isrc %CL_T% /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest%SUFFIX%\\" /Fd"build\selftest%SUFFIX%\\" src\session.cpp src\vitals.cpp src\hooks.cpp src\steam.cpp src\steam_module.cpp src\shots.cpp src\hit_sync.cpp src\anim_sync.cpp tests\session_event_peer.cpp /link ws2_32.lib ole32.lib oleaut32.lib user32.lib /OUT:build\selftest%SUFFIX%\session_event_peer.exe %LINK_DBG%
 if errorlevel 1 exit /b %errorlevel%
 rem The pause/state-header slice compiles real functions out of session.cpp; it needs the same
 rem compiler this script has just put on PATH, so it runs here and not from the workflow.
@@ -172,13 +208,13 @@ python tools\pause_session_slice_selftest.py
 exit /b %errorlevel%
 
 :render_test
-if not exist build\render_test mkdir build\render_test
-cl /nologo /Isrc /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\render_test\\" /Fd"build\render_test\\" src\render_guard.cpp src\hooks.cpp tests\render_guard_test.cpp /link /OUT:build\render_test\render_guard_test.exe
+if not exist build\render_test%SUFFIX% mkdir build\render_test%SUFFIX%
+cl /nologo /Isrc %CL_MD% /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\render_test%SUFFIX%\\" /Fd"build\render_test%SUFFIX%\\" src\render_guard.cpp src\hooks.cpp tests\render_guard_test.cpp /link /OUT:build\render_test%SUFFIX%\render_guard_test.exe %LINK_DBG%
 exit /b %errorlevel%
 
 :join
 rem The launcher the same way the author builds it (/MT), plus the Steam layer, so joining by
 rem "steam:<id>" works from the command line as well as from the menu.
-if not exist build\join mkdir build\join
-cl /nologo /MT /O1 /EHsc /W3 /Brepro /Fo"build\join\\" /Fd"build\join\\" src\mp_join.cpp src\steam.cpp src\steam_logger.cpp /link /Brepro ws2_32.lib /OUT:build\join\mp_join.exe
+if not exist build\join%SUFFIX% mkdir build\join%SUFFIX%
+cl /nologo /MT /O1 /EHsc /W3 /Brepro /Fo"build\join%SUFFIX%\\" /Fd"build\join%SUFFIX%\\" src\mp_join.cpp src\steam.cpp src\steam_logger.cpp /link /Brepro %LINK_DBG% ws2_32.lib /OUT:build\join%SUFFIX%\mp_join.exe %LINK_DBG%
 exit /b %errorlevel%
