@@ -78,10 +78,13 @@ jobs:
         run: |
           set -euo pipefail
           # upload-artifact v4 picks the layout inside the archive, so search for the files instead
-          # of assuming one path. Rebuilding is the same source and the same build.bat, but the
-          # binaries the gate actually exercised are the stronger provenance.
-          codelib=$(find gated -type f -name basic_network.codelib -print -quit 2>/dev/null || true)
-          launcher=$(find gated -type f -name mp_join.exe -print -quit 2>/dev/null || true)
+          # of assuming one path - but search for the exact build outputs, not for any file with
+          # that name: the gated run also uploads build/baseline/basic_network.codelib, which is
+          # the published v12 sources without the Steam layer and must never be published.
+          codelib=$(find gated -type f -path '*/module/basic_network.codelib' \
+                        -not -path '*/baseline/*' -print -quit 2>/dev/null || true)
+          launcher=$(find gated -type f -path '*/join/mp_join.exe' \
+                         -not -path '*/baseline/*' -print -quit 2>/dev/null || true)
           if [ -n "$codelib" ] && [ -n "$launcher" ]; then
             echo "codelib=$codelib" >> "$GITHUB_OUTPUT"
             echo "launcher=$launcher" >> "$GITHUB_OUTPUT"
