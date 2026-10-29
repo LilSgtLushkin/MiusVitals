@@ -1,5 +1,8 @@
 # Сборка в Visual Studio Code: debug и release
 
+Для Visual Studio 2026 (сама IDE, не VS Code) рядом лежит `net-v21.slnx` — см. [VISUAL-STUDIO.md](VISUAL-STUDIO.md).
+Здесь же описана работа в VS Code.
+
 Всё, что нужно для работы в VS Code, лежит в репозитории: `.vscode/tasks.json`,
 `.vscode/launch.json`, `.vscode/c_cpp_properties.json`. Открываете папку репозитория — и
 собираете. Сборка по-прежнему идёт через `build.bat` (C++ из Visual Studio 2026 либо 2022 —
