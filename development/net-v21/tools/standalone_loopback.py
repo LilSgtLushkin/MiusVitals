@@ -18,8 +18,9 @@ import tempfile
 import time
 
 
-# The identity the stand's spectator host offers, set by session_loopback_peer.cpp before it starts.
-HOST_EPOCH, HOST_REVISION = "101", "1"
+# The identity the stand's spectator host offers: session_loopback_peer.cpp starts it with
+# MP_MAP_EPOCH=101 / MP_MAP_REV=1, and session_start advances it once for an operation host.
+HOST_EPOCH, HOST_REVISION = "102", "2"
 
 
 def free_port() -> int:

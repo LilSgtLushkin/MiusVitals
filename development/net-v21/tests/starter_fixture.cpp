@@ -14,12 +14,22 @@ static bool equals(const char *name, const char *expected) {
     DWORD n = GetEnvironmentVariableA(name, value, sizeof value);
     return n && n < sizeof value && !strcmp(value, expected);
 }
-// Compare against the identity the stand's host actually offered, supplied by the test. A number
-// written down here drifts as soon as the stand seeds differently, and a wrong one fails invisibly.
-static bool equals_expected(const char *name, const char *expected_name) {
-    char expected[128] = {};
+// Compare against the identity the stand's host actually offered, supplied by the test, and name
+// both sides when they differ: a bare "wrong epoch" costs a full CI run to pin down.
+static bool equals_expected(const char *name, const char *expected_name, std::string &bad) {
+    char expected[128] = {}, got[128] = {};
     DWORD en = GetEnvironmentVariableA(expected_name, expected, sizeof expected);
-    return en && en < sizeof expected && equals(name, expected);
+    DWORD gn = GetEnvironmentVariableA(name, got, sizeof got);
+    bool ok = en && en < sizeof expected && gn && gn < sizeof got && !strcmp(got, expected);
+    if (!ok) {
+        bad += name;
+        bad += "=";
+        bad += gn && gn < sizeof got ? got : "<unset>";
+        bad += " want ";
+        bad += en && en < sizeof expected ? expected : "<unset>";
+        bad += ", ";
+    }
+    return ok;
 }
 int main() {
     char autojoin[4];
@@ -59,8 +69,8 @@ int main() {
     } else if (operation) {
         want(equals("MP_ROLE", "join"), "MP_ROLE");
         want(equals("MP_MAP", "1"), "MP_MAP");
-        want(equals_expected("MP_MAP_EPOCH", "MIUS_EXPECT_EPOCH"), "MP_MAP_EPOCH");
-        want(equals_expected("MP_MAP_REV", "MIUS_EXPECT_REV"), "MP_MAP_REV");
+        equals_expected("MP_MAP_EPOCH", "MIUS_EXPECT_EPOCH", bad);
+        equals_expected("MP_MAP_REV", "MIUS_EXPECT_REV", bad);
         want(!an, "MP_AUTOJOIN set");
         want(!GetEnvironmentVariableA(battle_identity::k_environment, autojoin, sizeof autojoin), "battle ticket set");
     } else {
@@ -73,6 +83,7 @@ int main() {
     }
     FILE *f = nullptr;
     if (fopen_s(&f, "starter_fixture_result.tmp", "wb") || !f) return 2;
+    while (bad.size() >= 2 && bad.compare(bad.size() - 2, 2, ", ") == 0) bad.erase(bad.size() - 2);
     if (bad.empty()) fprintf(f, "ok:%lu:%s", GetCurrentProcessId(), identity);
     else fprintf(f, "fail:%s", bad.c_str());
     if (fclose(f) || !MoveFileExA("starter_fixture_result.tmp", "starter_fixture_result.txt",
