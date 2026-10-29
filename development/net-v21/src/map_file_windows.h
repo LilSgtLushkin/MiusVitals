@@ -67,7 +67,7 @@ inline map_file::Result replace_and_launch(const char *directory, const std::str
 // setter stops launch, and both successful and failed launches restore the parent's prior values.
 // As with Win32 process environment generally, another thread must not change these keys concurrently.
 struct Environment {
-    struct Entry { std::string name, value; bool present; };
+    struct Entry { std::string name, value; bool present = false; };
     std::vector<Entry> entries;
     bool set(const char *name, const char *value) {
         if (!name || !*name) { SetLastError(ERROR_INVALID_PARAMETER); return false; }

@@ -36,7 +36,9 @@ inline void *install_detour(void *target, size_t len, void *hook)
     memcpy(fn, patch, len);
     VirtualProtect(fn, len, old, &old);
     FlushInstructionCache(GetCurrentProcess(), fn, len);
-    FlushInstructionCache(GetCurrentProcess(), tramp, 64);
+    // Only the bytes actually written: len + jmp[6] + address[8]. The allocation is 64 bytes,
+    // so flushing 64 made the analyser believe unwritten bytes were being read.
+    FlushInstructionCache(GetCurrentProcess(), tramp, len + 14);
     return tramp;
 }
 
@@ -52,7 +54,9 @@ inline bool install_published_detour(void *target, size_t len, Hook hook, std::a
     static const unsigned char jmp[6] = { 0xff, 0x25, 0, 0, 0, 0 };
     void *back = fn + len, *destination = (void *)hook;
     memcpy(tramp, fn, len); memcpy(tramp + len, jmp, 6); memcpy(tramp + len + 6, &back, 8);
-    FlushInstructionCache(GetCurrentProcess(), tramp, 64);
+    // Only the bytes actually written: len + jmp[6] + address[8]. The allocation is 64 bytes,
+    // so flushing 64 made the analyser believe unwritten bytes were being read.
+    FlushInstructionCache(GetCurrentProcess(), tramp, len + 14);
     DWORD old;
     if (!VirtualProtect(fn, len, PAGE_EXECUTE_READWRITE, &old)) { VirtualFree(tramp, 0, MEM_RELEASE); return false; }
     unsigned char patch[32]; memset(patch, 0x90, sizeof patch);

@@ -145,7 +145,7 @@ inline Counts user_force(const std::vector<byte> &b)
 // ---------------------------------------------------------------- writing rows
 // A row that is being written: its cells as they will go into the file, plus the text cells whose text has
 // to be copied in as well (those of the other player's rows).
-struct Pending { size_t at; std::string text; };
+struct Pending { size_t at = 0; std::string text; };
 
 // Build a table body out of `rows` of `src` (table `t`): the cells are copied, `patch_side_col` and
 // `patch_tag_col` (when given) are overwritten, and text is either kept as it is (`keep_text`: it already
