@@ -21,8 +21,17 @@
 c++ -std=c++17 -O2 -Wall -Wextra -Werror -Idevelopment/net-v21/src \
   development/net-v21/tests/transform_gc_test.cpp -o /tmp/mius-transform-gc-test
 /tmp/mius-transform-gc-test
+c++ -std=c++17 -O2 -Wall -Wextra -Werror -Idevelopment/net-v21/src \
+  -Idevelopment/net-v21/tests \
+  development/net-v21/tests/image_mirror_identity_test.cpp -o /tmp/mius-image-test
+/tmp/mius-image-test
 python3 development/net-v21/tools/extract_legacy_shots_fixture_selftest.py
+python3 development/net-v21/tools/pause_session_slice_selftest.py
 ```
+
+`image_mirror_identity_test` покрывает зеркалирование сторон и перепись командных тегов
+(`image::squad_tags()`), `pause_session_slice_selftest.py` извлекает настоящие функции паузы
+и шапки состояния из `session.cpp` и проверяет их на подставном движке.
 
 Windows-зависимые части можно отдельно проверить Zig через `development/net-v21/tools/syntax/check.sh`;
 это не замена MSVC и не запуск игры. В Windows с VS2022 из `development/net-v21` используются
