@@ -145,7 +145,12 @@ struct Fixture {
         *slot = iface;
         const void **om = (const void **)(at + k_objman);
         *om = manager;
-        strncpy((char *)at + k_full, name, k_full_size - 1);
+        // Без strncpy: MSVC считает её небезопасной и предупреждает, а здесь нужен просто
+        // точный перенос имени с гарантированным завершающим нулём.
+        size_t n = strlen(name);
+        if (n > k_full_size - 1) n = k_full_size - 1;
+        memcpy(at + k_full, name, n);
+        at[k_full + n] = 0;
     }
 };
 
