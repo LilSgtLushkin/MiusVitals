@@ -88,6 +88,10 @@ ARTIFACTS: dict[str, tuple[str, tuple[str, ...]]] = {
     ),
 }
 
+# Immutable archives only. The rolling installer that publish-installer.yml builds from the gated
+# source is deliberately absent: its hash is recorded beside it by the same job that produces the
+# file, so a pin here would be self-fulfilling and would prove nothing. verify_release.sh checks
+# that archive structurally and against its own recorded hash instead.
 ARCHIVES: dict[str, str] = {
     "MiusMultiplayer_OUTDATED_INSTALL.zip": "67661473d1f8e6bcd67d7cf9117e92e19d30e5adda456dab5ee347aa851fa027",
     "GTMP_alpha_INSTALL.zip": "aacfe7dfd0cca82c0ed771e5a9088faa75565f3bf7d5757ceef8d3f532955924",

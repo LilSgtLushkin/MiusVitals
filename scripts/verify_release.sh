@@ -32,6 +32,26 @@ import hashlib, pathlib, sys
 assert hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest() == 'd733efa9f085f65d1f5db36bf8b004e5945329625d0bb6b468590d936b490bb8'
 PY
 fi
+if [ -f "$ROOT/MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_CURRENT_INSTALL.zip" ]; then
+    # The rolling installer published from the gated source. The packager proves the kit inside is
+    # complete and consistent; the recorded hash proves this copy is the one that was built, so a
+    # truncated or rewritten file cannot pass. The hash is not pinned in check_artifacts.py: it
+    # would be written by the same job that builds the archive and would prove nothing.
+    python3 "$ROOT/scripts/package_net_v21_test.py" --verify \
+        "$ROOT/MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_CURRENT_INSTALL.zip"
+    python3 - "$ROOT/MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_CURRENT_INSTALL.zip" <<'PY'
+import hashlib, pathlib, sys
+archive = pathlib.Path(sys.argv[1])
+record = archive.with_name(archive.name + ".sha256.txt")
+lines = record.read_text().split("\n")
+fields = lines[0].split()
+assert len(fields) == 2, f"unexpected record format: {lines[0]!r}"
+assert fields[1] == archive.name, f"record describes {fields[1]}, not {archive.name}"
+assert lines[1].startswith("source commit: "), "the record does not name the source commit"
+digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+assert digest == fields[0], f"installer SHA-256 {digest} does not match the recorded {fields[0]}"
+PY
+fi
 python3 "$ROOT/scripts/archive_audit_selftest.py"
 python3 "$ROOT/scripts/archive_audit.py" --check
 python3 "$ROOT/development/merged-source/tests/test_ordered_operation_patch.py"
