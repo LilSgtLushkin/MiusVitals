@@ -1,0 +1,133 @@
+name: Publish the current installer
+
+# main carries a ready one-step installer, and it is built only from a commit whose full release
+# gate has already passed. The module and launcher are taken from that gated run, so the archive
+# holds the exact binaries that ran the two-process sessions and the v12/v20 comparisons; when the
+# gated build is unavailable the module is rebuilt here with the author's own settings (build.bat).
+#
+# The gate runs on pull requests, so publishing commits onto the gated pull request branch and the
+# merge brings the installer into main with the same tree. A manual dispatch publishes from the
+# branch it is started on. The commit carries [skip ci]: it adds no source, and a push made with the
+# default token does not start another run either, so publishing cannot loop.
+#
+# The published installer is deliberately not hash-pinned in scripts/check_artifacts.py: the pin
+# would be written by the same job that produces the file and would prove nothing. Instead the
+# SHA-256 of the built archive is committed beside it and verify_release.sh checks that the file
+# still matches the recorded hash, so a truncated or rewritten copy cannot pass.
+on:
+  workflow_run:
+    workflows: ["Final validation (network, installer and native checks)"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Two runs for one branch would race to publish; the newest one wins.
+concurrency:
+  group: publish-installer-${{ github.event.workflow_run.head_branch || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  ARCHIVE: MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_CURRENT_INSTALL.zip
+
+jobs:
+  publish:
+    name: Build the installer and publish it to the gated branch
+    if: |
+      github.event_name == 'workflow_dispatch' || (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the commit the release gate passed
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Take the module and launcher the gate verified
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: network-module
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          path: gated
+
+      - name: Build the module and launcher when the gated build is unavailable
+        if: ${{ !hashFiles('gated/development/net-v21/build/module/basic_network.codelib') || !hashFiles('gated/development/net-v21/build/join/mp_join.exe') }}
+        shell: cmd
+        run: |
+          if not exist development\net-v21\build mkdir development\net-v21\build
+          call development\net-v21\build.bat module > development\net-v21\build\publish-module.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\publish-module.log
+          if not "%rc%"=="0" exit /b %rc%
+          call development\net-v21\build.bat join > development\net-v21\build\publish-join.log 2>&1
+          set rc=%errorlevel%
+          type development\net-v21\build\publish-join.log
+          exit /b %rc%
+
+      - name: Assemble the installer and check it against this source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          codelib=development/net-v21/build/module/basic_network.codelib
+          launcher=development/net-v21/build/join/mp_join.exe
+          if [ -f gated/development/net-v21/build/module/basic_network.codelib ] \
+             && [ -f gated/development/net-v21/build/join/mp_join.exe ]; then
+            codelib=gated/development/net-v21/build/module/basic_network.codelib
+            launcher=gated/development/net-v21/build/join/mp_join.exe
+            echo "publishing the module and launcher the release gate verified"
+          fi
+          python scripts/package_net_v21_test.py --codelib "$codelib" --launcher "$launcher" \
+            --output "$ARCHIVE" 2>&1 | tee development/net-v21/build/publish-package.log
+          # --verify-source proves the kit inside the archive matches this exact checkout.
+          python scripts/package_net_v21_test.py --verify "$ARCHIVE" --verify-source
+
+      - name: Commit the installer to the gated branch
+        shell: bash
+        env:
+          BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
+          SOURCE_COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          digest=$(sha256sum "$ARCHIVE" | cut -d' ' -f1)
+          # Recorded content depends only on the archive and its source commit, so publishing the
+          # same build twice commits nothing.
+          printf '%s  %s\nsource commit: %s\n' "$digest" "$ARCHIVE" "$SOURCE_COMMIT" \
+            > "$ARCHIVE.sha256.txt"
+          cat "$ARCHIVE.sha256.txt"
+          {
+            echo "### Published installer"
+            echo ''
+            echo "- archive: \`$ARCHIVE\`"
+            echo "- SHA-256: \`$digest\`"
+            echo "- source commit: \`$SOURCE_COMMIT\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          git add -- "$ARCHIVE" "$ARCHIVE.sha256.txt"
+          if git diff --cached --quiet; then
+            echo "the installer already matches this source; nothing to commit"
+            exit 0
+          fi
+          if ! git ls-remote --exit-code --heads origin "$BRANCH" > /dev/null; then
+            echo "branch $BRANCH is gone (merged or deleted); not publishing"
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' \
+              -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+              commit -q -m "net-v21: готовый установщик 1.0.7 experimental net+fps из ${SOURCE_COMMIT::9} [skip ci]"
+          for attempt in 1 2 3; do
+            git fetch --quiet origin "$BRANCH"
+            if git rebase "origin/$BRANCH" && git push --quiet origin "HEAD:$BRANCH"; then
+              echo "- branch: \`$BRANCH\` (published)" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            git rebase --abort || true
+            sleep 15
+          done
+          echo "::error title=Publish failed::the installer could not be pushed to $BRANCH"
+          exit 1

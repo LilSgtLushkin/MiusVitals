@@ -2,9 +2,18 @@
 
 ## 1.0.7 EXPERIMENTAL net+fps — единый тестовый установщик
 
-**Скачать:** [`MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip`](MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET%2BFPS_INSTALL.zip)
+**Скачать:** [`MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_CURRENT_INSTALL.zip`](MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET%2BFPS_CURRENT_INSTALL.zip)
+— текущая сборка из `main`. Её собирает CI из коммита, прошедшего полный gate, и публикует в ту же
+ветку, поэтому архив обновляется вместе с исходником. SHA-256 сборки и коммит, из которого она
+собрана, записаны рядом, в
+[`…_CURRENT_INSTALL.zip.sha256.txt`](MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET%2BFPS_CURRENT_INSTALL.zip.sha256.txt);
+совпадение проверяется при каждой проверке релиза.
 
-SHA-256: `d733efa9f085f65d1f5db36bf8b004e5945329625d0bb6b468590d936b490bb8`.
+Закреплённый архив
+[`MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip`](MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET%2BFPS_INSTALL.zip)
+(SHA-256 `d733efa9f085f65d1f5db36bf8b004e5945329625d0bb6b468590d936b490bb8`) остаётся прежним и не
+перезаписывается: это сборка, испытанная в сетевой игре 27–29.10.2026, без последующих правок.
+Новый архив отличается от неё составом модуля.
 
 Это отдельный экспериментальный архив на основе 1.0.7 EXPERIMENTAL со всеми её сетевыми
 изменениями и новым быстрым контролем кэша рендера. Используйте один и тот же архив на обоих ПК;
@@ -68,7 +77,8 @@ SHA-256: `60e7b7a2f2914ae75cf203f48aacc89e9469f71b15b654f70805d50e50736f78`.
 
 | Архив | Назначение |
 |---|---|
-| [`MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip`](MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET%2BFPS_INSTALL.zip) | текущий экспериментальный установщик |
+| [`MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_CURRENT_INSTALL.zip`](MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET%2BFPS_CURRENT_INSTALL.zip) | текущий установщик из `main`, публикуется CI после зелёного gate |
+| [`MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip`](MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET%2BFPS_INSTALL.zip) | закреплённая сборка 27.10.2026, испытанная в игре, больше не перезаписывается |
 | [`MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip`](MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip), [`MiusMultiplayer_v1.0.7_TEST_INSTALL.zip`](MiusMultiplayer_v1.0.7_TEST_INSTALL.zip) | предыдущие сборки 1.0.7 |
 | [`MiusMultiplayer_v1.0.0_TEST_INSTALL_known_good.zip`](MiusMultiplayer_v1.0.0_TEST_INSTALL_known_good.zip) | сохранённая контрольная копия для отката |
 | [`MiusMultiplayer_v1.0.0_TEST_INSTALL.zip`](MiusMultiplayer_v1.0.0_TEST_INSTALL.zip) | прежняя тестовая сборка `net_v21` |

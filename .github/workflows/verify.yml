@@ -18,6 +18,14 @@ jobs:
           name: MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET_FPS_INSTALL
           path: MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip
           if-no-files-found: error
+      # Published by publish-installer.yml from the gated source. It is absent until that workflow
+      # has run once for this branch, so a missing file is a warning and not a broken check.
+      - name: Upload the rolling installer built from main
+        uses: actions/upload-artifact@v4
+        with:
+          name: MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET_FPS_CURRENT_INSTALL
+          path: MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_CURRENT_INSTALL.zip
+          if-no-files-found: warn
       - name: Upload outdated rollback installer
         uses: actions/upload-artifact@v4
         with:
