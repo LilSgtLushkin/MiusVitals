@@ -757,6 +757,21 @@ static void load_battle_description(void)
     find_position_only_units();
     mp_log("net: battle description %zu bytes (hash %08x), this player commands %s (%zu units)", g_image.size(), g_image_hash,
            image::side_name(g_user_side), g_my_units.size());
+    // What the engine, not the network layer, thinks is this player's. A squad on the enemy side that
+    // still carries 'USER' is one this game lets its player select and order - and one this game would
+    // also simulate, because the network layer derives its own set from the same tag. Say so once per
+    // prepared battle: the report is the only way to tell that case apart from a click the interface
+    // allows on a foreign unit for its own reasons.
+    image::TagCounts tags = image::squad_tags(g_image);
+    if (tags.ok) {
+        char side[8];
+        image::tag_text(g_enemy_side, side, sizeof side);
+        mp_log("net: command tags: %u squads, %u tagged USER; %u squads on the %s side, %u of them tagged USER; %u distinct tags",
+               tags.total, tags.user, tags.other_side, side, tags.other_side_user, tags.distinct);
+        if (tags.other_side_user)
+            mp_log("net: %u squad(s) of the other player's side carry the command tag of this game's player - "
+                   "the game will let this player select them", tags.other_side_user);
+    }
     force_publish();
 }
 

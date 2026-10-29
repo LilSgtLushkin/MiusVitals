@@ -93,6 +93,35 @@ int main() {
     auto before = cannot_mirror;
     check(!image::mirror(cannot_mirror) && cannot_mirror == before,
           "a mirror with no convertible enemy fails without modifying any input bytes");
+    // The engine selects and orders the squads tagged USER, so the tag census has to tell a prepared
+    // battle in which the other player's squads carry it apart from one in which they do not.
+    image::TagCounts host_tags = image::squad_tags(original);
+    check(host_tags.ok && host_tags.total == 3 && host_tags.user == 1 && host_tags.other_side == 1 &&
+          host_tags.other_side_user == 0 && host_tags.distinct == 3,
+          "host description: one USER squad, one squad on the other side, none both");
+    image::TagCounts guest_tags = image::squad_tags(mirrored);
+    check(guest_tags.ok && guest_tags.total == 3 && guest_tags.user == 1 && guest_tags.other_side == 2 &&
+          guest_tags.other_side_user == 0 && guest_tags.distinct == 3,
+          "mirrored description: the other side's squads carry their own tags, never USER");
+
+    opsave_fixture::Node crossed; crossed.name = "squads"; crossed.type = 2; crossed.cols = 4;
+    crossed.cells = {opsave_fixture::num("", 0), opsave_fixture::num("", 0x100), opsave_fixture::num("", ger),  opsave_fixture::num("", user),
+                     opsave_fixture::num("", 0), opsave_fixture::num("", 0x300), opsave_fixture::num("", ussr), opsave_fixture::num("", user)};
+    auto crossed_image = opsave_fixture::build({game, crossed, units});
+    image::TagCounts crossed_tags = image::squad_tags(crossed_image);
+    check(crossed_tags.ok && crossed_tags.other_side == 1 && crossed_tags.other_side_user == 1 && crossed_tags.user == 2,
+          "a squad of the other side tagged USER is counted as selectable by this game");
+    image::TagCounts empty = image::squad_tags(opsave_fixture::build({game}));
+    check(!empty.ok && empty.total == 0, "a description without a squads table is reported as unread, not as empty");
+
+    char text[16];
+    image::tag_text(user, text, sizeof text);
+    check(!strcmp(text, "USER"), "a printable tag code reads as its four characters");
+    image::tag_text(0x00010203, text, sizeof text);
+    check(!strcmp(text, "03020100"), "a code with control characters is logged as hex, in memory order");
+    image::tag_text(user, text, 3);
+    check(text[0] == 0, "a short buffer is terminated instead of overrun");
+
     printf("image mirror identity selftest: %d checks, %d failed\n", checks, failed);
     return failed ? 1 : 0;
 }

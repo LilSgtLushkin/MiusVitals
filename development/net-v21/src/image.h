@@ -190,6 +190,76 @@ inline std::unordered_map<unsigned long long, std::string> unit_models(const std
     return out;
 }
 
+// A four-character code as text. Unlike side_name() the caller owns the buffer, so a log line can
+// name several tags at once.
+inline void tag_text(unsigned code, char *out, size_t size)
+{
+    if (size < 5) { if (size) out[0] = 0; return; }
+    char text[5] = { 0, 0, 0, 0, 0 };
+    bool printable = true;
+    for (int i = 0; i < 4; i++) {
+        unsigned char c = (unsigned char)(code >> (8 * i));
+        if (c < 0x20 || c > 0x7e) printable = false;
+        text[i] = (char)c;
+    }
+    if (printable) memcpy(out, text, 5);
+    else {
+        unsigned n = 0;
+        for (int i = 0; i < 4; i++) {          // the bytes in memory order, as the printable form is
+            const char digits[] = "0123456789abcdef";
+            unsigned char c = (unsigned char)(code >> (8 * i));
+            out[n++] = digits[c >> 4];
+            out[n++] = digits[c & 0xf];
+        }
+        out[n] = 0;
+    }
+}
+
+// How the squads of a prepared description are tagged. The engine lets a player select and command the
+// squads carrying 'USER', so a description in which the other player's squads still carry it is a
+// description in which this game can select them - however the network layer counts its own units.
+// Kept as a diagnostic because the alternative (a guess at what the interface lets a player click)
+// would be a change to the game's input path made without evidence.
+struct TagCounts {
+    unsigned total = 0;              // squads in the table
+    unsigned user = 0;               // squads tagged 'USER': what this game's player commands
+    unsigned other_side = 0;         // squads on the enemy side, whichever tag they carry
+    unsigned other_side_user = 0;    // squads on the enemy side that are tagged 'USER' anyway
+    unsigned codes[8] = {0,0,0,0,0,0,0,0};      // how many distinct tag codes the table uses
+    unsigned distinct = 0;
+    bool ok = false;
+};
+
+inline TagCounts squad_tags(const std::vector<byte> &b)
+{
+    TagCounts t;
+    Node s = find(b, "squads");
+    SquadColumns c = squad_columns(b, s);
+    unsigned us = 0, es = 0;
+    if (!s.ok || s.type != 2 || !s.rows || c.tag < 0 || !sides(b, &us, &es)) return t;
+    std::unordered_map<unsigned, unsigned> seen;
+    for (unsigned r = 0; r < s.rows; r++) {
+        unsigned tag = u32_at(b.data(), cell(s, r, (unsigned)c.tag));
+        ++t.total;
+        if (tag == k_user) ++t.user;
+        if (c.side >= 0 && u32_at(b.data(), cell(s, r, (unsigned)c.side)) == es) {
+            ++t.other_side;
+            if (tag == k_user) ++t.other_side_user;
+        }
+        if (!seen.count(tag)) { seen[tag] = 0; if (t.distinct < 8) ++t.distinct; }
+        ++seen[tag];
+    }
+    unsigned i = 0;
+    for (auto &kv : seen) { if (i < 8) t.codes[i++] = kv.second; }
+    // bubble sort, largest first: eight entries, once per battle
+    for (unsigned a = 1; a < i; a++)
+        for (unsigned bb = a; bb && t.codes[bb - 1] < t.codes[bb]; bb--) {
+            unsigned tmp = t.codes[bb - 1]; t.codes[bb - 1] = t.codes[bb]; t.codes[bb] = tmp;
+        }
+    t.ok = true;
+    return t;
+}
+
 // "GER" -> "Germans", for the menu
 inline const char *side_name(unsigned code)
 {
