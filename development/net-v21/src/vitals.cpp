@@ -271,6 +271,7 @@ static void frame(ObjMan *om, uint32_t now, vitals::Send send, bool force) {
         ++ids[key]; candidates.push_back({ obj, id, machine });
     }
     uint32_t seen = 0, dead = 0, veh_seen = 0, veh_nonzero[vitals::vehicle_bytes] = {}, duplicates = 0, applied = 0, refused = 0;
+    uint32_t ours_seen = 0;      // how much of this battle this game is actually allowed to publish
     // These are counts for this scan (like 'refused' above), not cumulative channel counters.
     uint32_t refused_health = 0, refused_death = 0, refused_write = 0, refused_capacity = 0, refused_vehicle_notice = 0;
     std::vector<Entry> pending;
@@ -289,6 +290,7 @@ static void frame(ObjMan *om, uint32_t now, vitals::Send send, bool force) {
             uint8_t values[vitals::vehicle_bytes];
             for (int b = 0; b < vitals::vehicle_bytes; ++b) { values[b] = (uint8_t)p[vehicle_offsets[b]]; if (values[b]) ++veh_nonzero[b]; }
             ++veh_seen;
+            if (ours) ++ours_seen;
             if (!baseline_checked) continue;
             for (int b = 0; b < vitals::vehicle_bytes; ++b) if (baseline_mask & (1u << b)) values[b] = 0;
             if (ours) channel.forget_vehicle(c.id);
@@ -322,6 +324,7 @@ static void frame(ObjMan *om, uint32_t now, vitals::Send send, bool force) {
         }
         if (!readable(p + H_SELF, 4)) continue;
         float health; memcpy(&health, p + H_SELF, 4); ++seen;
+        if (ours) ++ours_seen;
         bool valid = health >= 0.f && health <= 2.f;
         if (sanity_seen < 40) { ++sanity_seen; if (valid) ++sanity_good; }
         if (!valid) { ++refused; ++refused_health; continue; }
@@ -346,6 +349,15 @@ static void frame(ObjMan *om, uint32_t now, vitals::Send send, bool force) {
         if (!local.has_sent || health < local.sent - 0.005f || health > local.sent + 0.005f ||
             (uint32_t)(now - local.last_sent) >= 2000)
             pending.push_back(vitals::soldier(c.id, health));
+    }
+    // Health is published by the side that commands the unit, so an unknown force means a silent
+    // channel: the battle goes on with no health and no deaths crossing over. Say it once.
+    static bool said_nothing_owned = false;
+    if (!said_nothing_owned && !ours_seen && (seen || veh_seen)) {
+        said_nothing_owned = true;
+        mp_log("vitals: none of the %u soldiers and %u vehicles here belong to this player, so no health is published - "
+               "check the battle description or the operation save this battle was prepared from",
+               seen, veh_seen);
     }
     size_t retained = (!start_checked || broken || pending.empty()) ? 0 : channel.enqueue(pending.data(), pending.size(), now, send);
     for (size_t i = 0; i < retained; ++i) {

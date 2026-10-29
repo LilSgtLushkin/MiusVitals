@@ -39,6 +39,7 @@ size_t session_test_motion_cached();
 bool session_test_correction_peak(u64, float, float, bool);
 void session_test_motion_end();
 void session_test_owned(u64);
+void session_test_owned_add(u64);
 void session_test_snapshot_timer(ObjMan *, StateHead *);
 void session_test_map_enable(bool);
 unsigned session_test_map_dropped();
@@ -704,6 +705,11 @@ static int vitals_pair(bool host, bool steam, const char *own_port, const char *
     DWORD start = GetTickCount(), connected_at = 0;
     bool changed = false, local_ok = false;
     while ((uint32_t)(GetTickCount() - start) < 16000) {
+        // Vitals publishes only what this game commands, and a battle description arriving later
+        // clears the set, so the stand states its ownership the way the game would, every frame.
+        if (host) session_test_owned((2ull << 32) | 1);                  // soldier 1
+        else { session_test_owned((2ull << 32) | 2);                     // soldier 2
+               session_test_owned_add((1ull << 32) | 0x10); }            // and the vehicle
         DWORD now = GetTickCount(); session_frame(om);
         if (session_connected() && vitals_test_peer_epoch() && !connected_at) connected_at = now ? now : 1;
         if (connected_at && !changed && (uint32_t)(now - connected_at) >= 3500) {

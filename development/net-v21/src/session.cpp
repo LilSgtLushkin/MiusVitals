@@ -164,6 +164,8 @@ unsigned session_test_event_dropped() { return g_test_event_dropped; }
 unsigned session_test_event_duplicates() { return g_test_event_duplicates; }
 unsigned session_test_event_ack_dropped() { return g_test_event_ack_dropped; }
 void session_test_owned(u64 key) { g_versus = true; g_my_units.clear(); g_my_units.insert(key); rebuild_my_squads(); }
+// The same, without clearing: a stand with several units to publish owns more than one.
+void session_test_owned_add(u64 key) { g_versus = true; g_my_units.insert(key); rebuild_my_squads(); }
 void session_test_event_disconnect() {
     pause_connection_lost();
     g_connected = false;
