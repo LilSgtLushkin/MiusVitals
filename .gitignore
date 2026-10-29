@@ -41,3 +41,9 @@ __pycache__/
 !/.vscode/c_cpp_properties.json
 !/.vscode/extensions.json
 !/.vscode/settings.json
+
+# Visual Studio: кэш решения и личные настройки не храним, проекты — да.
+.vs/
+*.suo
+*.user
+*.vcxproj.user

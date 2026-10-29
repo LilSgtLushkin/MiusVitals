@@ -1,5 +1,6 @@
 @echo off
-rem Build the network module from this tree.  Needs the Visual Studio 2022 C++ tools.
+rem Build the network module from this tree.  Needs the C++ tools of Visual Studio 2026 (folder 18,
+rem toolset v145) or 2022 (folder 2022, v143); the newest one found wins.
 rem
 rem   build.bat baseline   the published v12 sources, untouched - the M1 reference build
 rem   build.bat module     the same sources plus the Steam layer - the M2 build
@@ -33,11 +34,16 @@ echo usage: build.bat baseline^|module^|selftest^|render_test^|join^|all
 exit /b 2
 
 :tools
-call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" >nul 2>&1
+rem Look for the compiler in this order: Visual Studio 2026 (folder 18, toolset v145, cl 14.5x),
+rem then Visual Studio 2022 (folder 2022, v143), then whatever vswhere finds. VS 2026 lives under
+rem the version number, not the year: Microsoft Visual Studio\18\<edition>.
+rem If the environment is already set up - the script runs inside an "x64 Native Tools Command
+rem Prompt" - it is kept: we do not overwrite the choice with another vcvars. To force one:
+rem     set MIUS_VS=C:\Program Files\Microsoft Visual Studio\18\Community
 if defined VCToolsInstallDir goto have_tools
-call "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat" >nul 2>&1
+if defined MIUS_VS call "%MIUS_VS%\VC\Auxiliary\Build\vcvars64.bat" >nul 2>&1
 if defined VCToolsInstallDir goto have_tools
-call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" >nul 2>&1
+for %%Y in (18 2022 2019) do for %%E in (Community Professional Enterprise BuildTools) do if not defined VCToolsInstallDir if exist "%ProgramFiles%\Microsoft Visual Studio\%%Y\%%E\VC\Auxiliary\Build\vcvars64.bat" call "%ProgramFiles%\Microsoft Visual Studio\%%Y\%%E\VC\Auxiliary\Build\vcvars64.bat" >nul 2>&1
 if defined VCToolsInstallDir goto have_tools
 for /f "usebackq delims=" %%I in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do call "%%I\VC\Auxiliary\Build\vcvars64.bat" >nul 2>&1
 :have_tools
@@ -45,6 +51,7 @@ if not defined VCToolsInstallDir (
     echo build.bat: no Visual Studio C++ tools found
     exit /b 1
 )
+echo build.bat: MSVC %VCToolsVersion% from %VCToolsInstallDir%
 where cl
 cd /d "%~dp0"
 

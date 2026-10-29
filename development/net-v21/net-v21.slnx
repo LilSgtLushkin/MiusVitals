@@ -1,0 +1,10 @@
+<Solution>
+  <Project Path="net-v21-module.vcxproj" />
+  <Project Path="net-v21-baseline.vcxproj" />
+  <Project Path="net-v21-join.vcxproj" />
+  <Folder Name="/tests/">
+    <Project Path="net-v21-object-check.vcxproj" />
+    <Project Path="net-v21-render-test.vcxproj" />
+    <Project Path="net-v21-selftests.vcxproj" />
+  </Folder>
+</Solution>
