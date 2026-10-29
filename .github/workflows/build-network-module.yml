@@ -91,29 +91,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          archive='MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip'
-          if [ ! -f "$archive" ]; then
-            echo "::error title=Missing installer::$archive is absent; the tree must carry the shipped installer"
-            exit 1
-          fi
-          # The shipped installer is rebuilt from the gated source by publish-installer.yml, so it is
-          # checked structurally and against the SHA-256 recorded beside it. A fixed pin is not used:
-          # the hash it would hold is written by the same job that builds the file.
-          python scripts/package_net_v21_test.py --verify "$archive" 2>&1 | tee development/net-v21/build/shipped-installer.log
-          python - "$archive" <<'PY'
-          import hashlib, pathlib, sys
-          archive = pathlib.Path(sys.argv[1])
-          record = archive.with_name(archive.name + ".sha256.txt")
-          lines = record.read_text().split("\n")
-          fields = lines[0].split()
-          assert len(fields) == 2, f"unexpected record format: {lines[0]!r}"
-          assert fields[1] == archive.name, f"record describes {fields[1]}, not {archive.name}"
-          assert lines[1].startswith("source commit: "), "the record does not name the source commit"
-          digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-          assert digest == fields[0], f"installer SHA-256 {digest} does not match the recorded {fields[0]}"
-          print(f"OK {archive.name}: matches the recorded {digest}")
-          PY
-          sha256sum "$archive"
+          # Structure plus the SHA-256 recorded beside it. The installer is rebuilt from the gated
+          # source, so no fixed hash is pinned: the hash a pin would hold is written by the same
+          # job that builds the file. The check itself lives in one place, not copied here.
+          python scripts/check_shipped_installer.py \
+            MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip
+          sha256sum MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip
 
       - name: Install the disassembler and offline x64 emulator
         run: python -m pip install --quiet capstone unicorn==2.1.4
