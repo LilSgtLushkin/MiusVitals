@@ -1,0 +1,127 @@
+{
+    "version": "2.0.0",
+    "options": {
+        "cwd": "${workspaceFolder}/development/net-v21"
+    },
+    "tasks": [
+        {
+            "label": "Build: module (Release)",
+            "type": "shell",
+            "command": "${workspaceFolder}/development/net-v21/build.bat",
+            "args": ["module", "release"],
+            "group": { "kind": "build", "isDefault": true },
+            "problemMatcher": ["$msCompile"],
+            "detail": "build\\module\\basic_network.codelib — те же флаги, что в CI"
+        },
+        {
+            "label": "Build: module (Debug)",
+            "type": "shell",
+            "command": "${workspaceFolder}/development/net-v21/build.bat",
+            "args": ["module", "debug"],
+            "group": "build",
+            "problemMatcher": ["$msCompile"],
+            "detail": "build\\module-debug\\basic_network.codelib — /Od /Zi, символы, NETV21_DEBUG"
+        },
+        {
+            "label": "Build: baseline (Release)",
+            "type": "shell",
+            "command": "${workspaceFolder}/development/net-v21/build.bat",
+            "args": ["baseline", "release"],
+            "problemMatcher": ["$msCompile"],
+            "detail": "исходники v12 без изменений — эталон для сравнения"
+        },
+        {
+            "label": "Build: baseline (Debug)",
+            "type": "shell",
+            "command": "${workspaceFolder}/development/net-v21/build.bat",
+            "args": ["baseline", "debug"],
+            "problemMatcher": ["$msCompile"]
+        },
+        {
+            "label": "Build: selftests (Release)",
+            "type": "shell",
+            "command": "${workspaceFolder}/development/net-v21/build.bat",
+            "args": ["selftest", "release"],
+            "problemMatcher": ["$msCompile"]
+        },
+        {
+            "label": "Build: selftests (Debug)",
+            "type": "shell",
+            "command": "${workspaceFolder}/development/net-v21/build.bat",
+            "args": ["selftest", "debug"],
+            "problemMatcher": ["$msCompile"]
+        },
+        {
+            "label": "Build: mp_join (Release)",
+            "type": "shell",
+            "command": "${workspaceFolder}/development/net-v21/build.bat",
+            "args": ["join", "release"],
+            "problemMatcher": ["$msCompile"]
+        },
+        {
+            "label": "Build: mp_join (Debug)",
+            "type": "shell",
+            "command": "${workspaceFolder}/development/net-v21/build.bat",
+            "args": ["join", "debug"],
+            "problemMatcher": ["$msCompile"]
+        },
+        {
+            "label": "Build: render guard test (Debug)",
+            "type": "shell",
+            "command": "${workspaceFolder}/development/net-v21/build.bat",
+            "args": ["render_test", "debug"],
+            "problemMatcher": ["$msCompile"],
+            "detail": "быстрая обратная связь по защите рендерера"
+        },
+        {
+            "label": "Build: everything (Release)",
+            "type": "shell",
+            "command": "${workspaceFolder}/development/net-v21/build.bat",
+            "args": ["all", "release"],
+            "problemMatcher": ["$msCompile"],
+            "dependsOn": [],
+            "detail": "baseline + module + selftest + join"
+        },
+        {
+            "label": "Run: self-tests (Release)",
+            "type": "shell",
+            "command": "${workspaceFolder}/development/net-v21/run_tests.bat",
+            "args": ["release"],
+            "dependsOn": ["Build: selftests (Release)"],
+            "problemMatcher": [],
+            "group": { "kind": "test", "isDefault": true }
+        },
+        {
+            "label": "Run: self-tests (Debug)",
+            "type": "shell",
+            "command": "${workspaceFolder}/development/net-v21/run_tests.bat",
+            "args": ["debug"],
+            "dependsOn": ["Build: selftests (Debug)"],
+            "problemMatcher": [],
+            "group": "test"
+        },
+        {
+            "label": "Build (portable, g++): transform object check",
+            "type": "shell",
+            "command": "g++",
+            "args": [
+                "-std=c++11", "-O0", "-g", "-Wall", "-Wextra", "-Werror",
+                "tests/transform_object_check_test.cpp",
+                "-o", "build/portable/transform_object_check_test"
+            ],
+            "windows": { "options": { "shell": { "executable": "bash.exe", "args": ["-c"] } } },
+            "linux": { "options": { "cwd": "${workspaceFolder}/development/net-v21" } },
+            "problemMatcher": ["$gcc"],
+            "detail": "тот же тест под Linux/WSL: построчный прогон проверки объекта"
+        },
+        {
+            "label": "Clean: build output",
+            "type": "shell",
+            "command": "cmd",
+            "args": ["/c", "if exist build rmdir /s /q build"],
+            "windows": {},
+            "linux": { "command": "rm", "args": ["-rf", "build"] },
+            "problemMatcher": []
+        }
+    ]
+}

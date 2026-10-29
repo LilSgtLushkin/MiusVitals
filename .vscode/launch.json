@@ -1,0 +1,74 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Attach to tacgame (Debug module)",
+            "type": "cppvsdbg",
+            "request": "attach",
+            "processName": "tacgame.exe",
+            "symbolSearchPath": "${workspaceFolder}/development/net-v21/build/module-debug",
+            "justMyCode": false,
+            "detail": "бой: подключиться к запущенной игре и отлаживать наш модуль по исходникам"
+        },
+        {
+            "name": "Attach to opgame (Debug module)",
+            "type": "cppvsdbg",
+            "request": "attach",
+            "processName": "opgame.exe",
+            "symbolSearchPath": "${workspaceFolder}/development/net-v21/build/module-debug",
+            "justMyCode": false,
+            "detail": "карта операции: то же самое для второго исполняемого файла"
+        },
+        {
+            "name": "Attach to any game process (pick)",
+            "type": "cppvsdbg",
+            "request": "attach",
+            "processId": "${command:pickProcess}",
+            "symbolSearchPath": "${workspaceFolder}/development/net-v21/build/module-debug",
+            "justMyCode": false
+        },
+        {
+            "name": "Debug: transform object check (Debug)",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/development/net-v21/build/selftest-debug/transform_object_check_test.exe",
+            "args": [],
+            "cwd": "${workspaceFolder}/development/net-v21",
+            "console": "integratedTerminal",
+            "preLaunchTask": "Build: selftests (Debug)",
+            "detail": "пошагово: проверка объекта перед записью трансформа"
+        },
+        {
+            "name": "Debug: render guard test (Debug)",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/development/net-v21/build/render_test-debug/render_guard_test.exe",
+            "args": [],
+            "cwd": "${workspaceFolder}/development/net-v21",
+            "console": "integratedTerminal",
+            "preLaunchTask": "Build: render guard test (Debug)"
+        },
+        {
+            "name": "Launch: mp_join (Debug)",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/development/net-v21/build/join-debug/mp_join.exe",
+            "args": [],
+            "cwd": "${workspaceFolder}/development/net-v21",
+            "console": "integratedTerminal",
+            "preLaunchTask": "Build: mp_join (Debug)"
+        },
+        {
+            "name": "Debug (Linux/gdb): transform object check",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/development/net-v21/build/portable/transform_object_check_test",
+            "args": [],
+            "cwd": "${workspaceFolder}/development/net-v21",
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "preLaunchTask": "Build (portable, g++): transform object check"
+        }
+    ]
+}

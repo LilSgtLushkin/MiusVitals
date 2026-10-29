@@ -1,0 +1,47 @@
+{
+    "version": 4,
+    "configurations": [
+        {
+            "name": "Windows (MSVC, Release)",
+            "compilerPath": "cl.exe",
+            "compilerArgs": ["/MD", "/O1", "/Brepro", "/EHa", "/W3"],
+            "intelliSenseMode": "windows-msvc-x64",
+            "cStandard": "c11",
+            "cppStandard": "c++14",
+            "includePath": [
+                "${workspaceFolder}/development/net-v21/src",
+                "${workspaceFolder}/development/net-v21/tests",
+                "${workspaceFolder}"
+            ],
+            "defines": ["_WIN32", "_WIN64", "_AMD64_", "WIN32_LEAN_AND_MEAN"]
+        },
+        {
+            "name": "Windows (MSVC, Debug)",
+            "compilerPath": "cl.exe",
+            "compilerArgs": ["/Od", "/MD", "/Zi", "/EHa", "/W3"],
+            "intelliSenseMode": "windows-msvc-x64",
+            "cStandard": "c11",
+            "cppStandard": "c++14",
+            "includePath": [
+                "${workspaceFolder}/development/net-v21/src",
+                "${workspaceFolder}/development/net-v21/tests",
+                "${workspaceFolder}"
+            ],
+            "defines": ["_WIN32", "_WIN64", "_AMD64_", "WIN32_LEAN_AND_MEAN", "NETV21_DEBUG"]
+        },
+        {
+            "name": "Portable (g++, no windows.h)",
+            "compilerPath": "/usr/bin/g++",
+            "compilerArgs": ["-std=c++11", "-Wall", "-Wextra"],
+            "intelliSenseMode": "linux-gcc-x64",
+            "cStandard": "c11",
+            "cppStandard": "c++11",
+            "includePath": [
+                "${workspaceFolder}/development/net-v21/src",
+                "${workspaceFolder}/development/net-v21/tests",
+                "${workspaceFolder}"
+            ],
+            "defines": []
+        }
+    ]
+}

@@ -1,0 +1,16 @@
+{
+    "files.associations": {
+        "*.inc": "cpp",
+        "common.h": "cpp",
+        "engine.h": "cpp"
+    },
+    "search.exclude": {
+        "**/development/net-v21/build/**": true,
+        "**/development/game-build-3598-1/x64/**": true
+    },
+    "C_Cpp.default.cppStandard": "c++14",
+    "C_Cpp.default.intelliSenseMode": "windows-msvc-x64",
+    "C_Cpp.files.exclude": {
+        "**/development/net-v21/build/**": true
+    }
+}
