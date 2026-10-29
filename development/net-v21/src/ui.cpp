@@ -24,7 +24,8 @@ enum Screen { SCR_NONE, SCR_MAIN, SCR_JOIN, SCR_LOBBY, SCR_STARTING };
 static Screen g_screen = SCR_NONE;
 static bool g_tactical, g_lobby_host, g_button_hot, g_on_main_menu, g_on_op_map, g_map_button_hot, g_map_busy;
 static char g_autojoin[128];     // back from the operational map: rejoin this host's lobby, ready
-static DWORD g_block_until, g_exit_at, g_frames;
+static u64 g_block_until, g_exit_at;   // deadlines are compared, not subtracted: they need 64 bits
+static DWORD g_frames;
 static Joiner g_joiner;
 static char g_address[64], g_root[MAX_PATH], g_message[200];
 static lobby_friends::Friend g_join_friends[256];
@@ -49,12 +50,12 @@ static bool key_pressed(int vk)
     return edge;
 }
 
-bool ui_blocks_input(void) { return g_screen != SCR_NONE || g_button_hot || g_map_button_hot || g_map_busy || GetTickCount() < g_block_until; }
+bool ui_blocks_input(void) { return g_screen != SCR_NONE || g_button_hot || g_map_button_hot || g_map_busy || GetTickCount64() < g_block_until; }
 
 static void close_menu(void)
 {
     g_screen = SCR_NONE;
-    g_block_until = GetTickCount() + 250;      // the click that closed the menu must not reach the game
+    g_block_until = GetTickCount64() + 250;      // the click that closed the menu must not reach the game
     SetEnvironmentVariableA("MP_MENU", "done");
 }
 
@@ -480,7 +481,7 @@ void ui_frame(ObjMan *om)
     // has to be running here as well as in the battle (both calls are idempotent).
     steam_install();
     steam_tick();
-    if (g_exit_at && GetTickCount() > g_exit_at) ExitProcess(0);
+    if (g_exit_at && GetTickCount64() > g_exit_at) ExitProcess(0);
     HWND win = main_window();
     bool focused = win && GetForegroundWindow() == win;
 
@@ -614,7 +615,7 @@ void ui_frame(ObjMan *om)
                 if (map) mp_log("ui: operational map received from %s, opening it", g_address);
                 else mp_log("ui: battle received from %s, starting it", g_address);
                 g_screen = SCR_STARTING;
-                g_exit_at = GetTickCount() + 2500;       // the battle is a separate program; this one is done
+                g_exit_at = GetTickCount64() + 2500;       // the battle is a separate program; this one is done
             } else {
                 strcpy_s(g_message, g_joiner.error);
                 g_screen = SCR_JOIN;

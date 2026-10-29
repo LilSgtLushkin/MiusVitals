@@ -128,7 +128,7 @@ static std::vector<UnitRec> g_pending_legacy;           // non-tactical: preserv
 // The last two transforms received per followed unit, with the time each arrived: the unit is shown
 // between them, a little in the past (see session_sim_step).
 struct Snap { UnitRec rec; double at; };
-struct Held { Snap a, b; int have = 0; bool dirty = false; };
+struct Held { Snap a{}, b{}; int have = 0; bool dirty = false; };
 static std::unordered_map<u64, Held> g_held;
 static float g_host_speed = 1, g_host_cur_speed = 1;
 static u32 g_host_sim_ms;
@@ -891,8 +891,9 @@ static void find_local_ip(void)
 {
     // the address the default route uses; connect() on a UDP socket sends nothing
     WSADATA wsa;
-    WSAStartup(MAKEWORD(2, 2), &wsa);
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return;   // no Winsock: no local address to report
     SOCKET s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (s == INVALID_SOCKET) return;
     sockaddr_in probe = {};
     probe.sin_family = AF_INET;
     probe.sin_port = htons(53);
@@ -967,7 +968,7 @@ static bool open_socket(unsigned short port)
     if (g_test_no_udp) { g_sock = INVALID_SOCKET; return false; } // test both tactical and menu Steam without IP
 #endif
     WSADATA wsa;
-    WSAStartup(MAKEWORD(2, 2), &wsa);
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return false;  // no Winsock: nothing to send or receive on
     g_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     u_long nonblocking = 1;
     ioctlsocket(g_sock, FIONBIO, &nonblocking);
@@ -1004,7 +1005,8 @@ static void host_listen(void)
 #endif
     if (!g_upnp_started) {
         g_upnp_started = true;
-        CloseHandle(CreateThread(0, 0, upnp_thread, 0, 0, 0));
+        HANDLE upnp = CreateThread(0, 0, upnp_thread, 0, 0, 0);
+        if (upnp) CloseHandle(upnp);   // the thread runs on its own; only the handle is ours
     }
 }
 
@@ -1106,6 +1108,8 @@ static void host_swap_sides_if_asked(void)
     STARTUPINFOA si = { sizeof si };
     PROCESS_INFORMATION pi;
     if (CreateProcessA(0, &cmd[0], 0, 0, FALSE, 0, 0, g_root, &si, &pi)) {
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
         DeleteFileA(backup.c_str());
         mp_log("lobby: sides swapped, restarting the battle from the turned description");
         ExitProcess(0);
@@ -2528,6 +2532,8 @@ static void force_restart(void)
     STARTUPINFOA si = { sizeof si };
     PROCESS_INFORMATION pi;
     if (CreateProcessA(0, &cmd[0], 0, 0, FALSE, 0, 0, g_root, &si, &pi)) {
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
         mp_log("lobby: restarting the battle with the other player's own force");
         ExitProcess(0);
     }
@@ -2646,7 +2652,11 @@ static void desc_write_in(ImageData *d, int size)
     std::string cmd = GetCommandLineA();
     STARTUPINFOA si = { sizeof si };
     PROCESS_INFORMATION pi;
-    if (CreateProcessA(0, &cmd[0], 0, 0, FALSE, 0, 0, g_root, &si, &pi)) ExitProcess(0);
+    if (CreateProcessA(0, &cmd[0], 0, 0, FALSE, 0, 0, g_root, &si, &pi)) {
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+        ExitProcess(0);
+    }
     mp_log("lobby: could not restart the battle (%lu), playing it as it is", GetLastError());
     SetEnvironmentVariableA("MP_FORCE_APPLIED", 0);
     if (battle_restore_backup(g_image_file)) desc_give_up("the restart failed; the previous description was restored");
@@ -2826,9 +2836,8 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
         w.vitals_epoch = g_tactical ? vitals_epoch() : 0;
         send_to(from, &w, sizeof w);
         if (!full) return;                              // the caller reads the version from the reply and gives up
-        char name[24];
-        memcpy(name, in->name, sizeof name);
-        name[sizeof name - 1] = 0;
+        char name[24] = {};
+        memcpy(name, in->name, sizeof name - 1);   // the last byte stays the terminator
         for (char *c = name; *c; c++) if (!isalnum((unsigned char)*c) && *c != '_' && *c != '-') *c = '_';
         if (!from_peer) {
             char ip[64];
