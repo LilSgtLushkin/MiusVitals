@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 
 import historical_106_fixture as fixture
+import historical_107_fixture as fixture_107
 
 
 class HistoricalBlob(unittest.TestCase):
@@ -45,6 +46,29 @@ class HistoricalBlob(unittest.TestCase):
             run.side_effect = error
             with self.subTest(error=error), self.assertRaisesRegex(RuntimeError, "cannot read"):
                 fixture.read_verified_blob(self.repo, "abc", "old.zip", self.digest)
+
+class Retired107Fixture(unittest.TestCase):
+    """The retired 1.0.7 installers are read from one pinned commit, not from the tree."""
+
+    def test_both_readers_use_their_pinned_commit_name_and_hash(self):
+        data = b"retired 1.0.7 installer bytes"
+        with patch("historical_107_fixture.read_verified_blob", return_value=data) as read:
+            self.assertEqual(fixture_107.read_107(), data)
+            self.assertEqual(fixture_107.read_107_experimental(), data)
+        self.assertEqual([call.args[1:] for call in read.call_args_list],
+                         [(fixture_107.REVISION, fixture_107.NAME_107, fixture_107.SHA256_107),
+                          (fixture_107.REVISION, fixture_107.NAME_107_EXPERIMENTAL,
+                           fixture_107.SHA256_107_EXPERIMENTAL)])
+
+    def test_pinned_coordinates_describe_the_retired_archives(self):
+        self.assertEqual(len(fixture_107.REVISION), 40, "the commit must be pinned, not a branch")
+        self.assertEqual(fixture_107.NAME_107, "MiusMultiplayer_v1.0.7_TEST_INSTALL.zip")
+        self.assertEqual(fixture_107.NAME_107_EXPERIMENTAL,
+                         "MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip")
+        for digest in (fixture_107.SHA256_107, fixture_107.SHA256_107_EXPERIMENTAL):
+            with self.subTest(digest=digest):
+                self.assertEqual(len(digest), 64)
+                int(digest, 16)
 
 
 if __name__ == "__main__":

@@ -18,9 +18,12 @@ import unittest
 import zipfile
 
 from historical_106_fixture import read_106
+from historical_107_fixture import read_107, read_107_experimental
 
 ROOT = Path(__file__).resolve().parents[1]
-ARCHIVE = Path(os.environ.get("MIUS_TEST_ARCHIVE", ROOT / "MiusMultiplayer_v1.0.7_TEST_INSTALL.zip"))
+# The single shipped installer; CI points this at the disposable build of the current source.
+ARCHIVE = Path(os.environ.get("MIUS_TEST_ARCHIVE",
+                              ROOT / "MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip"))
 FILES = ("mp_vitals.dll", "bin/rel/x64/basic_network.codelib", "mp_join.exe",
          "root/programs/opgame.progpack", "root/programs/tacgame.progpack", "steam_appid.txt")
 
@@ -305,9 +308,9 @@ class UnifiedInstaller(unittest.TestCase):
 
     @unittest.skipUnless(os.environ.get("MIUS_TEST_UPGRADE") == "1", "experimental upgrade fixture only")
     def test_old_107_then_experimental_and_two_step_rollback(self):
-        old = ROOT / "MiusMultiplayer_v1.0.7_TEST_INSTALL.zip"
-        if not old.exists():
-            self.skipTest("the preserved 1.0.7 archive is not available")
+        # The retired 1.0.7 installer is read from a pinned commit and SHA-256 checked; it is not
+        # kept in the tree any more, now that the 1.0.7 releases are one shipped installer.
+        old = io.BytesIO(read_107())
         with zipfile.ZipFile(old) as archive:
             archive.extractall(self.game)
         self.succeed(self.bat("Enable_Multiplayer.bat"))
@@ -323,6 +326,7 @@ class UnifiedInstaller(unittest.TestCase):
         self.succeed(self.bat("Disable_Multiplayer.bat"))
         for relative in FILES:
             self.assertEqual((self.game / relative).read_bytes(), installed_old[relative], relative)
+        old.seek(0)
         with zipfile.ZipFile(old) as archive:
             archive.extractall(self.game)
         self.succeed(self.bat("Disable_Multiplayer.bat"))
@@ -330,9 +334,8 @@ class UnifiedInstaller(unittest.TestCase):
 
     @unittest.skipUnless(os.environ.get("MIUS_TEST_UPGRADE_107_EXPERIMENTAL") == "1", "FPS experimental upgrade fixture only")
     def test_old_107_experimental_then_fps_and_two_step_rollback(self):
-        old = ROOT / "MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip"
-        if not old.exists():
-            self.skipTest("the preserved 1.0.7 experimental archive is not available")
+        # Same pinned-blob pattern as above, for the installer the net+fps build replaced.
+        old = io.BytesIO(read_107_experimental())
         with zipfile.ZipFile(old) as archive:
             archive.extractall(self.game)
         self.succeed(self.bat("Enable_Multiplayer.bat"))
@@ -348,6 +351,7 @@ class UnifiedInstaller(unittest.TestCase):
         self.succeed(self.bat("Disable_Multiplayer.bat"))
         for relative in FILES:
             self.assertEqual((self.game / relative).read_bytes(), installed_old[relative], relative)
+        old.seek(0)
         with zipfile.ZipFile(old) as archive:
             archive.extractall(self.game)
         self.succeed(self.bat("Disable_Multiplayer.bat"))

@@ -87,48 +87,16 @@ jobs:
         run: |
           & development/net-v21/tools/collect_logs_selftest.ps1
           if (-not $?) { exit 1 }
-
-      - name: Verify the committed unified installer before rebuilding
-        shell: cmd
+      - name: Verify the shipped installer before rebuilding
+        shell: bash
         run: |
-          if not exist MiusMultiplayer_v1.0.7_TEST_INSTALL.zip goto :no_committed_installer
-          if not exist development\net-v21\build mkdir development\net-v21\build
-          rem The released archive is historical; verify its passport and pinned hash, not against the new experimental source.
-          python scripts\package_net_v21_test.py --verify MiusMultiplayer_v1.0.7_TEST_INSTALL.zip > development\net-v21\build\committed-installer.log 2>&1
-          set rc=%errorlevel%
-          if not %rc%==0 goto :committed_installer_failed
-          python -c "import hashlib,pathlib; p=pathlib.Path('MiusMultiplayer_v1.0.7_TEST_INSTALL.zip'); assert hashlib.sha256(p.read_bytes()).hexdigest()=='65f7a325095577cec98b2bab590f4674b81ad240bc5191adce346ebf8bec5ec6'" >> development\net-v21\build\committed-installer.log 2>&1
-          set rc=%errorlevel%
-          if not %rc%==0 goto :committed_installer_failed
-          type development\net-v21\build\committed-installer.log
-          exit /b 0
-          :committed_installer_failed
-          type development\net-v21\build\committed-installer.log
-          powershell -NoProfile -Command "$m = ((Get-Content development/net-v21/build/committed-installer.log -Tail 100) -join ' | ').Replace('%%','%%25'); Write-Output ('::error title=Committed installer verification::' + $m)"
-          exit /b %rc%
-          :no_committed_installer
-          echo First build: no committed 1.0.7 archive yet.
-
-      - name: Verify the committed experimental installer and rollback
-        shell: cmd
-        env:
-          MIUS_TEST_ARCHIVE: MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip
-          MIUS_TEST_STATE: unified_test_v107_experimental
-          MIUS_TEST_UPGRADE: '1'
-        run: |
-          if not exist development\net-v21\build mkdir development\net-v21\build
-          python scripts\package_net_v21_test.py --verify "%MIUS_TEST_ARCHIVE%" > development\net-v21\build\experimental-installer.log 2>&1
-          set rc=%errorlevel%
-          if not %rc%==0 goto :experimental_installer_failed
-          python -c "import hashlib,pathlib; p=pathlib.Path('MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip'); assert hashlib.sha256(p.read_bytes()).hexdigest()=='60e7b7a2f2914ae75cf203f48aacc89e9469f71b15b654f70805d50e50736f78'" >> development\net-v21\build\experimental-installer.log 2>&1
-          set rc=%errorlevel%
-          if not %rc%==0 goto :experimental_installer_failed
-          type development\net-v21\build\experimental-installer.log
-          exit /b 0
-          :experimental_installer_failed
-          type development\net-v21\build\experimental-installer.log
-          powershell -NoProfile -Command "$m = ((Get-Content development/net-v21/build/experimental-installer.log -Tail 100) -join ' | ').Replace('%%','%%25'); Write-Output ('::error title=Experimental installer verification::' + $m)"
-          exit /b %rc%
+          set -euo pipefail
+          # Structure plus the SHA-256 recorded beside it. The installer is rebuilt from the gated
+          # source, so no fixed hash is pinned: the hash a pin would hold is written by the same
+          # job that builds the file. The check itself lives in one place, not copied here.
+          python scripts/check_shipped_installer.py \
+            MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip
+          sha256sum MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip
 
       - name: Install the disassembler and offline x64 emulator
         run: python -m pip install --quiet capstone unicorn==2.1.4
@@ -440,27 +408,34 @@ jobs:
             2>&1 | tee development/net-v21/build/package.log
           exit ${PIPESTATUS[0]}
 
-      - name: Verify the preserved net+fps archive and the current disposable installer
+      # The shipped installer is already verified above, structurally and against the hash recorded
+      # beside it. What this adds is the proof that a build of THIS source is a valid installer: the
+      # disposable ZIP is checked against the tree it was just built from.
+      - name: Verify the current disposable installer against this source tree
         shell: bash
         run: |
           set -euo pipefail
-          archive='MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip'
-          python scripts/package_net_v21_test.py --verify "$archive"
-          echo 'd733efa9f085f65d1f5db36bf8b004e5945329625d0bb6b468590d936b490bb8  '"$archive" | sha256sum --check
           python scripts/package_net_v21_test.py --verify development/net-v21/build/CI_fixture_NOT_RELEASE.zip --verify-source
           sha256sum development/net-v21/build/CI_fixture_NOT_RELEASE.zip
 
-      # The retired ZIP is not restored into the checkout. The Windows test reads the
-      # historical Git blob in memory and verifies its SHA-256 before exercising rollback.
-      - name: Fetch the pinned historical commit for the 1.0.6 upgrade fixture
+      # No retired ZIP is restored into the checkout. The Windows test reads each historical
+      # installer as a Git blob in memory and verifies its SHA-256 before exercising rollback, so
+      # the shallow clone only needs the pinned commits that still hold those files.
+      - name: Fetch the pinned historical commits for the upgrade fixtures
         shell: bash
         run: |
           set -euo pipefail
-          revision=047195f1b16f034cf06f4a204402e6e800ca05ea
-          if ! git cat-file -e "$revision:MiusMultiplayer_v1.0.6_TEST_INSTALL.zip" 2>/dev/null; then
-            git fetch --no-tags --depth=1 origin "$revision"
-          fi
-          git cat-file -e "$revision:MiusMultiplayer_v1.0.6_TEST_INSTALL.zip"
+          fetch_pinned() {
+            revision=$1
+            name=$2
+            if ! git cat-file -e "$revision:$name" 2>/dev/null; then
+              git fetch --no-tags --depth=1 origin "$revision"
+            fi
+            git cat-file -e "$revision:$name"
+          }
+          fetch_pinned 047195f1b16f034cf06f4a204402e6e800ca05ea MiusMultiplayer_v1.0.6_TEST_INSTALL.zip
+          fetch_pinned 14adad9432ca01991c5ff91d437cab4fa017d598 MiusMultiplayer_v1.0.7_TEST_INSTALL.zip
+          fetch_pinned 14adad9432ca01991c5ff91d437cab4fa017d598 MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip
 
       - name: Exercise the current one-step installer and historical upgrades on Windows
         shell: cmd
@@ -528,16 +503,14 @@ jobs:
               echo '</details>'
             fi
             echo
-            if [ -f MiusMultiplayer_v1.0.7_TEST_INSTALL.zip ]; then
-              echo "preserved 1.0.7 installer (not the current build): sha256 $(sha256sum MiusMultiplayer_v1.0.7_TEST_INSTALL.zip | cut -d' ' -f1)"
-            fi
-            if [ -f MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip ]; then
-              echo "preserved 1.0.7 EXPERIMENTAL installer: sha256 $(sha256sum MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip | cut -d' ' -f1)"
+            if [ -f MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip ]; then
+              echo "shipped installer: sha256 $(sha256sum MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip | cut -d' ' -f1)"
+              echo "recorded beside it: $(head -1 MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip.sha256.txt)"
             fi
             if [ -f development/net-v21/build/CI_fixture_NOT_RELEASE.zip ]; then
               echo "current build: disposable installer fixture only, not a release"
             fi
-            for name in committed-installer experimental-installer baseline module selftest join launcher-selftest installer-selftest battle-report-selftest package compare-m1 compare-m2; do
+            for name in shipped-installer baseline module selftest join launcher-selftest installer-selftest battle-report-selftest package compare-m1 compare-m2; do
               log="development/net-v21/build/$name.log"
               echo
               echo "<details><summary>$name log</summary>"

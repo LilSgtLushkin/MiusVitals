@@ -21,7 +21,7 @@ python3 scripts/check_artifacts.py     # одинаковые бинарники
 
 ## Установка игрока
 
-Текущий экспериментальный установщик: [`../MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip`](../MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET%2BFPS_INSTALL.zip). Он сразу устанавливает `net_v21`; инструкции и ограничения — в [корневом README](../README.md). Архивы 1.0.1–1.0.6 удалены из текущего дерева; сохранены `_known_good`, 1.0.7 и исторический [`../MiusMultiplayer_OUTDATED_INSTALL.zip`](../MiusMultiplayer_OUTDATED_INSTALL.zip).
+Текущий экспериментальный установщик: [`../MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip`](../MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET%2BFPS_INSTALL.zip). Он сразу устанавливает `net_v21`; инструкции и ограничения — в [корневом README](../README.md). Это единственная сборка 1.0.7 в дереве: прежние архивы 1.0.7 удалены и остаются в истории Git. Сохранены `_known_good` и исторический [`../MiusMultiplayer_OUTDATED_INSTALL.zip`](../MiusMultiplayer_OUTDATED_INSTALL.zip).
 
 Текущий установщик создаётся и проверяется `../scripts/package_net_v21_test.py`. `kit-source/` и старые unified-kit-деревья сохраняются как исторические источники и тестовые входы, а не как отдельная player install directory.
 

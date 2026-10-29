@@ -445,20 +445,21 @@ def verify_source(repo: Path, archive_path: Path) -> None:
 
 
 def build(repo: Path, codelib: Path, archive_path: Path, launcher: Path) -> None:
-    # New builds must never overwrite any preserved release/test or the known-good rollback.
+    # New builds must never overwrite any preserved release/test or the known-good rollback. A
+    # retired name stays reserved even after its file is gone, so an installer users already know
+    # cannot be silently recreated with different contents.
     protected = ("MiusMultiplayer_v1.0.0_TEST_INSTALL_known_good.zip",
                  "MiusMultiplayer_v1.0.0_TEST_INSTALL.zip", "MiusMultiplayer_v1.0.0_M3M4_INSTALL.zip",
                  "MiusMultiplayer_v1.0.1_INSTALL.zip", "MiusMultiplayer_v1.0.2_TEST_INSTALL.zip",
                  "MiusMultiplayer_v1.0.3_TEST_INSTALL.zip", "MiusMultiplayer_v1.0.4_TEST_INSTALL.zip",
                  "MiusMultiplayer_v1.0.5_TEST_INSTALL.zip", "MiusMultiplayer_v1.0.6_TEST_INSTALL.zip",
-                 "MiusMultiplayer_v1.0.7_TEST_INSTALL.zip")
+                 "MiusMultiplayer_v1.0.7_TEST_INSTALL.zip",
+                 "MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip")
     if archive_path.resolve() in {(repo / name).resolve() for name in protected}:
         raise SystemExit("refusing to overwrite a preserved archive")
-    experimental = {(repo / name).resolve() for name in (
-        "MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip",
-        "MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip")}
-    if archive_path.resolve() in experimental and archive_path.exists():
-        raise SystemExit("refusing to overwrite a preserved experimental archive")
+    # The one shipped installer is the deliberate exception: it is the only 1.0.7 archive in the
+    # tree and publish-installer.yml rebuilds and commits it from the gated source, so it stays
+    # writable. Everything else above is frozen.
     if not codelib.is_file():
         raise SystemExit(f"no module to package: {codelib}")
     if not launcher.is_file():

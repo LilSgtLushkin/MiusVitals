@@ -56,8 +56,7 @@ class Packaging(unittest.TestCase):
 
     def test_preserved_archives_are_protected_and_verifiable(self):
         for name in ("MiusMultiplayer_v1.0.0_TEST_INSTALL.zip",
-                     "MiusMultiplayer_v1.0.0_TEST_INSTALL_known_good.zip",
-                     "MiusMultiplayer_v1.0.7_TEST_INSTALL.zip"):
+                     "MiusMultiplayer_v1.0.0_TEST_INSTALL_known_good.zip"):
             archive = ROOT / name
             with self.subTest(name=name):
                 before = hashlib.sha256(archive.read_bytes()).digest()
@@ -67,32 +66,37 @@ class Packaging(unittest.TestCase):
                 self.assertEqual(before, hashlib.sha256(archive.read_bytes()).digest())
 
     def test_retired_archive_names_remain_reserved(self):
+        # The older 1.0.7 installers were removed from the tree when the releases were consolidated
+        # onto one archive; their names stay reserved so an old installer cannot reappear as new.
         for name in ("MiusMultiplayer_v1.0.1_INSTALL.zip",
                      "MiusMultiplayer_v1.0.2_TEST_INSTALL.zip",
                      "MiusMultiplayer_v1.0.3_TEST_INSTALL.zip",
                      "MiusMultiplayer_v1.0.4_TEST_INSTALL.zip",
                      "MiusMultiplayer_v1.0.5_TEST_INSTALL.zip",
-                     "MiusMultiplayer_v1.0.6_TEST_INSTALL.zip"):
+                     "MiusMultiplayer_v1.0.6_TEST_INSTALL.zip",
+                     "MiusMultiplayer_v1.0.7_TEST_INSTALL.zip",
+                     "MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip"):
             with self.subTest(name=name), self.assertRaisesRegex(SystemExit, "refusing to overwrite"):
                 pkg.build(ROOT, Path("nonexistent.codelib"), ROOT / name, Path("nonexistent.exe"))
 
-    def test_existing_experimental_archive_is_protected(self):
-        released = ROOT / "MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip"
-        if released.exists():
-            self.assertEqual(hashlib.sha256(released.read_bytes()).hexdigest(),
-                             "60e7b7a2f2914ae75cf203f48aacc89e9469f71b15b654f70805d50e50736f78")
-            pkg.verify(released)
-            with self.assertRaisesRegex(SystemExit, "refusing to overwrite"):
-                pkg.build(ROOT, Path("nonexistent.codelib"), released, Path("nonexistent.exe"))
+    def test_the_shipped_installer_is_verifiable_and_republishable(self):
+        shipped = ROOT / "MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip"
+        if not shipped.exists():
+            self.skipTest("the shipped installer has not been published yet")
+        pkg.verify(shipped)
+        record = ROOT / (shipped.name + ".sha256.txt")
+        fields = record.read_text().split("\n")[0].split()
+        self.assertEqual(fields[1], shipped.name, "the record describes a different archive")
+        self.assertEqual(fields[0], hashlib.sha256(shipped.read_bytes()).hexdigest(),
+                         "the installer no longer matches the SHA-256 recorded beside it")
+        # It is the only 1.0.7 archive and publish-installer.yml replaces it with a newer gated
+        # build, so this name must stay writable: the refusal is what the retired names get.
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
-            for name in ("MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip",
-                         "MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip"):
-                archive = repo / name
-                archive.write_bytes(b"do not replace")
-                with self.assertRaisesRegex(SystemExit, "refusing to overwrite"):
-                    pkg.build(repo, Path("nonexistent.codelib"), archive, Path("nonexistent.exe"))
-                self.assertEqual(archive.read_bytes(), b"do not replace")
+            archive = repo / shipped.name
+            archive.write_bytes(b"replaceable")
+            with self.assertRaisesRegex(SystemExit, "no module to package"):
+                pkg.build(repo, Path("nonexistent.codelib"), archive, Path("nonexistent.exe"))
 
     def test_candidate_does_not_pull_in_the_legacy_render_guard(self):
         # A warning may mention the DLL in .rdata without importing it; that is allowed.
