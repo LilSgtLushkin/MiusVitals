@@ -29,6 +29,8 @@ c++ -std=c++17 -O2 -Wall -Wextra -Werror -Idevelopment/net-v21/src \
 /tmp/mius-image-test
 python3 development/net-v21/tools/extract_legacy_shots_fixture_selftest.py
 python3 development/net-v21/tools/pause_session_slice_selftest.py
+# Структура shipped-установщика и совпадение с записанным рядом SHA-256:
+python3 scripts/check_shipped_installer.py
 ```
 
 `image_mirror_identity_test` покрывает зеркалирование сторон и перепись командных тегов
