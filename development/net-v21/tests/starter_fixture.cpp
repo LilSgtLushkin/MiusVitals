@@ -10,6 +10,13 @@ static bool equals(const char *name, const char *expected) {
     DWORD n = GetEnvironmentVariableA(name, value, sizeof value);
     return n && n < sizeof value && !strcmp(value, expected);
 }
+// Compare against the identity the stand's host actually offered, supplied by the test. A number
+// written down here drifts as soon as the stand seeds differently, and a wrong one fails invisibly.
+static bool equals_expected(const char *name, const char *expected_name) {
+    char expected[128] = {};
+    DWORD en = GetEnvironmentVariableA(expected_name, expected, sizeof expected);
+    return en && en < sizeof expected && equals(name, expected);
+}
 int main() {
     char autojoin[4];
     bool tactical = strstr(GetCommandLineA(), "tacgame.progpack") != nullptr;
@@ -37,8 +44,10 @@ int main() {
         ok = ok && n && n < sizeof identity && !prepared.empty() &&
              battle_identity::resolve(identity, prepared.data(), prepared.size(), &source);
     } else if (operation) {
-        ok = ok && equals("MP_ROLE", "join") && equals("MP_MAP", "1") && equals("MP_MAP_EPOCH", "102") &&
-             equals("MP_MAP_REV", "2") && !an && !GetEnvironmentVariableA(battle_identity::k_environment, autojoin, sizeof autojoin);
+        ok = ok && equals("MP_ROLE", "join") && equals("MP_MAP", "1") && !an &&
+             equals_expected("MP_MAP_EPOCH", "MIUS_EXPECT_EPOCH") &&
+             equals_expected("MP_MAP_REV", "MIUS_EXPECT_REV") &&
+             !GetEnvironmentVariableA(battle_identity::k_environment, autojoin, sizeof autojoin);
     } else {
         // The actual map->lobby CreateProcess must clear the map/role and battle ticket,
         // and retain the host address.
