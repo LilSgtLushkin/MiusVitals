@@ -246,7 +246,7 @@ void netlog_open(HMODULE self, const char *program, const char *out_dir)
                env_or("MP_VITALS", "<unset>"), env_or("MP_VEHICLES", "<unset>"), env_or("MP_STATS", "<unset>"),
                env_or("MP_IDLE_MS", "<unset>"), env_or("MP_LOG_VITALS", "<unset>"));
     write_line("boot", "pacing flags: MP_BG_FPS=%s MP_FG_FPS=%s", env_or("MP_BG_FPS", "<unset>"), env_or("MP_FG_FPS", "<unset>"));
-    write_line("boot", "feature status: hit and soldier animation replication are not implemented in this candidate");
+    write_line("boot", "feature status: hit and soldier animation replication are experimental; see hook and peer logs for availability");
     write_line("boot", "log: %s (previous run kept as .prev.log)", g_path);
     unlock();
 }
@@ -326,6 +326,10 @@ static const char *type_name(unsigned char type)
     case 10: return "SHOT";
     case 11: return "SHOT_ACK";
     case 12: return "END";
+    case 13: return "VITALS";
+    case 14: return "VITALS_ACK";
+    case 15: return "ANIM";
+    case 16: return "ANIM_ACK";
     default: return "?";
     }
 }

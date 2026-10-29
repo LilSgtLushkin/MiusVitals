@@ -1,6 +1,6 @@
 // Vitals port for net_v21. The frame/packet calls are direct session APIs, not detours into v20.
-// Monotonic health/death and vehicle status rules originate in kit-source/src/mp_vitals.c. This
-// version has its own bounded channel, explicit handshake epochs, checked memory and peer reset.
+// This version has its own bounded, owner-authoritative channel, explicit handshake epochs,
+// checked memory and peer reset. Remote state may update a living unit, but never resurrects one.
 // A matching image and signatures prove layout identity, not real-game correctness: the feature
 // and its statistics seed still require a real tactical test on both machines.
 #include "vitals.h"
@@ -28,7 +28,7 @@ const unsigned char techn_sig[] = { 0x48,0x8b,0xc4,0x48,0x89,0x58,0x20,0x44,0x89
 const unsigned char stat_sig[] = { 0x48,0x8b,0xc4,0x44,0x88,0x40,0x18,0x48,0x89,0x50,0x10,0x48,0x89,0x48,0x08,0x55,0x53,0x56,0x57,0x41,0x54,0x41,0x55,0x41,0x56 };
 const unsigned char stat_rng[] = { 0x30,0x01,0,0,0x0d,0x66,0x19,0 };
 
-struct LocalSoldier { float sent = 1.f; uint32_t last_sent = 0; bool told_dead = false; };
+struct LocalSoldier { float sent = 1.f; uint32_t last_sent = 0; bool has_sent = false; };
 struct LocalVehicle {
     uint8_t sent[vitals::vehicle_bytes] = {}, observed[vitals::vehicle_bytes] = {};
     uint16_t transitions = 0;
@@ -108,7 +108,7 @@ static bool ensure_layout() {
 static int current_mode() {
     int value;
     if (env_integer("MP_VITALS", &value) && value >= 0) return value > 3 ? 3 : value;
-    return session_host_mode() == HOST_MODE_OPERATION ? 3 : 1;
+    return session_host_mode() == HOST_MODE_OPERATION ? 3 : 2;
 }
 static int vehicle_mode(int mode) {
     if (!mode) return 0;
@@ -271,6 +271,9 @@ static void frame(ObjMan *om, uint32_t now, vitals::Send send, bool force) {
         ++ids[key]; candidates.push_back({ obj, id, machine });
     }
     uint32_t seen = 0, dead = 0, veh_seen = 0, veh_nonzero[vitals::vehicle_bytes] = {}, duplicates = 0, applied = 0, refused = 0;
+    uint32_t ours_seen = 0;      // how much of this battle this game is actually allowed to publish
+    // These are counts for this scan (like 'refused' above), not cumulative channel counters.
+    uint32_t refused_health = 0, refused_death = 0, refused_write = 0, refused_capacity = 0, refused_vehicle_notice = 0;
     std::vector<Entry> pending;
     pending.reserve(candidates.size());
     // Rotate traversal so a persistently busy connection does not always privilege the first units.
@@ -280,15 +283,18 @@ static void frame(ObjMan *om, uint32_t now, vitals::Send send, bool force) {
         uint64_t key = ((uint64_t)(c.machine ? 1 : 2) << 32) | c.id;
         if (ids[key] != 1) { ++duplicates; continue; }
         char *p = (char *)c.obj;
+        const bool ours = session_owns(c.obj);
         if (c.machine) {
             int vm = vehicle_mode(current_mode());
             if (!vm || !readable(p + 0xd00, 0x20)) continue;
             uint8_t values[vitals::vehicle_bytes];
             for (int b = 0; b < vitals::vehicle_bytes; ++b) { values[b] = (uint8_t)p[vehicle_offsets[b]]; if (values[b]) ++veh_nonzero[b]; }
             ++veh_seen;
+            if (ours) ++ours_seen;
             if (!baseline_checked) continue;
             for (int b = 0; b < vitals::vehicle_bytes; ++b) if (baseline_mask & (1u << b)) values[b] = 0;
-            vitals::Vehicle *remote = channel.find_vehicle(c.id);
+            if (ours) channel.forget_vehicle(c.id);
+            vitals::Vehicle *remote = ours ? nullptr : channel.find_vehicle(c.id);
             if (remote && start_checked) for (int b = 0; b < vitals::vehicle_bytes; ++b) {
                 uint16_t bit = (uint16_t)(1u << b);
                 if (!(remote->pending & bit)) continue;
@@ -297,9 +303,10 @@ static void frame(ObjMan *om, uint32_t now, vitals::Send send, bool force) {
                 if (vm >= 2 && span_write(p + vehicle_offsets[b], 1)) {
                     p[vehicle_offsets[b]] = (char)remote->pending_value[b]; values[b] = remote->pending_value[b];
                     remote->pending &= (uint16_t)~bit; ++applied;
-                } else if (vm == 1) { remote->pending &= (uint16_t)~bit; ++refused; }
+                } else if (vm == 1) { remote->pending &= (uint16_t)~bit; ++refused; ++refused_vehicle_notice; }
             }
-            if (!vehicles.count(c.id) && vehicles.size() >= vitals::max_vehicles) { ++refused; continue; }
+            if (!ours) { vehicles.erase(c.id); continue; }
+            if (!vehicles.count(c.id) && vehicles.size() >= vitals::max_vehicles) { ++refused; ++refused_capacity; continue; }
             LocalVehicle &local = vehicles[c.id];
             bool any = false;
             for (int b = 0; b < vitals::vehicle_bytes; ++b) {
@@ -317,26 +324,40 @@ static void frame(ObjMan *om, uint32_t now, vitals::Send send, bool force) {
         }
         if (!readable(p + H_SELF, 4)) continue;
         float health; memcpy(&health, p + H_SELF, 4); ++seen;
+        if (ours) ++ours_seen;
         bool valid = health >= 0.f && health <= 2.f;
         if (sanity_seen < 40) { ++sanity_seen; if (valid) ++sanity_good; }
-        if (!valid) { ++refused; continue; }
+        if (!valid) { ++refused; ++refused_health; continue; }
         if (health < 0.5f) ++dead;
-        if (!soldiers.count(c.id) && soldiers.size() >= vitals::max_soldiers) { ++refused; continue; }
-        LocalSoldier &local = soldiers[c.id];
-        const vitals::Soldier *remote = channel.find_soldier(c.id);
-        if (remote && start_checked && current_mode() >= 2 && remote->health < health - 0.005f) {
+        if (ours) channel.forget_soldier(c.id);
+        const vitals::Soldier *remote = ours ? nullptr : channel.find_soldier(c.id);
+        if (remote && start_checked && current_mode() >= 2 &&
+            (remote->health < health - 0.005f || remote->health > health + 0.005f)) {
             if (health >= 0.5f && remote->is_dead) {
                 if (mark_dead(p, remote->health, remote->record_health)) { health = remote->health; ++applied; }
-                else ++refused;
-            } else if (health < 0.5f || remote->health >= 0.5f) {
+                else { ++refused; ++refused_death; }
+            } else if (!(health < 0.5f && !remote->is_dead)) {
+                // Updating health is allowed in both directions while alive, and within the dead
+                // range; never turn a locally dead soldier into a living one by a scalar write.
                 if (set_health(p, remote->health)) { health = remote->health; ++applied; }
-                else ++refused;
+                else { ++refused; ++refused_write; }
             }
         }
-        bool is_dead = health < 0.5f;
-        if (health < 0.999f && (health < local.sent - 0.005f || (is_dead && !local.told_dead) ||
-                                (uint32_t)(now - local.last_sent) >= 2000))
+        if (!ours) { soldiers.erase(c.id); continue; }
+        if (!soldiers.count(c.id) && soldiers.size() >= vitals::max_soldiers) { ++refused; ++refused_capacity; continue; }
+        LocalSoldier &local = soldiers[c.id];
+        if (!local.has_sent || health < local.sent - 0.005f || health > local.sent + 0.005f ||
+            (uint32_t)(now - local.last_sent) >= 2000)
             pending.push_back(vitals::soldier(c.id, health));
+    }
+    // Health is published by the side that commands the unit, so an unknown force means a silent
+    // channel: the battle goes on with no health and no deaths crossing over. Say it once.
+    static bool said_nothing_owned = false;
+    if (!said_nothing_owned && !ours_seen && (seen || veh_seen)) {
+        said_nothing_owned = true;
+        mp_log("vitals: none of the %u soldiers and %u vehicles here belong to this player, so no health is published - "
+               "check the battle description or the operation save this battle was prepared from",
+               seen, veh_seen);
     }
     size_t retained = (!start_checked || broken || pending.empty()) ? 0 : channel.enqueue(pending.data(), pending.size(), now, send);
     for (size_t i = 0; i < retained; ++i) {
@@ -349,7 +370,7 @@ static void frame(ObjMan *om, uint32_t now, vitals::Send send, bool force) {
             }
         } else {
             auto it = soldiers.find(e.id); if (it != soldiers.end()) {
-                it->second.sent = vitals::value(e.a); it->second.told_dead = (e.flags & vitals::dead) != 0; it->second.last_sent = now;
+                it->second.sent = vitals::value(e.a); it->second.has_sent = true; it->second.last_sent = now;
             }
         }
     }
@@ -375,6 +396,8 @@ static void frame(ObjMan *om, uint32_t now, vitals::Send send, bool force) {
         const vitals::Counters &n = channel.counters();
         mp_log("vitals: soldiers %u dead %u, vehicles %u, applied %u refused %u ambiguous %u; channel sent %llu acked %llu rx %llu retry %llu rejected %llu pending %zu",
                seen, dead, veh_seen, applied, refused, duplicates, n.sent, n.acked, n.received, n.retries, n.rejected, channel.outstanding());
+        if (refused) mp_log("vitals: refused in latest scan: invalid health %u, death record/write %u, health write %u, capacity %u, vehicle notice-only %u",
+                            refused_health, refused_death, refused_write, refused_capacity, refused_vehicle_notice);
         if (scan_samples) mp_log("vitals: %u scans, average %.2f us, maximum %.2f us (wall time; not FPS)",
                                  scan_samples, scan_us_total / scan_samples, scan_us_max);
         scan_us_total = scan_us_max = 0; scan_samples = 0; last_report = now;

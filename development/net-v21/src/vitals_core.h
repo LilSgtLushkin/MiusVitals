@@ -4,9 +4,10 @@
 // Only the session thread calls this class. The session checks the peer address (not a
 // cryptographic identity) and supplies an epoch learned from the versioned Hello/Welcome. Receipt
 // and validation precede the ACK; a full table or an unavailable number exchange is never ACKed.
-// Packet loss, reordering and duplicates are normal. Soldiers merge by minimum health/death;
-// vehicle flags use per-vehicle sequence numbers plus explicit nonzero-transition bits, so a
-// later 0->1 transition survives even when the intervening zero packet arrives out of order.
+// Packet loss, reordering and duplicates are normal. Soldier health uses the newest owner packet
+// per unit; the engine adapter enforces ownership and never resurrects a locally dead soldier.
+// Vehicle flags use per-vehicle sequence numbers plus explicit nonzero-transition bits, so a later
+// 0->1 transition survives even when the intervening zero packet arrives out of order.
 #pragma once
 #include "protocol.h"
 #include <stdint.h>
@@ -60,6 +61,7 @@ inline bool valid(const Entry &e) {
 }
 
 struct Soldier {
+    uint32_t last_seq = 0;
     float health = 9.f, record_health = 1000000.f;
     bool is_dead = false;
 };
@@ -104,6 +106,10 @@ public:
     Vehicle *find_vehicle(uint32_t id) {
         auto it = vehicles_.find(id); return it == vehicles_.end() ? nullptr : &it->second;
     }
+    // Never retain a non-owner's state for a unit controlled here, including across a later
+    // ownership change. The caller knows ownership; the portable transport intentionally does not.
+    void forget_soldier(uint32_t id) { soldiers_.erase(id); }
+    void forget_vehicle(uint32_t id) { vehicles_.erase(id); }
 
     // On saturation returns the number actually retained. The caller must not mark the rest sent.
     // Retained data never expires or evicts older entries while connected; retries are bounded in
@@ -153,9 +159,11 @@ public:
         Entry entries[per_packet];
         memcpy(entries, (const uint8_t *)data + sizeof h, h.h.count * sizeof(Entry));
         std::unordered_set<uint32_t> new_soldiers, new_vehicles;
+        std::unordered_set<uint64_t> batch_ids;
         for (unsigned i = 0; i < h.h.count; ++i) {
             const Entry &e = entries[i];
-            if (!valid(e)) { ++counts_.rejected; return false; }
+            uint64_t key = ((uint64_t)((e.flags & vehicle) ? 1 : 2) << 32) | e.id;
+            if (!valid(e) || !batch_ids.insert(key).second) { ++counts_.rejected; return false; }
             if (e.flags & vehicle) { if (!vehicles_.count(e.id)) new_vehicles.insert(e.id); }
             else if (!soldiers_.count(e.id)) new_soldiers.insert(e.id);
         }
@@ -177,10 +185,12 @@ public:
                     if (b[k]) v.peer_nonzero |= bit; else v.peer_nonzero &= (uint16_t)~bit;
                 }
             } else {
-                Soldier &s = soldiers_[e.id]; float health = value(e.a);
-                if (health < s.health) s.health = health;
-                if (e.flags & dead) s.is_dead = true;
-                if (e.flags & record) { float r = value(e.b); if (r < s.record_health) s.record_health = r; }
+                Soldier &s = soldiers_[e.id];
+                if (h.seq <= s.last_seq) continue;
+                s.last_seq = h.seq;
+                s.health = value(e.a);
+                s.is_dead = (e.flags & dead) != 0;
+                s.record_health = (e.flags & record) ? value(e.b) : 1000000.f;
             }
         }
         ++counts_.received;

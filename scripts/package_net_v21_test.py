@@ -18,7 +18,7 @@ import tempfile
 import zipfile
 
 VERSION = "1.0.7"
-WIRE_TAG = b"NETV21_WIRE_PROTOCOL_17"
+WIRE_TAG = b"NETV21_WIRE_PROTOCOL_18"
 ROOT = "MiusMultiplayer"
 PROVEN = Path("development/unified-fps-kit-source")
 KIT = Path("development/net-v21-kit")
@@ -371,10 +371,18 @@ def verify(archive_path: Path) -> None:
         stamp = archive.read(f"{ROOT}/{PASSPORT}").decode("utf-8")
         # Preserve the independently verifiable historical unified 1.0.5 archive.
         match = re.search(r"^MiusMultiplayer (\d+\.\d+\.\d+) - test archive\r?$", stamp, re.M)
-        tags = {"1.0.5": b"NETV21_WIRE_PROTOCOL_14", "1.0.6": b"NETV21_WIRE_PROTOCOL_15", VERSION: WIRE_TAG}
+        # Verification of an immutable historical installer is not network compatibility.
+        # 1.0.7 has both preserved protocol-17 releases and new protocol-18 builds; its
+        # passport must name exactly one allowed tag, and both contained binaries must match it.
+        tags = {"1.0.5": (b"NETV21_WIRE_PROTOCOL_14",),
+                "1.0.6": (b"NETV21_WIRE_PROTOCOL_15",),
+                VERSION: (b"NETV21_WIRE_PROTOCOL_17", WIRE_TAG)}
         version = match.group(1) if match else ""
-        tag = tags.get(version)
-        if not tag or f"wire protocol: {tag.decode('ascii')}" not in stamp:
+        wire_lines = re.findall(r"^wire protocol: ([A-Z0-9_]+)\r?$", stamp, re.M)
+        if len(wire_lines) != 1:
+            raise SystemExit("build passport version or wire protocol mismatch")
+        tag = wire_lines[0].encode("ascii")
+        if tag not in tags.get(version, ()):
             raise SystemExit("build passport version or wire protocol mismatch")
         module, launcher = archive.read(f"{ROOT}/{MODULE_PATH}"), archive.read(f"{ROOT}/{LAUNCHER_PATH}")
         validate_module(module); validate_launcher(launcher)

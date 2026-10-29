@@ -4,6 +4,7 @@
 // assumptions remain unverified without the game; unknown layouts are refused.
 #include "common.h"
 #include "anim_wire.h"
+#include "animation_channel.h"
 #include "env_value.h"
 #include "hooks.h"
 #include <atomic>
@@ -37,6 +38,8 @@ struct Local { unsigned char last[anim_wire::snapshot_size]; DWORD at; bool has;
 static std::unordered_map<u32, Index> by_index;
 static std::unordered_map<u64, Local> local;
 static std::unordered_map<u64, DWORD> received_at;
+static animation_channel::Channel transport;
+static void observe_critical(u32 index);
 
 static bool writable(void *p, size_t n)
 {
@@ -96,12 +99,18 @@ static bool block(u32 index)
     ++held;
     return true;
 }
-static uintptr_t slot4(Object *o, u32 i, u32 v) { return block(i) ? 0 : ((U32Fn)originals[4])(o,i,v); }
+static uintptr_t slot4(Object *o, u32 i, u32 v) {
+    if (block(i)) return 0; uintptr_t result = ((U32Fn)originals[4])(o,i,v); observe_critical(i); return result;
+}
 static void slot8(Object *o, u32 i, float v) { if (!block(i)) ((FloatFn)originals[8])(o,i,v); }
-static uintptr_t slot10(Object *o, u32 i, u32 v) { return block(i) ? 0 : ((U32Fn)originals[10])(o,i,v); }
-static uintptr_t slot11(Object *o, u32 i, const char *v) { return block(i) ? 0 : ((GroupFn)originals[11])(o,i,v); }
-static void slot12(Object *o, u32 i, u32 v) { if (!block(i)) ((VoidU32Fn)originals[12])(o,i,v); }
-static void slot13(Object *o, u32 i) { if (!block(i)) ((VoidFn)originals[13])(o,i); }
+static uintptr_t slot10(Object *o, u32 i, u32 v) {
+    if (block(i)) return 0; uintptr_t result = ((U32Fn)originals[10])(o,i,v); observe_critical(i); return result;
+}
+static uintptr_t slot11(Object *o, u32 i, const char *v) {
+    if (block(i)) return 0; uintptr_t result = ((GroupFn)originals[11])(o,i,v); observe_critical(i); return result;
+}
+static void slot12(Object *o, u32 i, u32 v) { if (!block(i)) { ((VoidU32Fn)originals[12])(o,i,v); observe_critical(i); } }
+static void slot13(Object *o, u32 i) { if (!block(i)) { ((VoidFn)originals[13])(o,i); observe_critical(i); } }
 static void slot14(Object *o, u32 i, bool v, float x, float y, float z) { if (!block(i)) ((VectorFn)originals[14])(o,i,v,x,y,z); }
 static void slot16(Object *o, u32 i, float v) { if (!block(i)) ((FloatFn)originals[16])(o,i,v); }
 static void slot20(Object *o, u32 i, float v) { if (!block(i)) ((FloatFn)originals[20])(o,i,v); }
@@ -137,6 +146,42 @@ static bool wait_or_refuse(u32 seq)
     if (seq != wait_seq) { wait_seq = seq; wait_at = now; return false; }
     if ((DWORD)(now - wait_at) < 5000) return false;
     ++refused; wait_seq = 0; mp_log("anim: snapshot %u refused after waiting for its soldier", seq); return true;
+}
+static bool critical_change(const Local &previous, const ShotRec &rec)
+{
+    const unsigned char *a = previous.last, *b = rec.launch;
+    // Frame/time and vectors are replaceable; group identity, activation, action identifiers and
+    // human state transitions are retained in order until replayed and acknowledged.
+    return !previous.has || memcmp(a + 4, b + 4, 8) || memcmp(a + 16, b + 16, 8) ||
+           memcmp(a + 50, b + 50, 34);
+}
+static void publish(Object *object, u64 key, u32 index, DWORD now, bool only_critical)
+{
+    unsigned char *inst = instance(index);
+    char group[28];
+    if (!inst || !group_name(inst, group)) return;
+    ShotRec rec; anim_wire::encode(rec, key, inst, group[0] ? group : nullptr, (const unsigned char *)object);
+    if (!anim_wire::valid(rec)) return;
+    Local &l = local[key];
+    bool critical = critical_change(l, rec);
+    bool changed = !l.has || memcmp(l.last, rec.launch, sizeof l.last) != 0;
+    if (only_critical && !critical) return;
+    // Under channel pressure only the cosmetic sampling rate drops, and it returns to the
+    // normal cadence by itself once the outstanding queue has drained.
+    if (!critical && l.has && (DWORD)(now - l.at) < (changed ? transport.changed_ms() : transport.unchanged_ms())) return;
+    if (!transport.queue(rec, critical)) { ++full; return; }
+    memcpy(l.last, rec.launch, sizeof l.last); l.has = true; l.at = now; ++sent;
+}
+static void observe_critical(u32 index)
+{
+    // The setter hooks also run on other threads; never touch session maps from those calls.
+    if (GetCurrentThreadId() != thread_id || !anim_available() || !session_connected() ||
+        !(session_peer_features() & PEER_ANIM_SYNC)) return;
+    auto it = by_index.find(index);
+    if (it == by_index.end() || it->second.remote || it->second.ambiguous) return;
+    Object *object = session_unit(it->second.key); u64 key = 0; u32 actual = 0;
+    if (!object || !human(object, &key, &actual) || key != it->second.key || actual != index || !session_owns(object)) return;
+    publish(object, key, index, GetTickCount(), true);
 }
 } // namespace
 
@@ -181,7 +226,11 @@ bool anim_available(void) { return enabled && installed.load(std::memory_order_a
 void anim_frame(ObjMan *om, DWORD now)
 {
     if (!anim_available() || !session_connected() || !(session_peer_features() & PEER_ANIM_SYNC) || om != manager ||
-        GetCurrentThreadId() != thread_id || (last_scan && (DWORD)(now - last_scan) < 200)) return;
+        GetCurrentThreadId() != thread_id) return;
+    if (transport.update_pressure())
+        mp_log("anim: %llu critical events outstanding; animation sampling %s", (unsigned long long)transport.pending_events(),
+               transport.slow() ? "temporarily reduced until the queue drains" : "back to normal");
+    if (last_scan && (DWORD)(now - last_scan) < transport.scan_ms()) return;
     last_scan = now ? now : 1;
     if (!readable(om, 0x100) || !readable(anim, 0x148) || anim->vtbl != table_copy + 1) return;
     u32 count = 0; Object **objects = all_objects(om, &count);
@@ -203,17 +252,7 @@ void anim_frame(ObjMan *om, DWORD now)
     // Discover duplicate indices before emitting either soldier's state.
     for (const Candidate &c : owned) {
         if (by_index[c.index].ambiguous) continue;
-        unsigned char *inst = instance(c.index);
-        char group[28];
-        if (!inst || !group_name(inst, group)) continue;
-        ShotRec rec;
-        anim_wire::encode(rec, c.key, inst, group[0] ? group : nullptr, (const unsigned char *)c.object);
-        if (!anim_wire::valid(rec)) continue;
-        Local &l = local[c.key];
-        bool changed = !l.has || memcmp(l.last, rec.launch, sizeof l.last) != 0;
-        if (l.has && (DWORD)(now - l.at) < (changed ? 200u : 1000u)) continue;
-        if (!shots_queue_latest(rec, anim_wire::queue_limit)) { ++full; continue; }
-        memcpy(l.last, rec.launch, sizeof l.last); l.has = true; l.at = now; ++sent;
+        publish(c.object, c.key, c.index, now, false);
     }
     for (auto it = local.begin(); it != local.end();) {
         if (!alive.count(it->first)) it = local.erase(it); else ++it;
@@ -223,45 +262,49 @@ void anim_frame(ObjMan *om, DWORD now)
     }
 }
 
-bool anim_received(const ShotRec &s, ObjMan *om)
+static animation_channel::Apply anim_apply(const ShotRec &s, ObjMan *om, bool timed_wait)
 {
-    if (!anim_wire::valid(s)) { ++refused; mp_log("anim: malformed snapshot %u refused", s.seq); return true; }
+    if (!anim_wire::valid(s)) { ++refused; mp_log("anim: malformed snapshot %u refused", s.seq); return animation_channel::Apply::refused; }
     if (!installed.load(std::memory_order_acquire) || !enabled || om != manager || GetCurrentThreadId() != thread_id) {
-        ++refused; mp_log("anim: snapshot %u refused: hook/thread unavailable", s.seq); return true;
+        ++refused; mp_log("anim: snapshot %u refused: hook/thread unavailable", s.seq); return animation_channel::Apply::refused;
     }
     Object *o = session_unit(s.shooter);
-    if (!o) return wait_or_refuse(s.seq);
+    if (!o) return timed_wait && wait_or_refuse(s.seq) ? animation_channel::Apply::refused : animation_channel::Apply::retry;
     u64 key = 0; u32 index = 0;
-    if (!human(o, &key, &index) || key != s.shooter || session_owns(o)) { ++refused; mp_log("anim: snapshot %u refused: soldier/ownership mismatch", s.seq); return true; }
+    if (!human(o, &key, &index) || key != s.shooter || session_owns(o)) { ++refused; mp_log("anim: snapshot %u refused: soldier/ownership mismatch", s.seq); return animation_channel::Apply::refused; }
     auto slot = by_index.find(index);
-    if (slot == by_index.end()) return wait_or_refuse(s.seq);
+    if (slot == by_index.end()) return timed_wait && wait_or_refuse(s.seq) ? animation_channel::Apply::refused : animation_channel::Apply::retry;
     if (slot->second.ambiguous || slot->second.key != key || !slot->second.remote ||
         !readable(anim, 0x148) || anim->vtbl != table_copy + 1) {
-        ++refused; mp_log("anim: snapshot %u refused: ambiguous index or changed interface", s.seq); return true;
+        ++refused; mp_log("anim: snapshot %u refused: ambiguous index or changed interface", s.seq); return animation_channel::Apply::refused;
     }
     unsigned char *inst = instance(index);
     if (!inst || !writable(inst, anim_wire::instance_size) || !writable((char *)o + 0x1210, 12) ||
         !writable((char *)o + 0x1e70, 4) || !writable((char *)o + 0x1eac, 4) || !writable((char *)o + 0x1ef8, 4)) {
-        ++refused; mp_log("anim: snapshot %u refused: animation memory not writable", s.seq); return true;
+        ++refused; mp_log("anim: snapshot %u refused: animation memory not writable", s.seq); return animation_channel::Apply::refused;
     }
     char current[28];
-    if (!group_name(inst, current)) { ++refused; return true; }
+    if (!group_name(inst, current)) { ++refused; return animation_channel::Apply::refused; }
     const unsigned char *p = s.launch;
     if (p[50] && strcmp(current, (const char *)p + 52)) {
         if (!invoke_group((GroupFn)originals[11], anim, index, (const char *)p + 52)) {
-            enabled = false; ++refused; mp_log("anim: engine group setter faulted; synchronization disabled (effects may be partial)"); return true;
+            enabled = false; ++refused; mp_log("anim: engine group setter faulted; synchronization disabled (effects may be partial)"); return animation_channel::Apply::refused;
         }
         inst = instance(index);
         if (!inst || !writable(inst, anim_wire::instance_size) || !group_name(inst, current) || strcmp(current, (const char *)p + 52)) {
-            ++refused; mp_log("anim: snapshot %u refused: local group not found", s.seq); return true;
+            ++refused; mp_log("anim: snapshot %u refused: local group not found", s.seq); return animation_channel::Apply::refused;
         }
     }
     // Check the owner's sequence number against the local group's size before applying it.
     u32 active = 0, frame = 0, count = 0;
     memcpy(&active, p + 8, 4); memcpy(&frame, p + 12, 4);
     void *group = nullptr; memcpy(&group, inst + 0x70, sizeof group);
-    if (!active || !p[50] || !group || !readable(group, 16)) { active = 0; frame = 0xffffffffu; }
-    else { memcpy(&count, (char *)group + 12, 4); if (frame >= count) { active = 0; frame = 0xffffffffu; } }
+    if (!active) frame = 0xffffffffu;
+    else {
+        if (!p[50] || !group || !readable(group, 16)) { ++refused; return animation_channel::Apply::refused; }
+        memcpy(&count, (char *)group + 12, 4);
+        if (frame >= count) { ++refused; mp_log("anim: snapshot %u refused: frame outside local group", s.seq); return animation_channel::Apply::refused; }
+    }
     memcpy(inst + 0xa8, p + 4, 4); memcpy(inst + 0x100, p + 16, 4); memcpy(inst + 0x114, p + 20, 4);
     memcpy(inst + 0xd4, p + 24, 4); memcpy(inst + 0x11c, p + 28, 12); memcpy(inst + 0x128, p + 40, 8);
     inst[0x136] = p[48]; inst[0x139] = p[49];
@@ -270,14 +313,34 @@ bool anim_received(const ShotRec &s, ObjMan *om)
     if (state < 8) memcpy((char *)o + 0x1e70, &state, 4);
     memcpy((char *)o + 0x1210, p + 84, 12); memcpy((char *)o + 0x1eac, p + 96, 4); memcpy((char *)o + 0x1ef8, p + 100, 4);
     received_at[key] = GetTickCount(); wait_seq = 0; ++applied;
-    return true;
+    return animation_channel::Apply::applied;
 }
+
+
+bool anim_received(const ShotRec &s, ObjMan *om)
+{
+    // Test/legacy seam; protocol 18 uses the independent channel below.
+    return anim_apply(s, om, true) != animation_channel::Apply::retry;
+}
+
+static animation_channel::Apply transport_replay(const ShotRec &s, void *context)
+{ return anim_apply(s, (ObjMan *)context, false); }
+
+void anim_transport_epoch(u32 local_epoch, u32 peer_epoch) { transport.start(local_epoch, peer_epoch); }
+void anim_transport_reset(void) { transport.reset(); }
+void anim_on_packet(const unsigned char *data, int size, void (*send)(const void *, int))
+{ if (size >= 0) transport.packet(data, (size_t)size, send); }
+void anim_transport_tick(DWORD now, void (*send)(const void *, int)) { transport.tick(now, send); }
+void anim_sim_step(ObjMan *om, DWORD now, void (*send)(const void *, int))
+{ transport.apply(now, transport_replay, om, send); }
 
 void anim_report(void)
 {
     unsigned long long other = other_thread.exchange(0, std::memory_order_relaxed);
-    if (sent || applied || held || refused || full || other)
-        mp_log("anim: 5 s: %llu snapshots queued, %llu applied, %llu local setters held, %llu refused, %llu deferred by queue limit, %llu calls on other threads passed through", sent, applied, held, refused, full, other);
+    if (sent || applied || held || refused || full || other || transport.pending_events() || transport.rebases())
+        mp_log("anim: 5 s: %llu updates retained, %llu applied, %llu local setters held, %llu refused, %llu deferred, %llu calls on other threads passed through; %zu critical events awaiting replay/ACK, %zu superseded under pressure, sampling %s",
+               sent, applied, held, refused, full, other, transport.pending_events(), transport.rebases(),
+               transport.slow() ? "reduced" : "normal");
     sent = applied = held = refused = full = 0;
 }
 
@@ -314,5 +377,5 @@ void anim_stop(void)
         mp_log("anim: interface table changed by another module; not overwritten");
     anim = nullptr; manager = nullptr; original_table = nullptr;
     attempted = false; enabled = true; last_scan = wait_seq = 0;
-    by_index.clear(); local.clear(); received_at.clear();
+    by_index.clear(); local.clear(); received_at.clear(); transport.reset();
 }

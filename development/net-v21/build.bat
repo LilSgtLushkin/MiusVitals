@@ -70,102 +70,110 @@ exit /b %errorlevel%
 
 :selftest
 if not exist build\selftest mkdir build\selftest
-cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\steam.cpp src\steam_logger.cpp src\steam_selftest.cpp /link ws2_32.lib /OUT:build\selftest\steam_selftest.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\steam.cpp src\steam_logger.cpp tests\steam_selftest.cpp /link ws2_32.lib /OUT:build\selftest\steam_selftest.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\steam_friends_test.cpp /link /OUT:build\selftest\steam_friends_test.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\steam_friends_test.cpp /link /OUT:build\selftest\steam_friends_test.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\netlog.cpp src\netlog_selftest.cpp /link /OUT:build\selftest\netlog_selftest.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\netlog.cpp tests\netlog_selftest.cpp /link /OUT:build\selftest\netlog_selftest.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\vitals_core_test.cpp /link /OUT:build\selftest\vitals_core_test.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\vitals_core_test.cpp /link /OUT:build\selftest\vitals_core_test.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\vitals_randomized_test.cpp /link /OUT:build\selftest\vitals_randomized_test.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\vitals_randomized_test.cpp /link /OUT:build\selftest\vitals_randomized_test.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\hit_anim_wire_test.cpp /link /OUT:build\selftest\hit_anim_wire_test.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\hit_anim_wire_test.cpp /link /OUT:build\selftest\hit_anim_wire_test.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\hit_sync.cpp src\anim_sync.cpp src\hooks.cpp src\hit_anim_integration_test.cpp /link /OUT:build\selftest\hit_anim_integration_test.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\animation_channel_test.cpp /link /OUT:build\selftest\animation_channel_test.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\vitals.cpp src\hooks.cpp src\vitals_integration_test.cpp /link /OUT:build\selftest\vitals_integration_test.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\pause_sync_test.cpp /link /OUT:build\selftest\pause_sync_test.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\protocol_selftest.cpp /link /OUT:build\selftest\protocol_selftest.exe
+cl /nologo /Isrc /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\hit_sync.cpp src\anim_sync.cpp src\hooks.cpp tests\hit_anim_integration_test.cpp /link /OUT:build\selftest\hit_anim_integration_test.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\operation_turn_test.cpp /link /OUT:build\selftest\operation_turn_test.exe
+cl /nologo /Isrc /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\vitals.cpp src\hooks.cpp tests\vitals_integration_test.cpp /link /OUT:build\selftest\vitals_integration_test.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\opsave_checked_test.cpp /link /OUT:build\selftest\opsave_checked_test.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\protocol_selftest.cpp /link /OUT:build\selftest\protocol_selftest.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\map_file_test.cpp /link /OUT:build\selftest\map_file_test.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\operation_turn_test.cpp /link /OUT:build\selftest\operation_turn_test.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\map_file_windows_test.cpp /link /OUT:build\selftest\map_file_windows_test.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\opsave_checked_test.cpp /link /OUT:build\selftest\opsave_checked_test.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\force_test.cpp /link /OUT:build\selftest\force_test.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\map_file_test.cpp /link /OUT:build\selftest\map_file_test.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\battle_file_test.cpp /link /OUT:build\selftest\battle_file_test.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\map_file_windows_test.cpp /link /OUT:build\selftest\map_file_windows_test.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\retry_gate_test.cpp /link /OUT:build\selftest\retry_gate_test.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\force_test.cpp /link /OUT:build\selftest\force_test.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\atomic_file_selftest.cpp /link /OUT:build\selftest\atomic_file_selftest.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\battle_file_test.cpp /link /OUT:build\selftest\battle_file_test.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\reliable_inbox_test.cpp /link /OUT:build\selftest\reliable_inbox_test.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\retry_gate_test.cpp /link /OUT:build\selftest\retry_gate_test.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\ceasefire_test.cpp /link /OUT:build\selftest\ceasefire_test.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\atomic_file_selftest.cpp /link /OUT:build\selftest\atomic_file_selftest.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\env_value_test.cpp /link /OUT:build\selftest\env_value_test.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\reliable_inbox_test.cpp /link /OUT:build\selftest\reliable_inbox_test.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\tactical_mode_test.cpp /link /OUT:build\selftest\tactical_mode_test.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\ceasefire_test.cpp /link /OUT:build\selftest\ceasefire_test.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\transform_write_test.cpp /link /OUT:build\selftest\transform_write_test.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\env_value_test.cpp /link /OUT:build\selftest\env_value_test.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\transform_gc_test.cpp /link /OUT:build\selftest\transform_gc_test.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\tactical_mode_test.cpp /link /OUT:build\selftest\tactical_mode_test.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\transform_send_test.cpp /link /OUT:build\selftest\transform_send_test.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\transform_write_test.cpp /link /OUT:build\selftest\transform_write_test.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\transform_inbox_test.cpp /link /OUT:build\selftest\transform_inbox_test.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\transform_gc_test.cpp /link /OUT:build\selftest\transform_gc_test.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\transport_policy_test.cpp /link /OUT:build\selftest\transport_policy_test.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\state_apply_delay_test.cpp /link /OUT:build\selftest\state_apply_delay_test.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\peer_guard_test.cpp /link /OUT:build\selftest\peer_guard_test.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\squad_ownership_test.cpp /link /OUT:build\selftest\squad_ownership_test.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\state_fragments_test.cpp /link /OUT:build\selftest\state_fragments_test.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\image_mirror_identity_test.cpp /link /OUT:build\selftest\image_mirror_identity_test.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\statesync.cpp src\statesync_legacy.cpp src\statesync_integration_test.cpp /link /OUT:build\selftest\statesync_integration_test.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\transform_send_test.cpp /link /OUT:build\selftest\transform_send_test.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\state.cpp src\hooks.cpp src\state_memory_test.cpp /link /OUT:build\selftest\state_memory_test.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\transform_inbox_test.cpp /link /OUT:build\selftest\transform_inbox_test.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\shots.cpp src\hooks.cpp src\shots_integration_test.cpp /link /OUT:build\selftest\shots_integration_test.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\transport_policy_test.cpp /link /OUT:build\selftest\transport_policy_test.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\peer_guard_test.cpp /link /OUT:build\selftest\peer_guard_test.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\state_fragments_test.cpp /link /OUT:build\selftest\state_fragments_test.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\statesync.cpp src\statesync_legacy.cpp tests\statesync_integration_test.cpp /link /OUT:build\selftest\statesync_integration_test.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /Isrc /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\state.cpp src\hooks.cpp tests\state_memory_test.cpp /link /OUT:build\selftest\state_memory_test.exe
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\shots.cpp src\hooks.cpp tests\shots_integration_test.cpp /link /OUT:build\selftest\shots_integration_test.exe
 if errorlevel 1 exit /b %errorlevel%
 cl /nologo /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\shots.cpp src\hooks.cpp src\named_shots_integration_test.cpp /link /OUT:build\selftest\named_shots_integration_test.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\shots.cpp src\xlate.cpp src\hooks.cpp src\shots_xlate_characterization_test.cpp /link /OUT:build\selftest\shots_xlate_characterization_test.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\shots.cpp src\xlate.cpp src\hooks.cpp tests\shots_xlate_characterization_test.cpp /link /OUT:build\selftest\shots_xlate_characterization_test.exe
 if errorlevel 1 exit /b %errorlevel%
-python tools\extract_legacy_shots_fixture.py build\selftest\compat107
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\hooks.cpp tests\hooks_selftest.cpp /link /OUT:build\selftest\hooks_selftest.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /DCOMPAT_LEGACY /Isrc /Fo"build\selftest\\" /Fd"build\selftest\\" build\selftest\compat107\shots.cpp build\selftest\compat107\xlate.cpp src\hooks.cpp src\shots_compat_peer.cpp /link /OUT:build\selftest\shots_compat_107.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\xlate.cpp src\hooks.cpp tests\xlate_selftest.cpp /link /OUT:build\selftest\xlate_selftest.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Isrc /Fo"build\selftest\\" /Fd"build\selftest\\" src\shots.cpp src\xlate.cpp src\hooks.cpp src\shots_compat_peer.cpp /link /OUT:build\selftest\shots_compat_current.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\trench.cpp src\hooks.cpp tests\trench_thread_test.cpp /link /OUT:build\selftest\trench_thread_test.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\hooks.cpp src\hooks_selftest.cpp /link /OUT:build\selftest\hooks_selftest.exe
+cl /nologo /Isrc /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\render_guard.cpp src\hooks.cpp tests\render_guard_test.cpp /link /OUT:build\selftest\render_guard_test.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\xlate.cpp src\hooks.cpp src\xlate_selftest.cpp /link /OUT:build\selftest\xlate_selftest.exe
+cl /nologo /Isrc /LD /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\late_input_fixture.cpp /link user32.lib /OUT:build\selftest\late_input_fixture.dll /IMPLIB:build\selftest\late_input_fixture.lib
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\trench.cpp src\hooks.cpp src\trench_thread_test.cpp /link /OUT:build\selftest\trench_thread_test.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\late_input_test.cpp /link user32.lib /OUT:build\selftest\late_input_test.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\render_guard.cpp src\hooks.cpp src\render_guard_test.cpp /link /OUT:build\selftest\render_guard_test.exe
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\starter_fixture.cpp /link /OUT:build\selftest\starter_fixture.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /LD /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\late_input_fixture.cpp /link user32.lib /OUT:build\selftest\late_input_fixture.dll /IMPLIB:build\selftest\late_input_fixture.lib
+cl /nologo /Isrc /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" tests\loopback_peer.cpp /link ws2_32.lib /OUT:build\selftest\loopback_peer.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\late_input_test.cpp /link user32.lib /OUT:build\selftest\late_input_test.exe
+cl /nologo /Isrc /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\session.cpp src\vitals.cpp src\hooks.cpp src\steam.cpp src\steam_module.cpp tests\session_loopback_peer.cpp /link ws2_32.lib ole32.lib oleaut32.lib user32.lib /OUT:build\selftest\session_loopback_peer.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\starter_fixture.cpp /link /OUT:build\selftest\starter_fixture.exe
+cl /nologo /Isrc /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\session.cpp src\vitals.cpp src\hooks.cpp src\steam.cpp src\steam_module.cpp src\shots.cpp src\hit_sync.cpp src\anim_sync.cpp tests\session_event_peer.cpp /link ws2_32.lib ole32.lib oleaut32.lib user32.lib /OUT:build\selftest\session_event_peer.exe
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHsc /W3 /Fo"build\selftest\\" /Fd"build\selftest\\" src\loopback_peer.cpp /link ws2_32.lib /OUT:build\selftest\loopback_peer.exe
-if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\session.cpp src\vitals.cpp src\hooks.cpp src\steam.cpp src\steam_module.cpp src\session_loopback_peer.cpp /link ws2_32.lib ole32.lib oleaut32.lib user32.lib /OUT:build\selftest\session_loopback_peer.exe
-if errorlevel 1 exit /b %errorlevel%
-cl /nologo /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\selftest\\" /Fd"build\selftest\\" src\session.cpp src\vitals.cpp src\hooks.cpp src\steam.cpp src\steam_module.cpp src\shots.cpp src\hit_sync.cpp src\anim_sync.cpp src\session_event_peer.cpp /link ws2_32.lib ole32.lib oleaut32.lib user32.lib /OUT:build\selftest\session_event_peer.exe
+rem The pause/state-header slice compiles real functions out of session.cpp; it needs the same
+rem compiler this script has just put on PATH, so it runs here and not from the workflow.
+python tools\pause_session_slice_selftest.py
 exit /b %errorlevel%
 
 :render_test
 if not exist build\render_test mkdir build\render_test
-cl /nologo /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\render_test\\" /Fd"build\render_test\\" src\render_guard.cpp src\hooks.cpp src\render_guard_test.cpp /link /OUT:build\render_test\render_guard_test.exe
+cl /nologo /Isrc /MD /O1 /EHa /W3 /DNETV21_TEST_HOOKS /Fo"build\render_test\\" /Fd"build\render_test\\" src\render_guard.cpp src\hooks.cpp tests\render_guard_test.cpp /link /OUT:build\render_test\render_guard_test.exe
 exit /b %errorlevel%
 
 :join

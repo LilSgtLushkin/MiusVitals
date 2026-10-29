@@ -262,9 +262,9 @@ int main()
     unsigned old_hit_resets = hit_resets, old_anim_resets = anim_wait_resets, old_table_resets = table_resets, old_trench_forgets = trench_forgets;
     shots_test_wait_time(10800); incoming(1018, &one, 1); shots_sim_step(&om);
     check(latest_ack() == 0, "a new epoch starts a fresh deadline even with the same sequence");
-    check(hit_resets == old_hit_resets + 1 && anim_wait_resets == old_anim_resets + 1 &&
+    check(hit_resets == old_hit_resets + 1 && anim_wait_resets == old_anim_resets &&
           table_resets == old_table_resets + 1 && trench_forgets == old_trench_forgets + 1,
-          "stream restart invalidates tables, feature wait clocks and old handed-off trenches");
+          "shot stream restart invalidates its tables/hit wait, not the independent animation channel");
     shots_test_wait_time(20799); shots_sim_step(&om);
     check(latest_ack() == 0, "the new epoch still waits just before its own deadline");
     shots_test_wait_time(20800); shots_sim_step(&om);
@@ -293,14 +293,10 @@ int main()
     incoming(2003, stalled_handlers, 3); shots_sim_step(&om);
     check(latest_ack() == 0 && launched == before_launch, "an indefinitely waiting handler holds later gameplay");
     shots_test_wait_time(11000); shots_sim_step(&om);
-    check(latest_ack() == 1 && launched == before_launch, "fallback timeout refuses the stuck hit and starts the next head's deadline");
-    shots_test_wait_time(20999); shots_sim_step(&om);
-    check(latest_ack() == 1 && launched == before_launch, "the next head does not inherit the previous event's deadline");
-    shots_test_wait_time(21000); shots_sim_step(&om);
-    check(latest_ack() == 3 && launched == before_launch + 1, "a stuck animation is refused and the following shot proceeds");
-    unsigned calls_after_timeout = anim_calls;
+    check(latest_ack() == 3 && launched == before_launch + 1 && anim_calls == 0,
+          "stuck hit times out; animation records are not dispatched on the shot channel");
     incoming(2003, stalled_handlers, 3); shots_sim_step(&om);
-    check(anim_calls == calls_after_timeout && launched == before_launch + 1, "refused handlers and the applied shot are not replayed");
+    check(anim_calls == 0 && launched == before_launch + 1, "retransmission cannot replay the shot or dispatch animation");
     hit_ready = true; anim_ready = true;
 
     // A purported control bypass cannot skip an unreceived sequence: it is rejected and must
@@ -331,21 +327,7 @@ int main()
     check(!shots_try_queue(blocked, 1) && blocked.seq == 0 && shots_test_outstanding() == 1,
           "full bounded queue refuses without creating a sequence gap");
 
-    shots_reset();
-    ShotRec snapshot = make_record(0, 8); snapshot.shooter = (2ull << 32) | 7;
-    check(shots_queue_latest(snapshot, 8) && snapshot.seq == 1, "new animation snapshot queued");
-    snapshot.launch[0] = 42;
-    check(shots_queue_latest(snapshot, 8) && snapshot.seq == 1 && shots_test_outstanding() == 1,
-          "unsent snapshot for the same unit is coalesced");
-    ShotRec causal_hit = make_record(0, 7); shots_queue(causal_hit);
-    snapshot.launch[0] = 43;
-    check(shots_queue_latest(snapshot, 8) && snapshot.seq == 3 && shots_test_outstanding() == 3,
-          "a newer snapshot is not moved across an intervening hit");
-    shots_frame(capture);
-    snapshot.launch[0] = 44;
-    check(shots_queue_latest(snapshot, 8) && snapshot.seq == 4 && shots_test_outstanding() == 4,
-          "already-sent snapshot is never rewritten under the same sequence");
-
+    // Animation admission/retry is covered by animation_channel_test; it never occupies this queue.
     shots_reset();
     ShotRec outbound = make_record(0);
     shots_queue(outbound);

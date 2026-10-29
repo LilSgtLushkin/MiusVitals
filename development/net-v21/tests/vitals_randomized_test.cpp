@@ -52,7 +52,7 @@ int main() {
                     Channel &ch = side ? b : a; Send send = side ? send_b : send_a;
                     if (ch.enqueue(&entry, 1, now, send)) {
                         float &expected = side ? expect_a[id] : expect_b[id];
-                        if (health < expected) expected = health;
+                        expected = health; // latest retained owner update, independent of delivery order
                         ++events;
                     }
                 }

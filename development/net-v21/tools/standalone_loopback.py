@@ -18,6 +18,11 @@ import tempfile
 import time
 
 
+# The identity the stand's spectator host offers: session_loopback_peer.cpp starts it with
+# MP_MAP_EPOCH=101 / MP_MAP_REV=1, and session_start advances it once for an operation host.
+HOST_EPOCH, HOST_REVISION = "102", "2"
+
+
 def free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
         s.bind(("127.0.0.1", 0))
@@ -45,6 +50,10 @@ def run_case(peer: Path, launcher: Path, starter: Path, steam: bool, start_ok: b
                      "MP_TURNDONE", "MP_AUTOJOIN", "MP_HOST_MODE", "MP_MAP_EPOCH", "MP_MAP_REV"):
             env.pop(name, None)
         env["MP_STEAM_FAKE" if steam else "MP_STEAM"] = str(client_port) if steam else "0"
+        # The stand's spectator host seeds its first snapshot without a refresh, so it offers the
+        # base identity session_loopback_peer.cpp starts it with. The launcher must pass that on
+        # unchanged; the fixture reads these instead of carrying its own copy of the numbers.
+        env["MIUS_EXPECT_EPOCH"], env["MIUS_EXPECT_REV"] = HOST_EPOCH, HOST_REVISION
         host = subprocess.Popen([str(peer), f"spectator-{transport}-host", str(host_port), str(client_port)],
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         try:
@@ -70,9 +79,12 @@ def run_case(peer: Path, launcher: Path, starter: Path, steam: bool, start_ok: b
                 deadline = time.monotonic() + 5
                 while not marker.exists() and time.monotonic() < deadline:
                     time.sleep(0.05)
-                content = marker.read_text() if marker.exists() else ""
-                if not content.startswith("ok:") or not content[3:].isdigit():
-                    raise AssertionError(f"{transport}: child did not inherit correct map environment: {output}")
+                content = marker.read_text() if marker.exists() else "<the starter never wrote its verdict>"
+                # "ok:<pid>:<battle ticket>", and the ticket is empty for an operation map.
+                fields = content.split(":")
+                if len(fields) < 2 or fields[0] != "ok" or not fields[1].isdigit():
+                    raise AssertionError(f"{transport}: child did not inherit correct map environment: "
+                                         f"starter verdict {content!r}; launcher output: {output}")
                 # CreateProcess's production wrapper closes its handle. Wait for the fixture to exit
                 # before deleting its temporary executable/directory on Windows.
                 kernel = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -80,7 +92,7 @@ def run_case(peer: Path, launcher: Path, starter: Path, steam: bool, start_ok: b
                 kernel.OpenProcess.restype = wintypes.HANDLE
                 kernel.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
                 kernel.CloseHandle.argtypes = (wintypes.HANDLE,)
-                child = kernel.OpenProcess(0x00100000, False, int(content[3:]))
+                child = kernel.OpenProcess(0x00100000, False, int(fields[1]))
                 if child:
                     if kernel.WaitForSingleObject(child, 5000) != 0:
                         kernel.CloseHandle(child)

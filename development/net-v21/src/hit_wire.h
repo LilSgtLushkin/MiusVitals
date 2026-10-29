@@ -74,6 +74,9 @@ inline bool valid(const ShotRec &s)
     // Part metadata occupies the otherwise unused position bytes, never a pointer.
     uint32_t part = 0; memcpy(&part, s.launch + 0x60, 4);
     PartHint hint = {}; memcpy(&hint, s.pos, sizeof hint);
+    // Human hit paths sampled in the supplied 3598/1 image do not use this renderer component
+    // handle. Never transfer a process-local handle for humans; only vehicles use translation.
+    if (!s.flags && part != 0xffffffffu) return false;
     if (part == 0xffffffffu) {
         if (s.pad || hint.count || hint.ordinal || hint.shape) return false;
     } else if (s.pad != 1 || !hint.count || hint.count > max_parts || hint.ordinal >= hint.count || !hint.shape) return false;
@@ -91,6 +94,7 @@ inline void encode(ShotRec &s, bool vehicle, uint64_t target, uint64_t source, u
     s.shooter = target; s.obj2 = source; s.obj5 = object;
     s.ammo = desc1; s.weapon = desc2; s.arg6 = argument; s.ammo_code = argument5; s.desc3 = seed;
     memcpy(s.launch, record, copied);
+    if (!vehicle) { const uint32_t no_component = 0xffffffffu; memcpy(s.launch + 0x60, &no_component, 4); }
 }
 inline void put_hint(ShotRec &s, const PartHint &hint) {
     s.pad = 1; memcpy(s.pos, &hint, sizeof hint);

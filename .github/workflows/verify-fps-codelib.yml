@@ -1,12 +1,7 @@
 name: Verify Steam-preserving FPS codelib
 
+# Run the exact candidate rebuild on PR/manual dispatch, not twice for one push and its PR.
 on:
-  push:
-    paths:
-      - .github/workflows/verify-fps-codelib.yml
-      - scripts/build_steam_compatible_fps_candidate.py
-      - development/kit-source/files/basic_network.codelib
-      - development/fps-candidate/**
   pull_request:
     paths:
       - .github/workflows/verify-fps-codelib.yml

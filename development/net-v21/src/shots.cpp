@@ -237,22 +237,6 @@ bool shots_try_queue(ShotRec &s, size_t limit)
     return true;
 }
 
-bool shots_queue_latest(ShotRec &s, size_t limit)
-{
-    if (s.kind != 8 || !s.shooter || !limit) return false;
-    // Never mutate a record already sent, and never move a post-hit snapshot across a hit or a
-    // launch. That preserves causal order while coalescing an unsent suffix of snapshot records.
-    for (auto it = g_out.rbegin(); it != g_out.rend(); ++it) {
-        if (it->sent || it->rec.kind != s.kind) break;
-        if (it->rec.shooter == s.shooter) {
-            s.seq = it->rec.seq;
-            it->rec = s;
-            return true;
-        }
-    }
-    return shots_try_queue(s, limit);
-}
-
 static void launch_hook(char *sp, char *rec, u64 flags, float *pos, void *obj5, u32 arg6)
 {
     // bit 1: asked for from another thread; the shell manager queues it and launches it later through
@@ -420,7 +404,6 @@ void shots_on_packet(const unsigned char *data, int size, void (*send)(const voi
             // same. Never use the old stream's number tables or handler deadlines for new events.
             xlate_resend();
             hits_reset_peer();
-            anim_reset_wait();
             trench_forget_peer();
             mp_log("shots: peer restarted its event stream; number tables invalidated, %zu unfinished events discarded", old_pending);
         }
@@ -473,7 +456,6 @@ void shots_reset(void)
     g_seq = 0;
     g_epoch = (GetTickCount() ^ (GetCurrentProcessId() << 16) ^ (g_epoch * 2654435761u)) | 1;
     hits_reset_peer();
-    anim_reset_peer();
     trench_forget_peer();
     trench_resend();
     xlate_resend();
@@ -490,7 +472,7 @@ void shots_sim_step(ObjMan *om)
         const ShotRec &s = item.record;
         if (s.kind == 2) { trench_received(s); item.complete = true; }
         else if (s.kind == 3 || s.kind == 4) { xlate_received(s, om); item.complete = true; }
-        else if (s.kind != 0 && s.kind != 7 && s.kind != 8) {
+        else if (s.kind != 0 && s.kind != 7) {
             // kind 1 was never emitted by this module; reject unknown records explicitly.
             g_stat_refused++;
             item.complete = true;
@@ -503,10 +485,10 @@ void shots_sim_step(ObjMan *om)
     for (auto &item : g_in.items()) {
         if (item.complete) continue;
         const ShotRec &s = item.record;
-        if (s.kind == 7 || s.kind == 8) {
+        if (s.kind == 7) {
             // A false return must have no engine side effects: it means "try again".
-            bool done = s.kind == 7 ? hits_received(s, om) : anim_received(s, om);
-            if (!done && !shots_refuse_expired(s, s.kind == 7 ? "hit not ready" : "animation not ready")) break;
+            bool done = hits_received(s, om);
+            if (!done && !shots_refuse_expired(s, "hit not ready")) break;
             g_head_wait.reset();
             item.complete = true;
             continue;

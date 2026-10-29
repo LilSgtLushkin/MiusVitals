@@ -98,11 +98,11 @@ void shots_report(void);
 struct ShotRec;
 void shots_queue(ShotRec &s);            // sends a record on the shots' reliable, ordered channel
 bool shots_try_queue(ShotRec &s, size_t limit); // bounded admission for new experimental events
-bool shots_queue_latest(ShotRec &s, size_t limit); // coalesce only unsent snapshots after the last event
 
 // ---- experimental, target-owner hit replay (hit_sync.cpp)
 void hits_install(ObjMan *om);
 bool hits_available(void);
+unsigned hits_features(void);            // independent human and vehicle capabilities
 bool hits_received(const ShotRec &s, ObjMan *om); // false: temporarily wait, true: completed/refused
 void hits_report(void);
 void hits_reset_peer(void);
@@ -112,7 +112,12 @@ void hits_stop(void);
 void anim_install(ObjMan *om);
 bool anim_available(void);
 void anim_frame(ObjMan *om, DWORD now);
-bool anim_received(const ShotRec &s, ObjMan *om);
+bool anim_received(const ShotRec &s, ObjMan *om); // adapter test seam
+void anim_transport_epoch(u32 local_epoch, u32 peer_epoch);
+void anim_transport_reset(void);
+void anim_on_packet(const unsigned char *data, int size, void (*send)(const void *, int));
+void anim_transport_tick(DWORD now, void (*send)(const void *, int));
+void anim_sim_step(ObjMan *om, DWORD now, void (*send)(const void *, int));
 void anim_report(void);
 void anim_reset_wait(void);             // discard only a pending event deadline on stream restart
 void anim_reset_peer(void);

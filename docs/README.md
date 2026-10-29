@@ -1,40 +1,51 @@
 # Документация MiusVitals
 
-Указатель по разборам и решениям. Имена файлов не переименовываются: на них ссылаются
-`README.md`, `development/README.md`, `docs/BUILD_AND_VALIDATION.md` и рабочие процессы CI.
+Документы разделены по назначению, но файлы оставлены на прежних путях, чтобы не нарушать
+существующие ссылки. Дата в имени — дата конкретного исследования, а не гарантия актуальности
+всех содержащихся в нём выводов.
 
-| Документ | Тема | Статус |
-|---|---|---|
-| [`BUILD_AND_VALIDATION.md`](BUILD_AND_VALIDATION.md) | входы, артефакты, локальная проверка и полная пересборка обоих архивов | **действует** |
-| [`MULTIPLAYER_MENU_BUTTON_2026-10-25.md`](MULTIPLAYER_MENU_BUTTON_2026-10-25.md) | почему кнопка MULTIPLAYER может не появиться: гейты замены файлов, `mp_vitals.dll`, VC++ runtime, MOTW | **действует** |
-| [`NETWORK_CODE_AUDIT_2026-10-25.md`](NETWORK_CODE_AUDIT_2026-10-25.md) | граница аудита сетевого кода, исправленные hot-path проблемы, safety boundaries source-only candidate | **действует** |
-| [`OPERATION_MAP_ANALYSIS_2026-10-25.md`](OPERATION_MAP_ANALYSIS_2026-10-25.md) | операционная карта: причина преждевременного Next Turn, исправление v7.2.2 | **действует** |
-| [`TACTICAL_OPERATION_STATE_POLICY_2026-10-25.md`](TACTICAL_OPERATION_STATE_POLICY_2026-10-25.md) | почему в тактической операции полный state-синк выключен (`MP_SYNC_STATE=0`) | **действует** |
-| [`TACTICAL_PERFORMANCE_AND_MAP_EVIDENCE_2026-10-25.md`](TACTICAL_PERFORMANCE_AND_MAP_EVIDENCE_2026-10-25.md) | ритмичные фризы, повторный обмен object numbers, политика idle | **действует** |
-| [`RENDER_CACHE_ROOT_CAUSE_2026-10-25.md`](RENDER_CACHE_ROOT_CAUSE_2026-10-25.md) | root cause падения: stale transform-cache slot в `basic_render` | **действует** |
-| [`TRIANGLE_GEOMETRY_ROOT_CAUSE_2026-10-25.md`](TRIANGLE_GEOMETRY_ROOT_CAUSE_2026-10-25.md) | root cause падения: некорректная геометрия в triangle query | **действует** |
-| [`CRASH_ANALYSIS_2026-10-25.md`](CRASH_ANALYSIS_2026-10-25.md) | второй invalid-child путь `basic_render`, guard v7.1.1 | **действует** |
-| [`CRASH_ANALYSIS_2026-10-24.md`](CRASH_ANALYSIS_2026-10-24.md) | первый разбор падения `basic_render`, guard v7.0.1 | исторический: перекрыт документами от 2026-10-25 |
-| [`UPSTREAM_V20_REPO_ANALYSIS.md`](UPSTREAM_V20_REPO_ANALYSIS.md) | полный разбор `VampyrCat/MiusPlayer`: публичный исходник — v12, v20 — только бинарник в `GTMPRelease1.zip`, дельта 293 функции | **действует** |
-| [`V20_SOURCE_RECOVERY.md`](V20_SOURCE_RECOVERY.md) | восстановление исходника v20: именованный разбор 895 функций, дельта к публичному дереву (323 работы), план порта M0–M6; **M1 и M2 выполнены**, цифры сравнений в §6a | **действует** |
-| [`V20_STEAM_LAYER.md`](V20_STEAM_LAYER.md) | Steam-слой v20 по декомпиляции: 21 слот `GetProcAddress`, callback'и 1202/1203/336/337, `gtmf`/`+gtmf_join`, режимы `MP_STEAM`/`MP_STEAM_FAKE` | **действует** |
-| [`V20_NETWORK_LAYER.md`](V20_NETWORK_LAYER.md) | транспорт v20: UDP 1943, UPnP через COM (`UPnPNAT`, два GUID'а), маркер Steam-пира `sa_family=0x5354` | **действует** |
-| [`SOURCE_REBUILD_REQUIREMENTS.md`](SOURCE_REBUILD_REQUIREMENTS.md) | границы нашего процесса: что можно менять, что снято решением 2026-10-26, сверка Steam ABI по присланной DLL | **действует** |
-| [`VITALS_CPP_PORT_PLAN.md`](VITALS_CPP_PORT_PLAN.md) | поэтапный перенос логики `mp_vitals` в C++: модули, инварианты, точки отката, E0–E8 | **действует** |
-| [`TWO_PC_TEST_PLAN_2026-10-26.md`](TWO_PC_TEST_PLAN_2026-10-26.md) | план двух-ПК прогона v1.0.1: сценарии S1–S7, что сохранять, критерии приёмки | исторический; архив 1.0.1 удалён из текущего дерева |
-| [`NETWORK_LIMITATIONS.md`](NETWORK_LIMITATIONS.md) | карта точных сайтов в релизном модуле и известные ограничения сетевого кода (G1–G7) | **действует** |
-| [`MIUSPLAYER_ANALYSIS.md`](MIUSPLAYER_ANALYSIS.md) | независимый разбор MiusPlayer v20: нативный надёжный поток, зачем изменён Vitals-поток | **действует** |
+## Текущее состояние и рабочие правила
 
-## Как читать
+* [Текущая сборка и проверка](CURRENT_BUILD_AND_VALIDATION.md) — структура дерева, быстрые проверки,
+  финальный gate и сохранение архивов.
+* [Разбор сетевой сессии 29.10.2026](NETWORK_SESSION_2026-10-29.md) — подтверждённые проблемы,
+  незакрытая причина вылета и ограничения локальных правок.
+* [1.0.7 experimental net+fps](NET_V21_107_EXPERIMENTAL_NET_FPS.md) — опубликованный установщик,
+  режимы защиты renderer и риски; новые исходные изменения туда автоматически не входят.
+* [Vitals, попадания и анимации 1.0.7](NET_V21_VITALS_1_0_7.md) — экспериментальные интеграции и
+  границы проверок.
+* [Названия описаний выстрелов](NET_V21_NAMED_SHOTS_EXPERIMENTAL.md) — границы отдельного
+  экспериментального сопоставления; модуль пока не реорганизуется.
+* [Адреса hit-sync](HIT_SYNC_ADDRESSES.md) и [хуки и сборки игры](HOOKS_AND_GAME_BUILDS.md) —
+  технические свидетельства для существующих перехватов.
+* [Ограничения сетевого кода](NETWORK_LIMITATIONS.md) — карта известных рисков; проверяйте дату и
+  контекст конкретного пункта.
 
-1. Установка и «почему не работает» — `README.md` в корне, затем `MULTIPLAYER_MENU_BUTTON…`.
-2. Сборка, хеши, проверки — `BUILD_AND_VALIDATION.md`.
-3. Падения и защитные обёртки — три документа `*ROOT_CAUSE*` и `CRASH_ANALYSIS_2026-10-25.md`.
-4. Границы сетевого кода и что считается доказанным — `NETWORK_CODE_AUDIT…`.
+## Исторические разборы и планы
 
-## Дата в имени файла
+Эти документы сохранены для происхождения решений и отката. Если они противоречат позднейшим
+наблюдениям, приоритет имеют актуальные правила и разбор соответствующей сессии выше.
 
-`*_2026-10-24.md` и `*_2026-10-25.md` — дата разбора, а не версия мода: документы
-описывают наблюдения на конкретной сборке игры (Steam 6.00 build 3598/1) и на конкретном
-релизе мода. Если поведение меняется, добавляется новый документ, а старый помечается
-здесь как исторический.
+* [Сборка v1.0.1 и старые варианты](BUILD_AND_VALIDATION.md)
+* [Инвентаризация архивов](ARCHIVE_INVENTORY_2026-10-27.md)
+* [Разборы вылетов 24.10](CRASH_ANALYSIS_2026-10-24.md) и [25.10](CRASH_ANALYSIS_2026-10-25.md)
+* [Корень старого падения renderer cache](RENDER_CACHE_ROOT_CAUSE_2026-10-25.md)
+* [Корень старого падения triangle geometry](TRIANGLE_GEOMETRY_ROOT_CAUSE_2026-10-25.md)
+* [FPS и лобби друзей](FRIEND_LOBBY_AND_FPS_2026-10-27.md)
+* [Аудит GitHub-истории](GITHUB_HISTORY_AUDIT_2026-10-27.md)
+* [Кнопка multiplayer](MULTIPLAYER_MENU_BUTTON_2026-10-25.md)
+* [Аудит сетевого кода](NETWORK_CODE_AUDIT_2026-10-25.md)
+* [Операционная карта](OPERATION_MAP_ANALYSIS_2026-10-25.md)
+* [Политика тактического state в операции](TACTICAL_OPERATION_STATE_POLICY_2026-10-25.md)
+* [Тактическая производительность и карта](TACTICAL_PERFORMANCE_AND_MAP_EVIDENCE_2026-10-25.md)
+* [Этапы M3/M4](NET_V21_M3_M4.md), [план M5](NET_V21_M5_PLAN_2026-10-27.md) и
+  [проверка M5](NET_V21_M5_VALIDATION_2026-10-27.md)
+* [Обзор net_v21](NET_V21_REVIEW_2026-10-28.md), [identity трансляции](NET_V21_TRANSLATION_IDENTITY_2026-10-28.md),
+  [наблюдатель 1.0.6](NET_V21_SPECTATOR_1_0_6.md)
+* [Правила и состояние 27.10](STATUS_AND_BUILD_RULES_2026-10-27.md),
+  [план двух ПК](TWO_PC_TEST_PLAN_2026-10-26.md)
+* [Анализ MiusPlayer](MIUSPLAYER_ANALYSIS.md), [анализ репозитория v20](UPSTREAM_V20_REPO_ANALYSIS.md),
+  [восстановление v20](V20_SOURCE_RECOVERY.md), [сеть v20](V20_NETWORK_LAYER.md),
+  [Steam v20](V20_STEAM_LAYER.md)
+* [Требования восстановления исходника](SOURCE_REBUILD_REQUIREMENTS.md),
+  [план порта Vitals](VITALS_CPP_PORT_PLAN.md)
