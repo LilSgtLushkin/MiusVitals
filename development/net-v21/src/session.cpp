@@ -141,6 +141,11 @@ static bool g_clock_adopted;
 static u32 g_snapshot, g_stat_sent, g_stat_applied, g_stat_elided, g_stat_coalesced, g_stat_bad_transforms;
 static u32 g_stat_zero_steps, g_stat_zero_skipped, g_stat_cache_pruned;
 static u32 g_stat_packets, g_stat_rx_bytes, g_stat_tx_bytes, g_stat_snaps;
+// How often a followed unit is moved far enough in one application to disturb anything the
+// engine derives from distance travelled (tracks, wheel rotation). Diagnostic only: it does not
+// change the correction, and it cannot by itself prove what a player saw.
+static u32 g_stat_jumps[3];            // vehicles, soldiers, other
+static float g_stat_jump_max[3];
 static void pause_connection_lost();
 #ifdef NETV21_TEST_HOOKS
 static unsigned g_test_hello_rejected;
@@ -1827,6 +1832,12 @@ void session_sim_step(ObjMan *om, u32 sim_ms)
             }
         }
         if (err > 3.0f) g_stat_snaps++;
+        if (err > 0.5f) {
+            u32 kind = (u32)(kv.first >> 32);
+            unsigned bucket = kind == 1 ? 0 : kind == 2 ? 1 : 2;
+            ++g_stat_jumps[bucket];
+            if (err > g_stat_jump_max[bucket]) g_stat_jump_max[bucket] = err;
+        }
         g_stat_applied++;
         if (!write_remote_transform(upos, urot, uinv, (float *)(u + UNIT_LIN), (float *)(u + UNIT_ANG),
                                     pos, rot, B.lin, B.ang, moving)) g_stat_elided++;
@@ -1842,6 +1853,7 @@ void session_test_motion_begin()
     g_units.clear(); g_sent.clear(); g_held.clear(); g_pending.clear(); g_unit_list.clear();
     g_stat_applied = g_stat_zero_steps = g_stat_zero_skipped = g_stat_cache_pruned = g_stat_snaps = 0;
     g_stat_err_sum = 0; g_stat_err_max = 0; g_stat_peak = {};
+    memset(g_stat_jumps, 0, sizeof g_stat_jumps); memset(g_stat_jump_max, 0, sizeof g_stat_jump_max);
 }
 void session_test_motion_push(const UnitRec &r) { (void)g_pending.put(r, ++g_test_motion_snapshot); }
 u32 session_test_motion_updates() { return g_stat_applied; }
@@ -1856,6 +1868,7 @@ void session_test_motion_end()
     g_units.clear(); g_sent.clear(); g_held.clear(); g_pending.clear(); g_unit_list.clear();
     g_stat_applied = g_stat_zero_steps = g_stat_zero_skipped = g_stat_cache_pruned = g_stat_snaps = 0;
     g_stat_err_sum = 0; g_stat_err_max = 0; g_stat_peak = {};
+    memset(g_stat_jumps, 0, sizeof g_stat_jumps); memset(g_stat_jump_max, 0, sizeof g_stat_jump_max);
     g_tactical = g_connected = false; g_role = ROLE_NONE;
 }
 #endif
@@ -3371,6 +3384,11 @@ void session_frame(ObjMan *om)
                                      g_stat_peak.key, g_stat_peak.local[0], g_stat_peak.local[1], g_stat_peak.local[2],
                                      g_stat_peak.target[0], g_stat_peak.target[1], g_stat_peak.target[2],
                                      g_stat_peak.snapshot_age, (unsigned)g_stat_peak.fresh, (unsigned)g_stat_peak.rx_age);
+            if (g_stat_jumps[0] || g_stat_jumps[1] || g_stat_jumps[2])
+                mp_log("net: applications moving a unit more than 0.5 m in one step: vehicles %u (largest %.2f m), soldiers %u (largest %.2f m), other %u (largest %.2f m)",
+                       g_stat_jumps[0], g_stat_jump_max[0], g_stat_jumps[1], g_stat_jump_max[1],
+                       g_stat_jumps[2], g_stat_jump_max[2]);
+            memset(g_stat_jumps, 0, sizeof g_stat_jumps); memset(g_stat_jump_max, 0, sizeof g_stat_jump_max);
             statesync_report();
             shots_report();
             hits_report();
@@ -3395,5 +3413,7 @@ void session_frame(ObjMan *om)
         g_stat_packets = g_stat_rx_bytes = g_stat_tx_bytes = g_stat_snaps = 0;
         g_stat_err_sum = 0;
         g_stat_err_max = 0;
+        memset(g_stat_jumps, 0, sizeof g_stat_jumps);
+        memset(g_stat_jump_max, 0, sizeof g_stat_jump_max);
     }
 }
