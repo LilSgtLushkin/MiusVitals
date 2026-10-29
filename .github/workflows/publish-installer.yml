@@ -40,6 +40,7 @@ jobs:
     runs-on: windows-2022
     permissions:
       contents: write
+      pull-requests: write
     steps:
       - name: Check out the commit the release gate passed
         uses: actions/checkout@v4
@@ -171,3 +172,36 @@ jobs:
           done
           echo "::error title=Publish failed::the installer could not be pushed to $BRANCH"
           exit 1
+
+      # Job logs are deleted long before the archive they explain is, and the log endpoint is not
+      # reachable from outside the runner. Mirror what happened into the pull request, where it
+      # stays readable next to the source it was built from.
+      - name: Report a failed publish to the pull request
+        if: failure() && github.event_name == 'workflow_run'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          set -euo pipefail
+          [ -n "$PR" ] || exit 0
+          {
+            echo "## Публикация установщика не удалась"
+            echo ""
+            echo "Прогон: $RUN_URL"
+            echo ""
+            for log in publish-package publish-module publish-join; do
+              file="development/net-v21/build/$log.log"
+              if [ -f "$file" ]; then
+                echo "<details><summary>$log</summary>"
+                echo ""
+                echo '```'
+                tail -c 4000 "$file"
+                echo '```'
+                echo ""
+                echo "</details>"
+              fi
+            done
+          } > /tmp/publish-failure.md
+          gh pr comment "$PR" --body-file /tmp/publish-failure.md || true
