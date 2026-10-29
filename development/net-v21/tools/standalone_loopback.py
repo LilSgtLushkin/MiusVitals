@@ -80,7 +80,9 @@ def run_case(peer: Path, launcher: Path, starter: Path, steam: bool, start_ok: b
                 while not marker.exists() and time.monotonic() < deadline:
                     time.sleep(0.05)
                 content = marker.read_text() if marker.exists() else "<the starter never wrote its verdict>"
-                if not content.startswith("ok:") or not content[3:].isdigit():
+                # "ok:<pid>:<battle ticket>", and the ticket is empty for an operation map.
+                fields = content.split(":")
+                if len(fields) < 2 or fields[0] != "ok" or not fields[1].isdigit():
                     raise AssertionError(f"{transport}: child did not inherit correct map environment: "
                                          f"starter verdict {content!r}; launcher output: {output}")
                 # CreateProcess's production wrapper closes its handle. Wait for the fixture to exit
@@ -90,7 +92,7 @@ def run_case(peer: Path, launcher: Path, starter: Path, steam: bool, start_ok: b
                 kernel.OpenProcess.restype = wintypes.HANDLE
                 kernel.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
                 kernel.CloseHandle.argtypes = (wintypes.HANDLE,)
-                child = kernel.OpenProcess(0x00100000, False, int(content[3:]))
+                child = kernel.OpenProcess(0x00100000, False, int(fields[1]))
                 if child:
                     if kernel.WaitForSingleObject(child, 5000) != 0:
                         kernel.CloseHandle(child)
