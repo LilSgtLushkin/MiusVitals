@@ -17,9 +17,9 @@ import hashlib
 import re
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[3]
-FIXTURE = ROOT / "development" / "net-v21" / "fixtures" / "protocol17"
-CURRENT_PROTOCOL = ROOT / "development" / "net-v21" / "src" / "protocol.h"
+TREE = Path(__file__).resolve().parents[1]  # development/versions/<version>: исходник этой версии
+FIXTURE = TREE / "fixtures" / "protocol17"
+CURRENT_PROTOCOL = TREE / "src" / "protocol.h"
 EXPECTED = {
     "shots.cpp": "7345597d535340f3e27664749dcc659a0376ddc043d8738a424364f1c4b18f08",
     "xlate.cpp": "a21315034a5fd9773af6757db1c64d2b5abb8ae1668c22b8c3c296c66b758e3e",

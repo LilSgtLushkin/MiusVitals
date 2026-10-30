@@ -19,7 +19,7 @@ from unicorn.x86_const import UC_X86_REG_R8, UC_X86_REG_R10, UC_X86_REG_R13, UC_
 from unicorn.x86_const import UC_X86_REG_RBP, UC_X86_REG_RDI, UC_X86_REG_RSI
 from unicorn.x86_const import UC_X86_REG_RIP, UC_X86_REG_RSP, UC_X86_REG_XMM1
 
-GAME = Path(__file__).resolve().parents[2] / "game-build-3598-1" / "x64" / "adv_game.codelib"
+GAME = Path(__file__).resolve().parents[3] / "game-build-3598-1" / "x64" / "adv_game.codelib"
 EXPECTED_SHA256 = "8f53c9018e7fc30a7e08daa16be5952a6aaec115412fa48245c2ee13046d1975"
 RETURN = 0x10000000
 OWNER = 0x11000000

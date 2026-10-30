@@ -27,7 +27,7 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[2]
+ROOT = HERE.parents[3]
 RECOVERY = ROOT / "development" / "v20-recovery"
 sys.path.insert(0, str(RECOVERY / "tools"))
 

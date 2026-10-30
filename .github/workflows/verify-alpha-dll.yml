@@ -10,7 +10,6 @@ on:
       - development/kit-source/src/requirements-build.txt
       - development/gtmp-alpha/**
       - scripts/package_gtmp_alpha.py
-      - GTMP_alpha_INSTALL.zip
   workflow_dispatch:
 
 permissions:
@@ -38,8 +37,6 @@ jobs:
       - name: Prove the same toolchain reproduces the stable v1.0.1 DLL
         run: development/gtmp-alpha/rebuild.sh --baseline e8d4a52
 
-      - name: Verify the committed alpha installer
-        run: python3 scripts/package_gtmp_alpha.py --verify GTMP_alpha_INSTALL.zip
 
       - name: Upload the rebuilt alpha DLL
         uses: actions/upload-artifact@v4

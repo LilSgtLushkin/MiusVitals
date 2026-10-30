@@ -12,7 +12,7 @@ from pe_scan import PE, pointer_rva
 
 TOOLS = Path(__file__).resolve().parent
 NET = TOOLS.parent
-GAME = NET.parent / "game-build-3598-1/x64"
+GAME = NET.parents[1] / "game-build-3598-1/x64"  # NET = versions/<version>; above it, development/
 
 
 def cpp_signature(file: str, array: str, after: str = "") -> bytes:

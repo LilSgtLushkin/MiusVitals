@@ -23,7 +23,7 @@ from pe_scan import PE
 from tactical_hook_selftest import cpp_signature, executable_hits
 
 NET = Path(__file__).resolve().parent.parent
-GAME = NET.parent / 'game-build-3598-1/x64/basic_render.codelib'
+GAME = NET.parents[1] / 'game-build-3598-1/x64/basic_render.codelib'  # NET = versions/<version>
 EXPECTED = 'ba8d68cf2b84b890dd88f6f3035c8c070070248e22c86c7481ba1262f8a3db11'
 STUB, COUNTER = 0x10000000, 0x11000000
 RENDER, GROUPS, RECORD, POOL = 0x12000000, 0x13000000, 0x14000000, 0x15000000

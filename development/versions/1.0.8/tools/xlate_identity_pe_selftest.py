@@ -17,7 +17,7 @@ from capstone import Cs, CS_ARCH_X86, CS_MODE_64
 from capstone.x86 import X86_OP_MEM, X86_REG_RIP
 from pe_scan import PE, pointer_rva
 
-GAME = Path(__file__).resolve().parents[2] / "game-build-3598-1" / "x64"
+GAME = Path(__file__).resolve().parents[3] / "game-build-3598-1" / "x64"
 SHA256 = {
     "base_shell": "9606f69c38f997b7ae24a7152055f2bf612d5a38080d1e92be9c8bf0be7747e2",
     "adv_game": "8f53c9018e7fc30a7e08daa16be5952a6aaec115412fa48245c2ee13046d1975",

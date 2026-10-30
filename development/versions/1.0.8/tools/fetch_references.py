@@ -6,10 +6,10 @@
 
 Both are binaries from the CC0 MiusPlayer repository, pinned to one commit and checked against the
 SHA-256 that the rest of this repository already treats as authoritative
-(docs/BUILD_AND_VALIDATION.md).  Nothing is committed here: `development/net-v21/references/` is
+(docs/BUILD_AND_VALIDATION.md).  Nothing is committed here: `development/versions/<версия>/references/` is
 git-ignored.
 
-    python development/net-v21/tools/fetch_references.py
+    python development/versions/<версия>/tools/fetch_references.py
 """
 from __future__ import annotations
 

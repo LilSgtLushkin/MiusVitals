@@ -5,7 +5,7 @@ The report is what a two-PC run is read with, so it has to be right about the ca
 happen: the same build on both machines and a lost launch, two different builds, a log that was cut
 short, and a single log with nothing to compare against.
 
-    python development/net-v21/tools/battle_report_selftest.py
+    python development/versions/<версия>/tools/battle_report_selftest.py
 """
 from __future__ import annotations
 

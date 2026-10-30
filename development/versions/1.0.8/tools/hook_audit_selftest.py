@@ -6,7 +6,7 @@ import unittest
 from pe_scan import PE
 import hook_audit as audit
 
-ROOT = Path(__file__).resolve().parents[2] / "game-build-3598-1/x64"
+ROOT = Path(__file__).resolve().parents[3] / "game-build-3598-1/x64"
 
 
 def load(name):

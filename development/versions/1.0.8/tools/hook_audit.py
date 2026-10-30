@@ -121,7 +121,7 @@ def audit(phys: PE, game: PE) -> list[str]:
 
 
 def main() -> int:
-    root = Path(__file__).resolve().parents[2] / "game-build-3598-1/x64"
+    root = Path(__file__).resolve().parents[3] / "game-build-3598-1/x64"
     parser = argparse.ArgumentParser()
     parser.add_argument("--physic", type=Path, default=root / "adv_physic.codelib")
     parser.add_argument("--game", type=Path, default=root / "adv_game.codelib")

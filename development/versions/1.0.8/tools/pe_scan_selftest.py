@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pe_scan
 
-REPO = Path(__file__).resolve().parents[3]
+REPO = Path(__file__).resolve().parents[4]
 PHYSIC = REPO / "development/game-build-3598-1/x64/adv_physic.codelib"
 FPS = REPO / "development/fps-candidate/basic_network.codelib"
 SCRIPT = Path(pe_scan.__file__).resolve()

@@ -12,8 +12,9 @@ from pathlib import Path
 from hook_audit import AuditError, Spec, resolve_code, span
 from pe_scan import PE
 
-ROOT = Path(__file__).resolve().parents[3]
-SOURCE = ROOT / "development/net-v21/src/vitals.cpp"
+TREE = Path(__file__).resolve().parents[1]  # development/versions/<version>
+ROOT = Path(__file__).resolve().parents[4]  # корень репозитория
+SOURCE = TREE / "src/vitals.cpp"
 PHYS = ROOT / "development/game-build-3598-1/x64/adv_physic.codelib"
 GAME = ROOT / "development/game-build-3598-1/x64/adv_game.codelib"
 

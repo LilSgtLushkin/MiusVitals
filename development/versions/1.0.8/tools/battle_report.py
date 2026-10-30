@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Read the run logs of a two-PC battle and say where the two games stopped agreeing.
 
-A log is written by net_v21 (see development/net-v21/src/netlog.h): a passport at the top, the
+A log is written by net_v21 (see development/versions/<версия>/src/netlog.h): a passport at the top, the
 module's own lines mirrored in, a summary every five seconds, and battle milestones.  One log tells
 what this game did.  Two logs, laid side by side, tell the thing a bug report is actually about:
 where one game sent something the other never received, or received something it threw away.

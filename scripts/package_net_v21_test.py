@@ -379,6 +379,7 @@ def verify(archive_path: Path) -> None:
         # and the passport must name exactly one tag that both contained binaries also carry.
         tags = {"1.0.5": (b"NETV21_WIRE_PROTOCOL_14",),
                 "1.0.6": (b"NETV21_WIRE_PROTOCOL_15",),
+                "1.0.7": (WIRE_TAG,),
                 VERSION: (WIRE_TAG,)}
         version = match.group(1) if match else ""
         wire_lines = re.findall(r"^wire protocol: ([A-Z0-9_]+)\r?$", stamp, re.M)

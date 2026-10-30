@@ -23,7 +23,7 @@ from unicorn.x86_const import UC_X86_REG_R8, UC_X86_REG_R9, UC_X86_REG_RIP, UC_X
 
 from pe_scan import PE, pointer_rva
 
-GAME = Path(__file__).resolve().parents[2] / "game-build-3598-1" / "x64" / "adv_physic.codelib"
+GAME = Path(__file__).resolve().parents[3] / "game-build-3598-1" / "x64" / "adv_physic.codelib"
 SHA256 = "c130dc38054a47b8cf1ddd9301835af552b45b96d252a528a9addd518ea3cf6e"
 RETURN, STACK, HUMAN, RECORD = 0x10000000, 0x12000000, 0x13000000, 0x14000000
 SQUAD, TABLE, SERVICE, SOURCE = 0x15000000, 0x16000000, 0x17000000, 0x18000000
