@@ -128,3 +128,9 @@ g++ -std=c++11 -O0 -g tests/transform_object_check_test.cpp -o /tmp/toc-test   (
 `Ctrl+Shift+P` → «C/C++: Select a Configuration». Для портируемых заголовков (тех, что без
 `windows.h`) удобна третья: она сразу показывает, если в заголовок случайно попала
 платформенная зависимость.
+
+## При каждом обновлении мода
+
+Новый исходник, тест, флаг или каталог включения нужно добавить и сюда
+(`c_cpp_properties.json`, `tasks.json`), и в проекты студии. Чек-лист:
+[`DEBUG_UPKEEP.md`](../net-v21/DEBUG_UPKEEP.md) — проверка `python scripts/check_debug_sources.py`.
