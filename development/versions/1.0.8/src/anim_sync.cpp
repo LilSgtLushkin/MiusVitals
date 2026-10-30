@@ -1,5 +1,7 @@
 // Experimental i_animch synchronization. A checked, instance-local vtable copy holds back
-// local setters for a remote-owned soldier only after a recent owner snapshot has arrived.
+// local setters for a remote-owned soldier once its owner's snapshot has arrived, and keeps
+// holding: a soldier the owner has stopped updating stays on the last snapshot it was given
+// instead of being handed back to the local game, which would animate it by itself.
 // The snapshot contains selected scalars and a group name, never pointers. Game ABI and thread
 // assumptions remain unverified without the game; unknown layouts are refused.
 #include "common.h"
@@ -95,8 +97,11 @@ static bool block(u32 index)
         !(session_peer_features() & PEER_ANIM_SYNC) || !xlate_ready()) return false;
     auto it = by_index.find(index);
     if (it == by_index.end() || !it->second.remote || it->second.ambiguous) return false;
-    auto ready = received_at.find(it->second.key);
-    if (ready == received_at.end() || (GetTickCount64() - ready->second) >= 3000) return false;
+    // No time decay: the hold lasts until the unit leaves the scan, the peer capability or the
+    // connection goes away (both checked above), or anim_reset_peer() clears it. A corpse whose
+    // owner has stopped sending would otherwise be animated by the local game - it was seen
+    // rotating in place three seconds after death.
+    if (!received_at.count(it->second.key)) return false;
     ++held;
     return true;
 }
@@ -366,7 +371,10 @@ void anim_test_engine(ObjMan *om, Object *object)
     installed.store(true);
 }
 uintptr_t anim_test_slot4(Object *o, u32 index, u32 value) { return slot4(o, index, value); }
-void anim_test_stale(u64 key) { received_at[key] = GetTickCount64() - 3001; }
+// No owner snapshot for this unit at all: the local game is in charge again.
+void anim_test_stale(u64 key) { received_at.erase(key); }
+// A snapshot an hour old: the hold does not decay, so the unit stays on it.
+void anim_test_age(u64 key) { received_at[key] = GetTickCount64() - 3600000; }
 void anim_test_expire_wait() { wait_at = GetTickCount64() - 5001; }
 #endif
 

@@ -19,6 +19,7 @@ void hits_test_expire_wait();
 void anim_test_engine(ObjMan *, Object *);
 uintptr_t anim_test_slot4(Object *, u32, u32);
 void anim_test_stale(u64);
+void anim_test_age(u64);
 void anim_test_expire_wait();
 
 char g_out_dir[MAX_PATH] = ".";
@@ -267,9 +268,12 @@ int main()
     check(applied_scalar == 99 && applied_frame == 2 && applied_state == 3, "animation scalars and soldier fields applied");
     anim_test_slot4(anim, 1, 11);
     check(setter_calls == 2, "recent owner snapshot holds back local remote setter");
-    anim_test_stale((2ull << 32) | 18);
+    anim_test_age((2ull << 32) | 18);          // an hour without updates from the owner
     anim_test_slot4(anim, 1, 12);
-    check(setter_calls == 3, "stale owner snapshot allows local animation again");
+    check(setter_calls == 2, "a soldier the owner stopped updating stays on its last snapshot");
+    anim_test_stale((2ull << 32) | 18);
+    anim_test_slot4(anim, 1, 13);
+    check(setter_calls == 3, "a unit with no owner snapshot at all is released to the local game");
     ShotRec invalid = a; put32(invalid.launch + 8, 2);
     check(anim_received(invalid, om) && group_calls == 1, "malformed animation is refused before engine call");
     memcpy(instances + 0x140 + 0x70, &idle, 8); group_success = false;
