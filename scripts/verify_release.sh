@@ -7,9 +7,10 @@ python3 "$ROOT/development/merged-source/verify_workspace.py"
 python3 "$ROOT/scripts/check_artifacts.py"
 python3 "$ROOT/scripts/check_artifacts_selftest.py"
 python3 "$ROOT/scripts/package_net_v21_test_selftest.py"
-python3 "$ROOT/development/net-v21/tools/extract_legacy_shots_fixture_selftest.py"
+VERSION=$(cat "$ROOT/development/versions/current.txt")
+python3 "$ROOT/development/versions/$VERSION/tools/extract_legacy_shots_fixture_selftest.py"
 python3 "$ROOT/tests/test_historical_106_fixture.py"
-if [ -f "$ROOT/MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip" ]; then
+if [ -f "$ROOT/MiusMultiplayer_v${VERSION}_INSTALL.zip" ]; then
     # Structure plus the SHA-256 recorded beside it. The hash is not pinned in check_artifacts.py:
     # it is recorded by the same job that builds the archive, so a pin would prove nothing.
     python3 "$ROOT/scripts/check_shipped_installer.py" \

@@ -25,7 +25,21 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-NET = ROOT / "development" / "net-v21"
+VERSIONS = ROOT / "development" / "versions"
+
+
+def current_version() -> str:
+    """The version being built. development/versions/current.txt is the single source."""
+    marker = VERSIONS / "current.txt"
+    if not marker.is_file():
+        raise SystemExit("missing development/versions/current.txt")
+    value = marker.read_text(encoding="utf-8").strip()
+    if not value or not (VERSIONS / value).is_dir():
+        raise SystemExit(f"development/versions/current.txt names {value!r}, no such folder")
+    return value
+
+
+NET = VERSIONS / current_version()
 BUILD_BAT = NET / "build.bat"
 RUN_TESTS = NET / "run_tests.bat"
 CI = ROOT / ".github" / "workflows" / "build-network-module.yml"

@@ -9,8 +9,8 @@
             "cStandard": "c11",
             "cppStandard": "c++14",
             "includePath": [
-                "${workspaceFolder}/development/net-v21/src",
-                "${workspaceFolder}/development/net-v21/tests",
+                "${workspaceFolder}/development/versions/1.0.8/src",
+                "${workspaceFolder}/development/versions/1.0.8/tests",
                 "${workspaceFolder}"
             ],
             "defines": ["_WIN32", "_WIN64", "_AMD64_", "WIN32_LEAN_AND_MEAN"]
@@ -23,8 +23,8 @@
             "cStandard": "c11",
             "cppStandard": "c++14",
             "includePath": [
-                "${workspaceFolder}/development/net-v21/src",
-                "${workspaceFolder}/development/net-v21/tests",
+                "${workspaceFolder}/development/versions/1.0.8/src",
+                "${workspaceFolder}/development/versions/1.0.8/tests",
                 "${workspaceFolder}"
             ],
             "defines": ["_WIN32", "_WIN64", "_AMD64_", "WIN32_LEAN_AND_MEAN", "NETV21_DEBUG"]
@@ -37,8 +37,8 @@
             "cStandard": "c11",
             "cppStandard": "c++11",
             "includePath": [
-                "${workspaceFolder}/development/net-v21/src",
-                "${workspaceFolder}/development/net-v21/tests",
+                "${workspaceFolder}/development/versions/1.0.8/src",
+                "${workspaceFolder}/development/versions/1.0.8/tests",
                 "${workspaceFolder}"
             ],
             "defines": []

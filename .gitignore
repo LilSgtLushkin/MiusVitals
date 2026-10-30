@@ -2,7 +2,7 @@
 /build/
 
 # build.bat writes every configuration here (build\module, build\module-debug, build\selftest, ...)
-development/net-v21/build/
+development/versions/*/build/
 /dist/
 development/kit-source/state/
 development/kit-source/build_report.txt

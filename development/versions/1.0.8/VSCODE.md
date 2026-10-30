@@ -84,7 +84,7 @@ CI собирает релиз на `windows-2022` (VS 2022), так что ус
    копию штатного файла).
 3. Запустите игру, зайдите в бой.
 4. `F5` → **Attach to tacgame (Debug module)** (для карты операции — **Attach to opgame**).
-5. Ставьте точки останова в `development/net-v21/src/*.cpp` — символы подхватятся из
+5. Ставьте точки останова в `development/versions/1.0.8/src/*.cpp` — символы подхватятся из
    `build\module-debug`.
 
 Если процесс игры не находится по имени, есть конфигурация **Attach to any game process (pick)** —

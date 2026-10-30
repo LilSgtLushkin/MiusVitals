@@ -13,4 +13,4 @@ development/upstream/miusplayer-public-43b2736/mpmod1_src/Enable_Multiplayer.bat
 development/unified-kit-source/game_build_3598_1.sha256 text eol=lf
 
 # Preserve the exact pre-hardening source used to keep the non-tactical M5 path unchanged.
-development/net-v21/src/statesync_legacy_30405d1.inc -text
+development/versions/*/src/statesync_legacy_30405d1.inc -text

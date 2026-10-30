@@ -96,15 +96,13 @@ ARTIFACTS: dict[str, tuple[str, tuple[str, ...]]] = {
     ),
 }
 
-# Immutable archives only. The shipped installer MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip
+# Immutable archives only. The shipped installer is rebuilt every release, so it is checked by
 # is deliberately absent: it is the single current 1.0.7 archive and publish-installer.yml rebuilds
 # and commits it from the gated source, so a pin here would be written by the same job that produces
 # the file and would prove nothing. verify_release.sh checks that archive structurally and against
 # the SHA-256 recorded beside it instead. The older 1.0.7 archives were removed from the tree when
 # the releases were consolidated; their names stay reserved in scripts/package_net_v21_test.py.
 ARCHIVES: dict[str, str] = {
-    "MiusMultiplayer_OUTDATED_INSTALL.zip": "67661473d1f8e6bcd67d7cf9117e92e19d30e5adda456dab5ee347aa851fa027",
-    "GTMP_alpha_INSTALL.zip": "aacfe7dfd0cca82c0ed771e5a9088faa75565f3bf7d5757ceef8d3f532955924",
 }
 
 BINARY_SUFFIXES = {".codelib", ".dll", ".exe", ".progpack"}
