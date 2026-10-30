@@ -3,17 +3,21 @@
 #include <stdio.h>
 #include <string.h>
 #include <vector>
+#include <set>
 #include <utility>
 using namespace animation_channel;
 static int checks, failures;
 static void expect(bool ok, const char *what) { ++checks; if (!ok) { ++failures; printf("FAIL: %s\n", what); } }
 static std::vector<std::vector<unsigned char>> ab, ba, c2d, d2c, g2h, h2g;
+static std::vector<std::vector<unsigned char>> e2f, f2e;
 static void send_a(const void *p, int n) { ab.emplace_back((const unsigned char *)p, (const unsigned char *)p + n); }
 static void send_b(const void *p, int n) { ba.emplace_back((const unsigned char *)p, (const unsigned char *)p + n); }
 static void send_c(const void *p, int n) { c2d.emplace_back((const unsigned char *)p, (const unsigned char *)p + n); }
 static void send_d(const void *p, int n) { d2c.emplace_back((const unsigned char *)p, (const unsigned char *)p + n); }
 static void send_g(const void *p, int n) { g2h.emplace_back((const unsigned char *)p, (const unsigned char *)p + n); }
 static void send_h(const void *p, int n) { h2g.emplace_back((const unsigned char *)p, (const unsigned char *)p + n); }
+static void send_e(const void *p, int n) { e2f.emplace_back((const unsigned char *)p, (const unsigned char *)p + n); }
+static void send_f(const void *p, int n) { f2e.emplace_back((const unsigned char *)p, (const unsigned char *)p + n); }
 static uint64_t blocked;
 static bool refuse;
 static std::vector<std::pair<uint64_t, uint32_t>> applied;
@@ -136,6 +140,75 @@ int main() {
     expect(g.pending_events() == 0, "a drained channel releases every retained state");
     expect(g.update_pressure() && !g.slow() && g.scan_ms() == 200u && g.unchanged_ms() == 1000u,
            "the normal cadence returns by itself once the queue has drained");
+    // A stream the peer never answers must not be repeated forever: after give_up_ms the channel
+    // re-issues the newest state it holds as a current state, which the peer can apply at once.
+    blocked = 0;
+    {
+        Channel e, f; e.start(61, 62); f.start(62, 61);
+        const uint64_t w = (2ull << 32) | 7;
+        e.queue(snapshot(w, 1), true);
+        e.queue(snapshot(w, 2), true);
+        e2f.clear(); f2e.clear();
+        e.tick(1000, send_e);
+        expect(e2f.size() == 1, "the head of a fresh stream leaves once");
+        e2f.clear();                                   // lost
+        for (uint64_t again = 1400; again < 3000; again += 400) { e.tick(again, send_e); e2f.clear(); }  // every retry lost as well
+        e.tick(3000, send_e);
+        expect(e2f.size() == 1, "an unanswered stream is re-issued instead of repeated forever");
+        Data head; memcpy(&head, e2f[0].data(), sizeof head);
+        uint32_t marker = 0; memcpy(&marker, head.record.launch + 4, 4);
+        expect((head.h.flags & rebase_flag) != 0 && marker == 2,
+               "the re-issued stream carries the newest state, not the stuck head");
+        size_t before = applied.size();
+        expect(deliver(f, e2f[0], send_f), "the re-issued stream is accepted");
+        f.apply(3000, replay, nullptr, send_f);
+        expect(applied.size() == before + 1 && applied.back() == std::make_pair(w, 2u),
+               "a stream the peer never acknowledged heals itself");
+        e2f.clear();
+        for (const auto &ack : f2e) deliver(e, ack, send_e);
+        f2e.clear();
+        expect(e.pending_events() == 0, "one answered re-issue retires everything behind it");
+    }
+
+    // Work is metered against the wall clock: a burst of calls inside one millisecond spends the
+    // allowance that time has earned and no more, and the channel resumes as the clock advances.
+    {
+        Channel s, r; s.start(71, 72); r.start(72, 71);
+        for (uint32_t i = 0; i < 6000; ++i) s.queue(snapshot((2ull << 32) | (1000 + i), 1), true);
+        e2f.clear(); f2e.clear();
+        uint64_t t = 5000;
+        for (int i = 0; i < 200; ++i) { s.tick(t, send_e); for (const auto &w : e2f) deliver(r, w, send_f); e2f.clear(); }
+        size_t burst = 0;
+        for (int i = 0; i < 60; ++i) { s.tick(t, send_e); burst += e2f.size(); for (const auto &w : e2f) deliver(r, w, send_f); e2f.clear(); }
+        expect(burst <= 60 * (size_t)send_floor, "a burst of calls cannot borrow wire work from the next second");
+        t += 1000;
+        size_t resumed = 0;
+        for (int i = 0; i < 10; ++i) { s.tick(t, send_e); resumed += e2f.size(); for (const auto &w : e2f) deliver(r, w, send_f); e2f.clear(); t += 16; }
+        expect(resumed >= 100, "the channel resumes spending its allowance as the clock advances");
+        // Hand the peer the rest of them, so the replay side has more work than one burst may spend.
+        std::set<uint64_t> handed;
+        for (int i = 0; i < 60; ++i) {
+            s.tick(t, send_e);
+            for (const auto &w : e2f) { Data d; memcpy(&d, w.data(), sizeof d); if (deliver(r, w, send_f)) handed.insert(d.record.shooter); }
+            e2f.clear(); t += 1000;
+        }
+        expect(handed.size() > (size_t)replay_per_second, "the peer holds more than one second of replay work");
+        size_t before = applied.size();
+        for (int i = 0; i < 200; ++i) r.apply(t, replay, nullptr, send_f);
+        expect(applied.size() - before > (size_t)replay_floor,
+               "a burst of replays spends the allowance the queued events have earned");
+        size_t spent = applied.size();
+        for (int i = 0; i < 60; ++i) r.apply(t, replay, nullptr, send_f);
+        expect(applied.size() - spent <= 60 * (size_t)replay_floor,
+               "a burst of replays cannot borrow engine calls from the next second");
+        t += 1000;
+        spent = applied.size();
+        for (int i = 0; i < 10; ++i) r.apply(t, replay, nullptr, send_f);
+        expect(applied.size() - spent >= (size_t)replay_floor,
+               "replay resumes spending its allowance as the clock advances");
+        f2e.clear();
+    }
+
     printf("animation channel selftest: %d checks, %d failed\n", checks, failures);
     return failures ? 1 : 0;
 }
