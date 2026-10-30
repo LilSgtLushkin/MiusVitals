@@ -6,10 +6,11 @@ on:
   push:
     branches-ignore: ['main']
     paths:
-      - 'development/net-v21/src/render_guard*'
-      - 'development/net-v21/tests/render_guard_test.cpp'
-      - 'development/net-v21/src/render_cache_bounds.h'
-      - 'development/net-v21/tools/render_cache_bounds*'
+      # Path filters cannot read env:VERSION, so these match every version folder.
+      - 'development/versions/**/src/render_guard*'
+      - 'development/versions/**/tests/render_guard_test.cpp'
+      - 'development/versions/**/src/render_cache_bounds.h'
+      - 'development/versions/**/tools/render_cache_bounds*'
       - 'development/game-build-3598-1/**'
       - 'scripts/package_net_v21_test*.py'
       - '.github/workflows/render-cache-smoke.yml'
@@ -21,6 +22,11 @@ concurrency:
   group: renderer-cache-smoke-${{ github.ref }}
   cancel-in-progress: true
 
+# The version being built. Sources live in development/versions/<version>/, one folder per
+# release; bumping this is part of making a release, together with development/versions/current.txt.
+env:
+  VERSION: 1.0.8
+
 jobs:
   focused:
     runs-on: ubuntu-latest
@@ -31,10 +37,10 @@ jobs:
           python-version: '3.11'
       - run: python -m pip install --quiet capstone unicorn==2.1.4
       - name: Emulate real PE and generated stub
-        run: python development/net-v21/tools/render_cache_bounds_selftest.py
+        run: python development/versions/${{ env.VERSION }}/tools/render_cache_bounds_selftest.py
       - name: Execute the generated x64 stub natively
         run: |
-          g++ -std=c++11 -O2 -Wall -Wextra -Werror development/net-v21/tools/render_cache_bounds_native_test.cpp -o /tmp/render-cache-test
+          g++ -std=c++11 -O2 -Wall -Wextra -Werror development/versions/${{ env.VERSION }}/tools/render_cache_bounds_native_test.cpp -o /tmp/render-cache-test
           /tmp/render-cache-test
       - name: Check packaging and preserved archives
         run: python scripts/package_net_v21_test_selftest.py

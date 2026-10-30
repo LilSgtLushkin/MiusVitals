@@ -25,7 +25,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_NAME = "MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip"
+CURRENT = Path(__file__).resolve().parent.parent / "development" / "versions" / "current.txt"
+DEFAULT_NAME = f"MiusMultiplayer_v{CURRENT.read_text(encoding='utf-8').strip()}_INSTALL.zip"
 
 
 def recorded_digest(archive: Path) -> tuple[str, str]:

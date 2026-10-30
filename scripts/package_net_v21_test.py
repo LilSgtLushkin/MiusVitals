@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the single MiusMultiplayer 1.0.7 EXPERIMENTAL net+fps archive.
+"""Build the single MiusMultiplayer net+fps archive for the current version.
 
 The matched net_v21 module and launcher are the actual files installed by Enable_Multiplayer.bat;
 there is no separate patch switch. The archive is experimental and does not claim real-game or
@@ -17,7 +17,10 @@ import struct
 import tempfile
 import zipfile
 
-VERSION = "1.0.7"
+CURRENT = Path(__file__).resolve().parent.parent / "development" / "versions" / "current.txt"
+if not CURRENT.is_file():
+    raise SystemExit("missing development/versions/current.txt")
+VERSION = CURRENT.read_text(encoding="utf-8").strip()
 WIRE_TAG = b"NETV21_WIRE_PROTOCOL_18"
 ROOT = "MiusMultiplayer"
 PROVEN = Path("development/unified-fps-kit-source")
@@ -228,7 +231,7 @@ def collect(repo: Path, codelib: Path, launcher: Path) -> dict[str, bytes]:
     runtime = sorted((*SHARED_BINARIES, MODULE_PATH, LAUNCHER_PATH))
     tree[FILES_MANIFEST] = ("\n".join(f"{sha256(tree[name])}  {name}" for name in runtime) + "\n").encode()
     passport = [f"MiusMultiplayer {VERSION} - test archive", "layout: unified",
-                "build status: 1.0.7 EXPERIMENTAL net+fps", "",
+                f"build status: {VERSION} net+fps", "",
                 f"wire protocol: {WIRE_TAG.decode('ascii')}",
                 f"net_v21 sha256: {sha256(candidate)}", f"launcher sha256: {sha256(candidate_launcher)}", "",
                 "Enable_Multiplayer.bat installs the entire test kit, including net_v21; no separate patch switch.",
@@ -372,11 +375,12 @@ def verify(archive_path: Path) -> None:
         # Preserve the independently verifiable historical unified 1.0.5 archive.
         match = re.search(r"^MiusMultiplayer (\d+\.\d+\.\d+) - test archive\r?$", stamp, re.M)
         # Verification of an immutable historical installer is not network compatibility.
-        # 1.0.7 has both preserved protocol-17 releases and new protocol-18 builds; its
-        # passport must name exactly one allowed tag, and both contained binaries must match it.
+        # Each version names the wire tags it is allowed to carry; older ones keep their own,
+        # and the passport must name exactly one tag that both contained binaries also carry.
         tags = {"1.0.5": (b"NETV21_WIRE_PROTOCOL_14",),
                 "1.0.6": (b"NETV21_WIRE_PROTOCOL_15",),
-                VERSION: (b"NETV21_WIRE_PROTOCOL_17", WIRE_TAG)}
+                "1.0.7": (WIRE_TAG,),
+                VERSION: (WIRE_TAG,)}
         version = match.group(1) if match else ""
         wire_lines = re.findall(r"^wire protocol: ([A-Z0-9_]+)\r?$", stamp, re.M)
         if len(wire_lines) != 1:
@@ -487,9 +491,9 @@ def main() -> None:
     parser.add_argument("--verify", type=Path)
     parser.add_argument("--verify-source", action="store_true", help="also compare the unified kit to the current source tree")
     parser.add_argument("--codelib", type=Path,
-                        default=Path("development/net-v21/build/module/basic_network.codelib"))
+                        default=Path(f"development/versions/{VERSION}/build/module/basic_network.codelib"))
     parser.add_argument("--launcher", type=Path,
-                        default=Path("development/net-v21/build/join/mp_join.exe"))
+                        default=Path(f"development/versions/{VERSION}/build/join/mp_join.exe"))
     args = parser.parse_args()
     if bool(args.output) == bool(args.verify):
         parser.error("use exactly one of --output or --verify")

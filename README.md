@@ -83,16 +83,16 @@ SHA-256: `60e7b7a2f2914ae75cf203f48aacc89e9469f71b15b654f70805d50e50736f78`.
 | `MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip`, `MiusMultiplayer_v1.0.7_TEST_INSTALL.zip` | прежние сборки 1.0.7, удалены из дерева и остались в истории Git |
 | [`MiusMultiplayer_v1.0.0_TEST_INSTALL_known_good.zip`](MiusMultiplayer_v1.0.0_TEST_INSTALL_known_good.zip) | сохранённая контрольная копия для отката |
 | [`MiusMultiplayer_v1.0.0_TEST_INSTALL.zip`](MiusMultiplayer_v1.0.0_TEST_INSTALL.zip) | прежняя тестовая сборка `net_v21` |
-| [`GTMP_alpha_INSTALL.zip`](GTMP_alpha_INSTALL.zip) | исторический эксперимент с другой `mp_vitals.dll` |
-| [`MiusMultiplayer_OUTDATED_INSTALL.zip`](MiusMultiplayer_OUTDATED_INSTALL.zip) | прежний установщик v1.0.0, только для отката и истории |
 
 У этих архивов есть различия в составе или бинарных файлах; одинаковый базовый установщик внутри тестовых ZIP не делает их одинаковыми сборками. Результат проверки и удалённый дубликат — в [инвентаре архивов](docs/ARCHIVE_INVENTORY_2026-10-27.md).
 
-Отдельный experimental `MiusMultiplayer_beta_FPS_fix_INSTALL.zip` **удалён**: его единственный payload (Steam-preserving FPS `basic_network.codelib`) давно входит в v1.0.1, а два installer'а с разными codelib только путали установку. Вместе с архивом удалены `scripts/package_fps_beta.py` и `development/fps-beta-kit-source/`; воспроизводимая сборка самого FPS candidate остаётся в [`development/fps-candidate/`](development/fps-candidate/) и проверяется workflow [`verify-fps-codelib.yml`](.github/workflows/verify-fps-codelib.yml).
+Отдельный experimental `MiusMultiplayer_beta_FPS_fix_INSTALL.zip` **удалён**: его единственный payload (Steam-preserving FPS `basic_network.codelib`) давно входит в v1.0.1, а два installer'а с разными codelib только путали установку. `GTMP_alpha_INSTALL.zip` и `MiusMultiplayer_OUTDATED_INSTALL.zip` удалены 2026-10-30: истории Git
+достаточно, а при надобности их воспроизводят `scripts/package_gtmp_alpha.py` и
+`scripts/package_unified_mod.py`. Вместе с архивом удалены `scripts/package_fps_beta.py` и `development/fps-beta-kit-source/`; воспроизводимая сборка самого FPS candidate остаётся в [`development/fps-candidate/`](development/fps-candidate/) и проверяется workflow [`verify-fps-codelib.yml`](.github/workflows/verify-fps-codelib.yml).
 
 ### GTMP_alpha — экспериментальная сборка поверх v1.0.1
 
-[`GTMP_alpha_INSTALL.zip`](GTMP_alpha_INSTALL.zip) — это копия v1.0.1, в которой заменён только `mp_vitals.dll` (пересобранная из исходника с мелкими исправлениями) и перемаркированы установщики. `basic_network.codelib` и остальные runtime-файлы побайтово совпадают с v1.0.1, поэтому alpha не может привезти другой модуль. SHA-256 архива `aacfe7dfd0cca82c0ed771e5a9088faa75565f3bf7d5757ceef8d3f532955924`, alpha-DLL `808e1d5f6cb301ac971700e0aba6e78d1df1b13b02e748b8d01dd4bfc8a9881c`.
+Архив `GTMP_alpha_INSTALL.zip` (удалён из дерева, остался в истории Git) — это копия v1.0.1, в которой заменён только `mp_vitals.dll` (пересобранная из исходника с мелкими исправлениями) и перемаркированы установщики. `basic_network.codelib` и остальные runtime-файлы побайтово совпадают с v1.0.1, поэтому alpha не может привезти другой модуль. SHA-256 архива `aacfe7dfd0cca82c0ed771e5a9088faa75565f3bf7d5757ceef8d3f532955924`, alpha-DLL `808e1d5f6cb301ac971700e0aba6e78d1df1b13b02e748b8d01dd4bfc8a9881c`.
 
 Alpha — исторический эксперимент и не является текущим установщиком 1.0.7. Признак загрузки alpha в логе — строка `vitals: GTMP_alpha-1 experimental build (bugfix series 1)`.
 

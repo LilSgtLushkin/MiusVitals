@@ -27,6 +27,11 @@ concurrency:
   group: network-module-${{ github.ref }}
   cancel-in-progress: true
 
+# The version being built. Sources live in development/versions/<version>/, one folder per
+# release; bumping this is part of making a release, together with development/versions/current.txt.
+env:
+  VERSION: 1.0.8
+
 jobs:
   native-artifact-and-kit-checks:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
@@ -39,7 +44,7 @@ jobs:
         run: scripts/verify_release.sh
       - name: Execute native cache-bounds stub test
         run: |
-          g++ -std=c++11 -O2 -Wall -Wextra -Werror development/net-v21/tools/render_cache_bounds_native_test.cpp -o /tmp/render-cache-test
+          g++ -std=c++11 -O2 -Wall -Wextra -Werror development/versions/${{ env.VERSION }}/tools/render_cache_bounds_native_test.cpp -o /tmp/render-cache-test
           /tmp/render-cache-test
 
   build-and-compare:
@@ -60,21 +65,21 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python development/game-build-3598-1/manifest_selftest.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python development/net-v21/tools/pe_scan_selftest.py
+          python development/versions/${{ env.VERSION }}/tools/pe_scan_selftest.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python development/net-v21/tools/hook_audit.py
+          python development/versions/${{ env.VERSION }}/tools/hook_audit.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python development/net-v21/tools/hook_audit_selftest.py
+          python development/versions/${{ env.VERSION }}/tools/hook_audit_selftest.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python development/net-v21/tools/tactical_hook_selftest.py
+          python development/versions/${{ env.VERSION }}/tools/tactical_hook_selftest.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python development/net-v21/tools/vitals_hook_audit.py
+          python development/versions/${{ env.VERSION }}/tools/vitals_hook_audit.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python development/net-v21/tools/vitals_hook_audit_selftest.py
+          python development/versions/${{ env.VERSION }}/tools/vitals_hook_audit_selftest.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python development/net-v21/tools/statesync_legacy_selftest.py
+          python development/versions/${{ env.VERSION }}/tools/statesync_legacy_selftest.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python development/net-v21/tools/ui_text_selftest.py
+          python development/versions/${{ env.VERSION }}/tools/ui_text_selftest.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Test archive validation and rollback protection
@@ -85,7 +90,7 @@ jobs:
       - name: Test the log collector with a simulated game folder
         shell: powershell
         run: |
-          & development/net-v21/tools/collect_logs_selftest.ps1
+          & development/versions/${{ env.VERSION }}/tools/collect_logs_selftest.ps1
           if (-not $?) { exit 1 }
       - name: Verify the shipped installer before rebuilding
         shell: bash
@@ -94,244 +99,276 @@ jobs:
           # Structure plus the SHA-256 recorded beside it. The installer is rebuilt from the gated
           # source, so no fixed hash is pinned: the hash a pin would hold is written by the same
           # job that builds the file. The check itself lives in one place, not copied here.
-          python scripts/check_shipped_installer.py \
-            MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip
-          sha256sum MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip
+          archive="MiusMultiplayer_v${{ env.VERSION }}_INSTALL.zip"
+          # A version bump lands before its installer does: the gate runs on the source, and
+          # publish-installer.yml commits the archive only after this workflow is green.
+          if [ ! -f "$archive" ]; then
+            echo "::notice title=Shipped installer::$archive is not in the tree yet: version ${{ env.VERSION }} is not published. It is built below and committed by publish-installer.yml."
+            exit 0
+          fi
+          python scripts/check_shipped_installer.py "$archive"
+          sha256sum "$archive"
 
       - name: Install the disassembler and offline x64 emulator
         run: python -m pip install --quiet capstone unicorn==2.1.4
 
       - name: Check description identity evidence against the supplied PE images
         run: |
-          python development/net-v21/tools/xlate_identity_pe_selftest.py
+          python development/versions/${{ env.VERSION }}/tools/xlate_identity_pe_selftest.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python development/net-v21/tools/xlate_identity_emulation_selftest.py
+          python development/versions/${{ env.VERSION }}/tools/xlate_identity_emulation_selftest.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python development/net-v21/tools/human_hit_evidence_selftest.py
+          python development/versions/${{ env.VERSION }}/tools/human_hit_evidence_selftest.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python development/net-v21/tools/render_cache_bounds_selftest.py
+          python development/versions/${{ env.VERSION }}/tools/render_cache_bounds_selftest.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Fetch the two reference modules (pinned, SHA-256 checked)
-        run: python development/net-v21/tools/fetch_references.py
+        run: python development/versions/${{ env.VERSION }}/tools/fetch_references.py
 
       - name: M1 - build the published sources exactly as published
         shell: cmd
         run: |
-          if not exist development\net-v21\build mkdir development\net-v21\build
-          call development\net-v21\build.bat baseline > development\net-v21\build\baseline.log 2>&1
+          if not exist development\versions\${{ env.VERSION }}\build mkdir development\versions\${{ env.VERSION }}\build
+          call development\versions\${{ env.VERSION }}\build.bat baseline > development\versions\${{ env.VERSION }}\build\baseline.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\baseline.log
+          type development\versions\${{ env.VERSION }}\build\baseline.log
           exit /b %rc%
 
+      - name: Report the baseline build log
+        if: failure()
+        shell: powershell
+        run: |
+          $log = Join-Path "development/versions/${{ env.VERSION }}/build" "baseline.log"
+          if (Test-Path $log) {
+            $lines = Select-String -LiteralPath $log -Pattern 'error|fatal|LNK' |
+                     Select-Object -Last 15 | ForEach-Object { $_.Line.Trim() }
+            if ($lines) {
+              $message = ($lines -join ' | ').Replace('%', '%25').Replace("`r", '').Replace("`n", ' ')
+              Write-Output ("::error title=baseline build failed::" + $message)
+            }
+          }
       - name: M2 - build the same tree plus the Steam layer
         shell: cmd
         run: |
-          call development\net-v21\build.bat module > development\net-v21\build\module.log 2>&1
+          call development\versions\${{ env.VERSION }}\build.bat module > development\versions\${{ env.VERSION }}\build\module.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\module.log
+          type development\versions\${{ env.VERSION }}\build\module.log
           exit /b %rc%
 
+      - name: Report the module build log
+        if: failure()
+        shell: powershell
+        run: |
+          $log = Join-Path "development/versions/${{ env.VERSION }}/build" "module.log"
+          if (Test-Path $log) {
+            $lines = Select-String -LiteralPath $log -Pattern 'error|fatal|LNK' |
+                     Select-Object -Last 15 | ForEach-Object { $_.Line.Trim() }
+            if ($lines) {
+              $message = ($lines -join ' | ').Replace('%', '%25').Replace("`r", '').Replace("`n", ' ')
+              Write-Output ("::error title=module build failed::" + $message)
+            }
+          }
       - name: M2 - build and run the Steam self-test (no Steam, no game needed)
         shell: cmd
         run: |
-          call development\net-v21\build.bat selftest > development\net-v21\build\selftest.log 2>&1
+          call development\versions\${{ env.VERSION }}\build.bat selftest > development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\steam_selftest.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\steam_selftest.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\steam_friends_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\steam_friends_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\netlog_selftest.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\netlog_selftest.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\vitals_core_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\vitals_core_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\vitals_randomized_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\vitals_randomized_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\hit_anim_wire_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\hit_anim_wire_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\animation_channel_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\animation_channel_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\pause_sync_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\pause_sync_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
           rem The pause/state-header slice runs inside build.bat selftest: it needs the compiler that
           rem script puts on PATH, which the step's own shell does not have.
-          development\net-v21\build\selftest\hit_anim_integration_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\hit_anim_integration_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\vitals_integration_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\vitals_integration_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\protocol_selftest.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\protocol_selftest.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\operation_turn_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\operation_turn_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\opsave_checked_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\opsave_checked_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\map_file_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\map_file_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\map_file_windows_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\map_file_windows_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\force_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\force_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\battle_file_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\battle_file_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\retry_gate_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\retry_gate_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\atomic_file_selftest.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\atomic_file_selftest.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\reliable_inbox_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\reliable_inbox_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\ceasefire_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\ceasefire_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\env_value_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\env_value_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\tactical_mode_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\tactical_mode_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\transform_write_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\transform_write_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\transform_gc_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\transform_gc_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\transform_object_check_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\transform_object_check_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\state_apply_delay_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\state_apply_delay_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\squad_ownership_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\squad_ownership_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\image_mirror_identity_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\image_mirror_identity_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\transform_send_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\transform_send_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\transform_inbox_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\transform_inbox_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\transport_policy_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\transport_policy_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\peer_guard_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\peer_guard_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\state_fragments_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\state_fragments_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\statesync_integration_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\statesync_integration_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\state_memory_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\state_memory_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\hooks_selftest.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\hooks_selftest.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\render_guard_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\render_guard_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\xlate_selftest.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\xlate_selftest.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\trench_thread_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\trench_thread_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\shots_integration_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\shots_integration_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\named_shots_integration_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\named_shots_integration_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\shots_xlate_characterization_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\shots_xlate_characterization_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          development\net-v21\build\selftest\late_input_test.exe >> development\net-v21\build\selftest.log 2>&1
+          development\versions\${{ env.VERSION }}\build\selftest\late_input_test.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          python tests\test_switch_pair_windows.py >> development\net-v21\build\selftest.log 2>&1
+          python tests\test_switch_pair_windows.py >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          python development\net-v21\tools\loopback_pair.py --peer development\net-v21\build\selftest\loopback_peer.exe >> development\net-v21\build\selftest.log 2>&1
+          python development\versions\${{ env.VERSION }}\tools\loopback_pair.py --peer development\versions\${{ env.VERSION }}\build\selftest\loopback_peer.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          python development\net-v21\tools\session_loopback_pair.py --peer development\net-v21\build\selftest\session_loopback_peer.exe >> development\net-v21\build\selftest.log 2>&1
+          python development\versions\${{ env.VERSION }}\tools\session_loopback_pair.py --peer development\versions\${{ env.VERSION }}\build\selftest\session_loopback_peer.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           if not %rc%==0 exit /b %rc%
-          python development\net-v21\tools\event_loopback_pair.py --peer development\net-v21\build\selftest\session_event_peer.exe >> development\net-v21\build\selftest.log 2>&1
+          python development\versions\${{ env.VERSION }}\tools\event_loopback_pair.py --peer development\versions\${{ env.VERSION }}\build\selftest\session_event_peer.exe >> development\versions\${{ env.VERSION }}\build\selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\selftest.log
+          type development\versions\${{ env.VERSION }}\build\selftest.log
           exit /b %rc%
 
       # Keep the failing test/compiler tail visible through the checks API, even where Actions'
@@ -340,7 +377,7 @@ jobs:
         if: failure()
         shell: pwsh
         run: |
-          $log = 'development/net-v21/build/selftest.log'
+          $log = 'development/versions/${{ env.VERSION }}/build/selftest.log'
           if (Test-Path -LiteralPath $log) {
             $tail = ((Get-Content -LiteralPath $log -Tail 60) -join ' | ').Replace('%', '%25')
             Write-Output "::error title=Self-test log::$tail"
@@ -349,55 +386,55 @@ jobs:
       - name: M2 - build the command-line join launcher with the Steam layer
         shell: cmd
         run: |
-          call development\net-v21\build.bat join > development\net-v21\build\join.log 2>&1
+          call development\versions\${{ env.VERSION }}\build.bat join > development\versions\${{ env.VERSION }}\build\join.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\join.log
+          type development\versions\${{ env.VERSION }}\build\join.log
           exit /b %rc%
 
       - name: Exercise the standalone launcher over IP and fake Steam (no game)
         shell: cmd
         run: |
-          python development\net-v21\tools\standalone_loopback.py --peer development\net-v21\build\selftest\session_loopback_peer.exe --launcher development\net-v21\build\join\mp_join.exe --starter development\net-v21\build\selftest\starter_fixture.exe > development\net-v21\build\launcher-selftest.log 2>&1
+          python development\versions\${{ env.VERSION }}\tools\standalone_loopback.py --peer development\versions\${{ env.VERSION }}\build\selftest\session_loopback_peer.exe --launcher development\versions\${{ env.VERSION }}\build\join\mp_join.exe --starter development\versions\${{ env.VERSION }}\build\selftest\starter_fixture.exe > development\versions\${{ env.VERSION }}\build\launcher-selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\launcher-selftest.log
+          type development\versions\${{ env.VERSION }}\build\launcher-selftest.log
           if not %rc%==0 (
-            powershell -NoProfile -Command "$m = ((Get-Content development/net-v21/build/launcher-selftest.log -Tail 40) -join ' | ').Replace('%%','%%25'); Write-Output ('::error title=Launcher self-test::' + $m)"
+            powershell -NoProfile -Command "$m = ((Get-Content development/versions/${{ env.VERSION }}/build/launcher-selftest.log -Tail 40) -join ' | ').Replace('%%','%%25'); Write-Output ('::error title=Launcher self-test::' + $m)"
             exit /b %rc%
           )
 
       - name: M1 - compare our baseline against the released v12 module
         shell: bash
         run: |
-          python development/net-v21/tools/compare.py \
-            --candidate development/net-v21/build/baseline/basic_network.codelib \
-            --candidate-map development/net-v21/build/baseline/basic_network.map \
-            --reference development/net-v21/references/v12.codelib \
+          python development/versions/${{ env.VERSION }}/tools/compare.py \
+            --candidate development/versions/${{ env.VERSION }}/build/baseline/basic_network.codelib \
+            --candidate-map development/versions/${{ env.VERSION }}/build/baseline/basic_network.map \
+            --reference development/versions/${{ env.VERSION }}/references/v12.codelib \
             --reference-kind v12 --label "M1 baseline vs v12" \
-            --out development/net-v21/build/compare-m1.md \
-            --json development/net-v21/build/compare-m1.json \
-            2>&1 | tee development/net-v21/build/compare-m1.log
+            --out development/versions/${{ env.VERSION }}/build/compare-m1.md \
+            --json development/versions/${{ env.VERSION }}/build/compare-m1.json \
+            2>&1 | tee development/versions/${{ env.VERSION }}/build/compare-m1.log
           exit ${PIPESTATUS[0]}
 
       - name: M2 - compare our module against the v20 module players run
         shell: bash
         run: |
-          python development/net-v21/tools/compare.py \
-            --candidate development/net-v21/build/module/basic_network.codelib \
-            --candidate-map development/net-v21/build/module/basic_network.map \
-            --reference development/net-v21/references/v20.codelib \
+          python development/versions/${{ env.VERSION }}/tools/compare.py \
+            --candidate development/versions/${{ env.VERSION }}/build/module/basic_network.codelib \
+            --candidate-map development/versions/${{ env.VERSION }}/build/module/basic_network.map \
+            --reference development/versions/${{ env.VERSION }}/references/v20.codelib \
             --reference-kind v20 --label "M2 module vs v20" \
             --focus steam,gtmf,presence,upnp,find_local \
-            --out development/net-v21/build/compare-m2.md \
-            --json development/net-v21/build/compare-m2.json \
-            --missing-out development/net-v21/build/missing-m2.txt \
-            2>&1 | tee development/net-v21/build/compare-m2.log
+            --out development/versions/${{ env.VERSION }}/build/compare-m2.md \
+            --json development/versions/${{ env.VERSION }}/build/compare-m2.json \
+            --missing-out development/versions/${{ env.VERSION }}/build/missing-m2.txt \
+            2>&1 | tee development/versions/${{ env.VERSION }}/build/compare-m2.log
           exit ${PIPESTATUS[0]}
 
       - name: Self-test the battle report (the tool a two-PC run is read with)
         shell: bash
         run: |
-          python development/net-v21/tools/battle_report_selftest.py \
-            2>&1 | tee development/net-v21/build/battle-report-selftest.log
+          python development/versions/${{ env.VERSION }}/tools/battle_report_selftest.py \
+            2>&1 | tee development/versions/${{ env.VERSION }}/build/battle-report-selftest.log
           exit ${PIPESTATUS[0]}
 
       # Build a disposable ZIP from this exact PR head. The previously released net+fps ZIP
@@ -406,10 +443,10 @@ jobs:
         shell: bash
         run: |
           python scripts/package_net_v21_test.py \
-            --codelib development/net-v21/build/module/basic_network.codelib \
-            --launcher development/net-v21/build/join/mp_join.exe \
-            --output development/net-v21/build/CI_fixture_NOT_RELEASE.zip \
-            2>&1 | tee development/net-v21/build/package.log
+            --codelib development/versions/${{ env.VERSION }}/build/module/basic_network.codelib \
+            --launcher development/versions/${{ env.VERSION }}/build/join/mp_join.exe \
+            --output development/versions/${{ env.VERSION }}/build/CI_fixture_NOT_RELEASE.zip \
+            2>&1 | tee development/versions/${{ env.VERSION }}/build/package.log
           exit ${PIPESTATUS[0]}
 
       # The shipped installer is already verified above, structurally and against the hash recorded
@@ -419,8 +456,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python scripts/package_net_v21_test.py --verify development/net-v21/build/CI_fixture_NOT_RELEASE.zip --verify-source
-          sha256sum development/net-v21/build/CI_fixture_NOT_RELEASE.zip
+          python scripts/package_net_v21_test.py --verify development/versions/${{ env.VERSION }}/build/CI_fixture_NOT_RELEASE.zip --verify-source
+          sha256sum development/versions/${{ env.VERSION }}/build/CI_fixture_NOT_RELEASE.zip
 
       # No retired ZIP is restored into the checkout. The Windows test reads each historical
       # installer as a Git blob in memory and verifies its SHA-256 before exercising rollback, so
@@ -444,16 +481,16 @@ jobs:
       - name: Exercise the current one-step installer and historical upgrades on Windows
         shell: cmd
         env:
-          MIUS_TEST_ARCHIVE: development/net-v21/build/CI_fixture_NOT_RELEASE.zip
+          MIUS_TEST_ARCHIVE: development/versions/${{ env.VERSION }}/build/CI_fixture_NOT_RELEASE.zip
           MIUS_TEST_STATE: unified_test_v107_experimental_net_fps
           MIUS_TEST_UPGRADE: '1'
           MIUS_TEST_UPGRADE_107_EXPERIMENTAL: '1'
         run: |
-          python tests\test_unified_installer_windows.py > development\net-v21\build\installer-selftest.log 2>&1
+          python tests\test_unified_installer_windows.py > development\versions\${{ env.VERSION }}\build\installer-selftest.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\installer-selftest.log
+          type development\versions\${{ env.VERSION }}\build\installer-selftest.log
           if not %rc%==0 (
-            powershell -NoProfile -Command "$m = ((Get-Content development/net-v21/build/installer-selftest.log -Tail 50) -join ' | ').Replace('%%','%%25'); Write-Output ('::error title=Installer self-test::' + $m)"
+            powershell -NoProfile -Command "$m = ((Get-Content development/versions/${{ env.VERSION }}/build/installer-selftest.log -Tail 50) -join ' | ').Replace('%%','%%25'); Write-Output ('::error title=Installer self-test::' + $m)"
             exit /b %rc%
           )
 
@@ -466,10 +503,10 @@ jobs:
         run: |
           {
             echo '## M1: our build of the published sources vs the released v12 module'
-            cat development/net-v21/build/compare-m1.md 2>/dev/null || echo 'no comparison: the build did not produce a module'
+            cat development/versions/${{ env.VERSION }}/build/compare-m1.md 2>/dev/null || echo 'no comparison: the build did not produce a module'
             echo
             echo '## M2: our module (published sources + Steam layer) vs the v20 module'
-            cat development/net-v21/build/compare-m2.md 2>/dev/null || echo 'no comparison: the build did not produce a module'
+            cat development/versions/${{ env.VERSION }}/build/compare-m2.md 2>/dev/null || echo 'no comparison: the build did not produce a module'
           } >> "$GITHUB_STEP_SUMMARY"
 
       # The job log is not reachable from outside this cluster (the log endpoint is blocked), so the
@@ -494,28 +531,28 @@ jobs:
             for report in compare-m1 compare-m2; do
               echo
               echo "#### $report"
-              cat "development/net-v21/build/$report.md" 2>/dev/null || echo "no $report report"
+              cat "development/versions/${{ env.VERSION }}/build/$report.md" 2>/dev/null || echo "no $report report"
             done
-            if [ -f development/net-v21/build/missing-m2.txt ]; then
+            if [ -f development/versions/${{ env.VERSION }}/build/missing-m2.txt ]; then
               echo
               echo "<details><summary>every missing work item, by milestone</summary>"
               echo
               echo '```'
-              cat development/net-v21/build/missing-m2.txt
+              cat development/versions/${{ env.VERSION }}/build/missing-m2.txt
               echo '```'
               echo
               echo '</details>'
             fi
             echo
-            if [ -f MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip ]; then
-              echo "shipped installer: sha256 $(sha256sum MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip | cut -d' ' -f1)"
-              echo "recorded beside it: $(head -1 MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip.sha256.txt)"
+            if [ -f MiusMultiplayer_v${{ env.VERSION }}_INSTALL.zip ]; then
+              echo "shipped installer: sha256 $(sha256sum MiusMultiplayer_v${{ env.VERSION }}_INSTALL.zip | cut -d' ' -f1)"
+              echo "recorded beside it: $(head -1 MiusMultiplayer_v${{ env.VERSION }}_INSTALL.zip.sha256.txt)"
             fi
-            if [ -f development/net-v21/build/CI_fixture_NOT_RELEASE.zip ]; then
+            if [ -f development/versions/${{ env.VERSION }}/build/CI_fixture_NOT_RELEASE.zip ]; then
               echo "current build: disposable installer fixture only, not a release"
             fi
             for name in shipped-installer baseline module selftest join launcher-selftest installer-selftest battle-report-selftest package compare-m1 compare-m2; do
-              log="development/net-v21/build/$name.log"
+              log="development/versions/${{ env.VERSION }}/build/$name.log"
               echo
               echo "<details><summary>$name log</summary>"
               echo
@@ -534,7 +571,7 @@ jobs:
         with:
           name: network-module
           path: |
-            development/net-v21/build/**
-            !development/net-v21/build/CI_fixture_NOT_RELEASE.zip
+            development/versions/${{ env.VERSION }}/build/**
+            !development/versions/${{ env.VERSION }}/build/CI_fixture_NOT_RELEASE.zip
           if-no-files-found: warn
           retention-days: 14

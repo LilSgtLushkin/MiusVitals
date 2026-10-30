@@ -59,11 +59,19 @@ ARTIFACTS: dict[str, tuple[str, tuple[str, ...]]] = {
             "development/kit-source/files/mp_vitals.dll",
             "development/unified-kit-source/files/mp_vitals.dll",
             "development/unified-fps-kit-source/files/mp_vitals.dll",
+            # Parked copies in development/forbidden: vitals work is on hold until the crashes
+            # are understood, and these must stay byte-identical to the shipped file.
+            "development/forbidden/development/kit-source/files/mp_vitals.dll",
+            "development/forbidden/development/unified-kit-source/files/mp_vitals.dll",
+            "development/forbidden/development/unified-fps-kit-source/files/mp_vitals.dll",
         ),
     ),
     "experimental mp_vitals.dll for GTMP_alpha (same surface, only the reviewed bugfixes)": (
         "808e1d5f6cb301ac971700e0aba6e78d1df1b13b02e748b8d01dd4bfc8a9881c",
-        ("development/gtmp-alpha/files/mp_vitals.dll",),
+        (
+            "development/gtmp-alpha/files/mp_vitals.dll",
+            "development/forbidden/development/gtmp-alpha/files/mp_vitals.dll",
+        ),
     ),
     "mp_join.exe (public MiusPlayer launcher)": (
         "6aa417cf6e1f01480c997446f2691a58ab55b90fa36e1ff511945989aadfeeaa",
@@ -88,15 +96,13 @@ ARTIFACTS: dict[str, tuple[str, tuple[str, ...]]] = {
     ),
 }
 
-# Immutable archives only. The shipped installer MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip
+# Immutable archives only. The shipped installer is rebuilt every release, so it is checked by
 # is deliberately absent: it is the single current 1.0.7 archive and publish-installer.yml rebuilds
 # and commits it from the gated source, so a pin here would be written by the same job that produces
 # the file and would prove nothing. verify_release.sh checks that archive structurally and against
 # the SHA-256 recorded beside it instead. The older 1.0.7 archives were removed from the tree when
 # the releases were consolidated; their names stay reserved in scripts/package_net_v21_test.py.
 ARCHIVES: dict[str, str] = {
-    "MiusMultiplayer_OUTDATED_INSTALL.zip": "67661473d1f8e6bcd67d7cf9117e92e19d30e5adda456dab5ee347aa851fa027",
-    "GTMP_alpha_INSTALL.zip": "aacfe7dfd0cca82c0ed771e5a9088faa75565f3bf7d5757ceef8d3f532955924",
 }
 
 BINARY_SUFFIXES = {".codelib", ".dll", ".exe", ".progpack"}

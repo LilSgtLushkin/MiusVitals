@@ -30,6 +30,11 @@ concurrency:
   group: publish-installer-${{ github.event.workflow_run.head_branch || github.ref_name }}
   cancel-in-progress: false
 
+# The version being built. Sources live in development/versions/<version>/, one folder per
+# release; bumping this is part of making a release, together with development/versions/current.txt.
+env:
+  VERSION: 1.0.8
+
 jobs:
   publish:
     name: Build the installer and publish it to the gated branch
@@ -52,16 +57,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # The shipped installer is the only 1.0.7 archive in the tree. Taking its name from the
+          # The shipped installer is the only ${{ env.VERSION }} archive in the tree. Taking its name from the
           # tree, instead of from a constant here, means this workflow cannot publish a second
-          # archive under a name only this file knows - it updates the one that exists.
-          shipped=(MiusMultiplayer_v1.0.7_*_INSTALL.zip)
-          if [ "${#shipped[@]}" -ne 1 ] || [ ! -f "${shipped[0]}" ]; then
-            echo "::error title=Publish target::expected exactly one MiusMultiplayer_v1.0.7_*_INSTALL.zip in the tree, found: ${shipped[*]}"
+          # archive under a name only this file knows - it updates the one that exists. A version is
+          # published for the first time before it has an archive, so the name is built from the
+          # version in that case; from then on the tree is the only source of the name.
+          found=()
+          for zip in MiusMultiplayer_v${{ env.VERSION }}_*_INSTALL.zip; do
+            [ -f "$zip" ] && found+=("$zip")
+          done
+          if [ "${#found[@]}" -gt 1 ]; then
+            echo "::error title=Publish target::expected at most one MiusMultiplayer_v${{ env.VERSION }}_*_INSTALL.zip in the tree, found: ${found[*]}"
             exit 1
           fi
-          echo "archive=${shipped[0]}" >> "$GITHUB_OUTPUT"
-          echo "publishing ${shipped[0]}"
+          archive="${found[0]:-MiusMultiplayer_v${{ env.VERSION }}_INSTALL.zip}"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "publishing $archive"
 
       - name: Take the module and launcher the gate verified
         if: github.event_name == 'workflow_run'
@@ -100,14 +111,14 @@ jobs:
         if: steps.choose.outputs.provenance == 'пересобран в этом прогоне'
         shell: cmd
         run: |
-          if not exist development\net-v21\build mkdir development\net-v21\build
-          call development\net-v21\build.bat module > development\net-v21\build\publish-module.log 2>&1
+          if not exist development\versions\${{ env.VERSION }}\build mkdir development\versions\${{ env.VERSION }}\build
+          call development\versions\${{ env.VERSION }}\build.bat module > development\versions\${{ env.VERSION }}\build\publish-module.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\publish-module.log
+          type development\versions\${{ env.VERSION }}\build\publish-module.log
           if not "%rc%"=="0" exit /b %rc%
-          call development\net-v21\build.bat join > development\net-v21\build\publish-join.log 2>&1
+          call development\versions\${{ env.VERSION }}\build.bat join > development\versions\${{ env.VERSION }}\build\publish-join.log 2>&1
           set rc=%errorlevel%
-          type development\net-v21\build\publish-join.log
+          type development\versions\${{ env.VERSION }}\build\publish-join.log
           exit /b %rc%
 
       - name: Assemble the installer and check it against this source tree
@@ -118,11 +129,11 @@ jobs:
           LAUNCHER: ${{ steps.choose.outputs.launcher }}
         run: |
           set -euo pipefail
-          mkdir -p development/net-v21/build
+          mkdir -p development/versions/${{ env.VERSION }}/build
           python scripts/package_net_v21_test.py \
-            --codelib "${CODELIB:-development/net-v21/build/module/basic_network.codelib}" \
-            --launcher "${LAUNCHER:-development/net-v21/build/join/mp_join.exe}" \
-            --output "$ARCHIVE" 2>&1 | tee development/net-v21/build/publish-package.log
+            --codelib "${CODELIB:-development/versions/${{ env.VERSION }}/build/module/basic_network.codelib}" \
+            --launcher "${LAUNCHER:-development/versions/${{ env.VERSION }}/build/join/mp_join.exe}" \
+            --output "$ARCHIVE" 2>&1 | tee development/versions/${{ env.VERSION }}/build/publish-package.log
           # --verify-source proves the kit inside the archive matches this exact checkout.
           python scripts/package_net_v21_test.py --verify "$ARCHIVE" --verify-source
 
@@ -160,7 +171,7 @@ jobs:
           fi
           git -c user.name='github-actions[bot]' \
               -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-              commit -q -m "net-v21: готовый установщик 1.0.7 experimental net+fps из ${SOURCE_COMMIT::9} (${PROVENANCE:-происхождение не определено}) [skip ci]"
+              commit -q -m "net-v21: готовый установщик ${{ env.VERSION }} net+fps из ${SOURCE_COMMIT::9} (${PROVENANCE:-происхождение не определено}) [skip ci]"
           for attempt in 1 2 3; do
             git fetch --quiet origin "$BRANCH"
             if git rebase "origin/$BRANCH" && git push --quiet origin "HEAD:$BRANCH"; then
@@ -192,7 +203,7 @@ jobs:
             echo "Прогон: $RUN_URL"
             echo ""
             for log in publish-package publish-module publish-join; do
-              file="development/net-v21/build/$log.log"
+              file="development/versions/${{ env.VERSION }}/build/$log.log"
               if [ -f "$file" ]; then
                 echo "<details><summary>$log</summary>"
                 echo ""
