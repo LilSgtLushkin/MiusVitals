@@ -133,4 +133,4 @@ g++ -std=c++11 -O0 -g tests/transform_object_check_test.cpp -o /tmp/toc-test   (
 
 Новый исходник, тест, флаг или каталог включения нужно добавить и сюда
 (`c_cpp_properties.json`, `tasks.json`), и в проекты студии. Чек-лист:
-[`DEBUG_UPKEEP.md`](../net-v21/DEBUG_UPKEEP.md) — проверка `python scripts/check_debug_sources.py`.
+[`DEBUG_UPKEEP.md`](DEBUG_UPKEEP.md) — проверка `python scripts/check_debug_sources.py`.

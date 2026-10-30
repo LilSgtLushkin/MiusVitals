@@ -83,7 +83,7 @@ set BASE=src\basic_network.cpp src\netlog.cpp src\hooks.cpp src\render_guard.cpp
 set STEAM=src\steam.cpp src\steam_module.cpp
 rem The published sources untouched: the baseline is built from these, not from src\, so M1 keeps
 rem measuring the toolchain instead of our edits. development\upstream\ is the frozen copy.
-set PUBLISHED=..\upstream\miusplayer-public-43b2736\basic_network
+set PUBLISHED=..\..\upstream\miusplayer-public-43b2736\basic_network
 set BASELINE=%PUBLISHED%\basic_network.cpp %PUBLISHED%\session.cpp %PUBLISHED%\ui.cpp %PUBLISHED%\state.cpp %PUBLISHED%\statesync.cpp %PUBLISHED%\shots.cpp %PUBLISHED%\trench.cpp %PUBLISHED%\xlate.cpp
 
 if /i "%~1"=="baseline" goto baseline

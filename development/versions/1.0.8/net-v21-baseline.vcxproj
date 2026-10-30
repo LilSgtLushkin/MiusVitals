@@ -87,14 +87,14 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="..\upstream\miusplayer-public-43b2736\basic_network\basic_network.cpp" />
-    <ClCompile Include="..\upstream\miusplayer-public-43b2736\basic_network\session.cpp" />
-    <ClCompile Include="..\upstream\miusplayer-public-43b2736\basic_network\ui.cpp" />
-    <ClCompile Include="..\upstream\miusplayer-public-43b2736\basic_network\state.cpp" />
-    <ClCompile Include="..\upstream\miusplayer-public-43b2736\basic_network\statesync.cpp" />
-    <ClCompile Include="..\upstream\miusplayer-public-43b2736\basic_network\shots.cpp" />
-    <ClCompile Include="..\upstream\miusplayer-public-43b2736\basic_network\trench.cpp" />
-    <ClCompile Include="..\upstream\miusplayer-public-43b2736\basic_network\xlate.cpp" />
+    <ClCompile Include="..\..\upstream\miusplayer-public-43b2736\basic_network\basic_network.cpp" />
+    <ClCompile Include="..\..\upstream\miusplayer-public-43b2736\basic_network\session.cpp" />
+    <ClCompile Include="..\..\upstream\miusplayer-public-43b2736\basic_network\ui.cpp" />
+    <ClCompile Include="..\..\upstream\miusplayer-public-43b2736\basic_network\state.cpp" />
+    <ClCompile Include="..\..\upstream\miusplayer-public-43b2736\basic_network\statesync.cpp" />
+    <ClCompile Include="..\..\upstream\miusplayer-public-43b2736\basic_network\shots.cpp" />
+    <ClCompile Include="..\..\upstream\miusplayer-public-43b2736\basic_network\trench.cpp" />
+    <ClCompile Include="..\..\upstream\miusplayer-public-43b2736\basic_network\xlate.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
