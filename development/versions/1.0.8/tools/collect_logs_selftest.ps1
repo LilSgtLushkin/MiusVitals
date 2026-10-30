@@ -1,6 +1,6 @@
 # Windows-only no-game test for the kit's real collector, including a path with dots and spaces.
 $ErrorActionPreference = 'Stop'
-$collector = (Resolve-Path (Join-Path $PSScriptRoot '..\..\net-v21-kit\net_v21\Collect_Logs.ps1')).Path
+$collector = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\net-v21-kit\net_v21\Collect_Logs.ps1')).Path
 $root = Join-Path ([IO.Path]::GetTempPath()) ('mius.collector.test ' + [guid]::NewGuid().ToString('N'))
 $game = Join-Path $root 'game with spaces.1'
 $dest = Join-Path $root 'output'

@@ -6,10 +6,11 @@ on:
   push:
     branches-ignore: ['main']
     paths:
-      - 'development/versions/${{ env.VERSION }}/src/render_guard*'
-      - 'development/versions/${{ env.VERSION }}/tests/render_guard_test.cpp'
-      - 'development/versions/${{ env.VERSION }}/src/render_cache_bounds.h'
-      - 'development/versions/${{ env.VERSION }}/tools/render_cache_bounds*'
+      # Path filters cannot read env:VERSION, so these match every version folder.
+      - 'development/versions/**/src/render_guard*'
+      - 'development/versions/**/tests/render_guard_test.cpp'
+      - 'development/versions/**/src/render_cache_bounds.h'
+      - 'development/versions/**/tools/render_cache_bounds*'
       - 'development/game-build-3598-1/**'
       - 'scripts/package_net_v21_test*.py'
       - '.github/workflows/render-cache-smoke.yml'

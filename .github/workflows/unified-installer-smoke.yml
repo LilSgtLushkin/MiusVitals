@@ -27,14 +27,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Build a disposable fixture and test one-step install and recovery
+      - name: Build a disposable packaging fixture
+        shell: cmd
+        run: |
+          set "MIUS_TEST_ARCHIVE=%RUNNER_TEMP%\mius-installer-fixture.zip"
+          python tests\build_unified_installer_fixture.py "%MIUS_TEST_ARCHIVE%"
+          if errorlevel 1 exit /b 1
+      - name: Test one-step install and recovery
         shell: cmd
         run: |
           set "MIUS_TEST_ARCHIVE=%RUNNER_TEMP%\mius-installer-fixture.zip"
           set "MIUS_TEST_STATE=unified_test_v107_experimental_net_fps"
           set "MIUS_TEST_UPGRADE_107_EXPERIMENTAL=1"
-          python tests\build_unified_installer_fixture.py "%MIUS_TEST_ARCHIVE%"
-          if errorlevel 1 exit /b 1
           rem Partial feedback only; the final workflow runs the complete installer suite once.
           python tests\test_unified_installer_windows.py UnifiedInstaller.test_one_step_repeat_check_and_uninstall UnifiedInstaller.test_old_107_experimental_then_fps_and_two_step_rollback > "%RUNNER_TEMP%\mius-installer-tests.log" 2>&1
           set rc=%errorlevel%
