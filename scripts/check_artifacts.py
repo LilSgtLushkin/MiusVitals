@@ -59,11 +59,19 @@ ARTIFACTS: dict[str, tuple[str, tuple[str, ...]]] = {
             "development/kit-source/files/mp_vitals.dll",
             "development/unified-kit-source/files/mp_vitals.dll",
             "development/unified-fps-kit-source/files/mp_vitals.dll",
+            # Parked copies in development/forbidden: vitals work is on hold until the crashes
+            # are understood, and these must stay byte-identical to the shipped file.
+            "development/forbidden/development/kit-source/files/mp_vitals.dll",
+            "development/forbidden/development/unified-kit-source/files/mp_vitals.dll",
+            "development/forbidden/development/unified-fps-kit-source/files/mp_vitals.dll",
         ),
     ),
     "experimental mp_vitals.dll for GTMP_alpha (same surface, only the reviewed bugfixes)": (
         "808e1d5f6cb301ac971700e0aba6e78d1df1b13b02e748b8d01dd4bfc8a9881c",
-        ("development/gtmp-alpha/files/mp_vitals.dll",),
+        (
+            "development/gtmp-alpha/files/mp_vitals.dll",
+            "development/forbidden/development/gtmp-alpha/files/mp_vitals.dll",
+        ),
     ),
     "mp_join.exe (public MiusPlayer launcher)": (
         "6aa417cf6e1f01480c997446f2691a58ab55b90fa36e1ff511945989aadfeeaa",
