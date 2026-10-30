@@ -29,6 +29,16 @@ set PASS=0
 set FAILN=0
 set MISSING=0
 
+rem Four tests are not single processes: a Python harness starts two peers on loopback and
+rem compares what they exchanged. CI runs them the same way, so they belong here too.
+set PY=
+where python >nul 2>nul
+if not errorlevel 1 set PY=python
+if not defined PY (
+    where py >nul 2>nul
+    if not errorlevel 1 set PY=py -3
+)
+
 call :run %DIR%\steam_selftest.exe
 call :run %DIR%\steam_friends_test.exe
 call :run %DIR%\netlog_selftest.exe
@@ -74,10 +84,38 @@ call :run %DIR%\named_shots_integration_test.exe
 call :run %DIR%\shots_xlate_characterization_test.exe
 call :run %DIR%\late_input_test.exe
 
+call :runpair "loopback peer (two processes)" tools\loopback_pair.py --peer %DIR%\loopback_peer.exe
+call :runpair "session loopback (two processes)" tools\session_loopback_pair.py --peer %DIR%\session_loopback_peer.exe
+call :runpair "event loopback (two processes)" tools\event_loopback_pair.py --peer %DIR%\session_event_peer.exe
+call :runpair "standalone launcher" tools\standalone_loopback.py --peer %DIR%\session_loopback_peer.exe --launcher build\join\mp_join.exe --starter %DIR%\starter_fixture.exe
+
 echo.
 echo passed %PASS%, failed %FAILN%, missing %MISSING%
 if not "%FAILN%"=="0" exit /b 1
 if not "%MISSING%"=="0" exit /b 1
+exit /b 0
+
+:runpair
+rem %1 - подпись для вывода, дальше - командная строка для python
+set LABEL=%~1
+if not defined PY (
+    echo   MISSING %LABEL%: python is not on PATH
+    set /a MISSING+=1
+    exit /b 0
+)
+for %%A in (%2 %3 %4 %5 %6 %7) do if /i "%%~xA"==".exe" if not exist "%%A" (
+    echo   MISSING %LABEL%: %%A
+    set /a MISSING+=1
+    exit /b 0
+)
+%PY% %2 %3 %4 %5 %6 %7 >nul 2>&1
+if errorlevel 1 (
+    echo   FAIL    %LABEL%
+    set /a FAILN+=1
+) else (
+    echo   ok      %LABEL%
+    set /a PASS+=1
+)
 exit /b 0
 
 :run
