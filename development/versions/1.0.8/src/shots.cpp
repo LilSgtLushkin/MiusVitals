@@ -473,6 +473,7 @@ void shots_sim_step(ObjMan *om)
         if (item.complete) continue;
         const ShotRec &s = item.record;
         if (s.kind == 2) { trench_received(s); item.complete = true; }
+        else if (s.kind == SHOT_END) { session_end_record(s); item.complete = true; }
         else if (s.kind == 3 || s.kind == 4) { xlate_received(s, om); item.complete = true; }
         else if (s.kind != 0 && s.kind != 7) {
             // kind 1 was never emitted by this module; reject unknown records explicitly.

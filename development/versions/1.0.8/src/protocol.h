@@ -107,6 +107,14 @@ struct ShotRec {
 // when END_OVER is set; periodic state is repeated, but an extended partition can still delay it.
 enum { END_PROPOSE = 1, END_OVER = 2, END_RESTART = 4, END_SEQUENCED = 8 };
 struct EndState { Head h; unsigned sim_ms, result; };
+// M3: the same word, on the shots' reliable, ordered channel (ShotRec.kind 8). That channel answers
+// every record and repeats what is not answered, so an agreement cannot be lost the way an
+// unacknowledged datagram could - which is how a ceasefire went unanswered for four minutes while
+// the two games were partitioned. No feature bit announces it: a build that does not know this kind
+// refuses the record and carries on with EndState, and a new build's feature flags stay legible to
+// an old one, whose state-header check rejects flags it does not recognise.
+enum { SHOT_END = 8 };
+struct EndRec { unsigned char propose, over, pad[2]; unsigned result; };
 #pragma pack(pop)
 
 // A joiner must not accept a host's battle or events merely because its packet has our magic.

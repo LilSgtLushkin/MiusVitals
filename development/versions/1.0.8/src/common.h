@@ -97,6 +97,7 @@ void shots_report(void);
 #ifdef __cplusplus
 struct ShotRec;
 void shots_queue(ShotRec &s);            // sends a record on the shots' reliable, ordered channel
+void session_end_record(const ShotRec &s); // M3: the other player's word, arriving on that same channel
 bool shots_try_queue(ShotRec &s, size_t limit); // bounded admission for new experimental events
 
 // ---- experimental, target-owner hit replay (hit_sync.cpp)
