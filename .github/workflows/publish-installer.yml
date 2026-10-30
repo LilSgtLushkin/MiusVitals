@@ -59,14 +59,20 @@ jobs:
           set -euo pipefail
           # The shipped installer is the only ${{ env.VERSION }} archive in the tree. Taking its name from the
           # tree, instead of from a constant here, means this workflow cannot publish a second
-          # archive under a name only this file knows - it updates the one that exists.
-          shipped=(MiusMultiplayer_v${{ env.VERSION }}_*_INSTALL.zip)
-          if [ "${#shipped[@]}" -ne 1 ] || [ ! -f "${shipped[0]}" ]; then
-            echo "::error title=Publish target::expected exactly one MiusMultiplayer_v${{ env.VERSION }}_*_INSTALL.zip in the tree, found: ${shipped[*]}"
+          # archive under a name only this file knows - it updates the one that exists. A version is
+          # published for the first time before it has an archive, so the name is built from the
+          # version in that case; from then on the tree is the only source of the name.
+          found=()
+          for zip in MiusMultiplayer_v${{ env.VERSION }}_*_INSTALL.zip; do
+            [ -f "$zip" ] && found+=("$zip")
+          done
+          if [ "${#found[@]}" -gt 1 ]; then
+            echo "::error title=Publish target::expected at most one MiusMultiplayer_v${{ env.VERSION }}_*_INSTALL.zip in the tree, found: ${found[*]}"
             exit 1
           fi
-          echo "archive=${shipped[0]}" >> "$GITHUB_OUTPUT"
-          echo "publishing ${shipped[0]}"
+          archive="${found[0]:-MiusMultiplayer_v${{ env.VERSION }}_INSTALL.zip}"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "publishing $archive"
 
       - name: Take the module and launcher the gate verified
         if: github.event_name == 'workflow_run'
