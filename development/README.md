@@ -60,3 +60,77 @@ python3 development/v20-recovery/tools/backlog.py     # дельта по эта
 (STL-инстанцирования и инициализаторы вернутся сами), 36 — пока безымянные. План и критерии
 приёмки — [`docs/V20_SOURCE_RECOVERY.md`](../docs/V20_SOURCE_RECOVERY.md),
 Steam-слой отдельно — [`docs/V20_STEAM_LAYER.md`](../docs/V20_STEAM_LAYER.md).
+
+## Ревью 2026-10-30: какая версия современнее и что можно удалять
+
+### Самая современная версия — [`net-v21/`](net-v21/)
+
+Дата коммита тут бесполезна: весь `development/` попал в репозиторий одним импортом, поэтому
+сравнивать пришлось по содержимому. Решающая улика — метка провода внутри бинарника:
+
+| модуль | размер | метка |
+| --- | --- | --- |
+| shipped `basic_network.codelib` из установщика 1.0.7 | 424 960 | `GTMF_TA_A1` + **`NETV21_WIRE_PROTOCOL_18`** |
+| `kit-source/files/basic_network.codelib` | 377 856 | `GTMF_TA_A1` |
+| `unified-fps-kit-source/…/basic_network.codelib` | 378 368 | `GTMF_TA_A1` |
+| `game-build-3598-1/x64/basic_network.codelib` | 250 368 | `GTMF_TA_A1` |
+
+`NETV21_WIRE_PROTOCOL_18` задаётся в `net-v21/src/protocol.h` (`k_wire_tag`) и больше нет ни в
+одном бинарнике внутри `development/`. Значит: **весь современный код — в `net-v21/src`, а все
+`.codelib` в `development/` — это более старые сборки.** `upstream/miusplayer-public-43b2736` —
+vendored baseline публичного MiusPlayer (v12), `net-v21` уже вобрал оба патча из `merged-source`
+(`0001`, `0002`): в нём есть `src/operation_turn.h` и elision-счётчики в `session.cpp`.
+
+### Есть ли фиксы мимо самой современной версии — да, есть
+
+Условие «самая современная включает все фиксы» **не выполняется**, поэтому «оставить только её»
+сейчас нельзя. Что осталось в старых сборках:
+
+* `03be00` (720 Б) — синхронизация анимаций и разворотов, подмена vtable `i_animch`;
+* `01e530` (291 Б) — запрос паузы, требует новый тип пакета;
+* ~102 КБ / 261 функция из v20 не портированы вообще (`docs/V20_SOURCE_RECOVERY.md`, раздел
+  «Остаток M3: что осознанно не портировано»);
+* `vitals: applied 0 refused 50` (`docs/CRASH_DUMP_2026-10-28.md:166`) — не исправлено ни в одной
+  копии.
+
+Носитель этих фиксов — не исходники, а отчёты восстановления в `v20-recovery/reports/` (160 файлов)
+и та самая старая бинарная база. Пока они не перенесены, удалять старые копии значит выбросить
+единственное описание того, что ещё предстоит написать.
+
+### Карта каталогов
+
+| каталог | размер | зачем | вердикт |
+| --- | --- | --- | --- |
+| `game-build-3598-1/` | 8,5 МБ | родные бинарники игры 3598/1 — вход для `net-v21/tools/hook_audit.py`, `vitals_hook_audit.py` и шести selftest'ов, сверяющих адреса хуков | **держать** |
+| `net-v21/` | 1,9 МБ | современный исходник модуля, проекты VS 2026, 48 тестов | **держать** |
+| `kit-source/` | 1,4 МБ | сборщик kit: `src/build_release.sh`, `src/verify_artifacts.py`, `src/mp_vitals.c` (85 КБ) + входной v20-бинарь, чей SHA-256 проверяется до изменений | **держать** |
+| `v20-recovery/` | 1,3 МБ | инструменты и отчёты восстановления v20; `work/` не коммитится | **держать** |
+| `unified-fps-kit-source/` | 773 К | снимок файлов FPS-установщика; вход `scripts/package_unified_fps_mod.py` | держать |
+| `unified-kit-source/` | 769 К | снимок файлов NET-установщика; **выход** `kit-source/src/build_release.sh` (шаги 28-29 пишут прямо сюда) и одновременно тестовый фикстур `net-v21/tests/force_test.cpp` | держать (см. ниже) |
+| `upstream/` | 508 К | vendored публичный baseline, база для `git apply` патчей `0001`/`0002` | **держать** |
+| `fps-candidate/` | 373 К | воспроизводимый FPS-кандидат, пересобирается и сверяется `verify-fps-codelib.yml` | держать |
+| `merged-source/` | 112 К | патчи, `PORTING_LEDGER.md`, verifier границ исходника | **держать** |
+| `net-v21-kit/` | 104 К | скрипты установщика `net_v21`, `Switch_Pair.bat`; потребители — `unified-installer-smoke.yml`, `package_net_v21_test.py`, `test_switch_pair_windows.py` | **держать** |
+| `gtmp-alpha/` | 88 К | альфа-сборка vitals; `package_gtmp_alpha.py`, `verify-alpha-dll.yml` | держать |
+
+Ни один каталог не висит мёртвым: у каждого есть потребитель в `.github/workflows/`, `scripts/`
+или тестах, а бинарники вдобавок хэш-закреплены в `scripts/check_artifacts.py` (17 путей).
+
+### Что реально дублируется
+
+10 групп байт-в-байт одинаковых файлов, 1,08 МБ лишнего:
+
+* `unified-kit-source/files/bin/rel/x64/basic_network.codelib` == `kit-source/files/basic_network.codelib`;
+* `unified-fps-kit-source/files/bin/rel/x64/basic_network.codelib` == `fps-candidate/basic_network.codelib`;
+* `mp_join.exe`, `mp_vitals.dll` и оба `*.progpack` повторены в обоих unified-деревьях.
+
+Два unified-дерева — это один и тот же kit с разным codelib и немного разными текстами
+(`README.txt`, `Check_Install.ps1`, `Enable_Multiplayer.bat` у них различаются). Коммитить
+бинарные сборочные выходы здесь сделано осознанно: их пересобирают по SHA-256, так что
+изменение сборки видно в diff.
+
+### Порядок обновления debug-исходников
+
+При каждом изменении исходников или тестов — [`net-v21/DEBUG_UPKEEP.md`](net-v21/DEBUG_UPKEEP.md)
+и `python scripts/check_debug_sources.py` (сверяет списки исходников и тестов в `build.bat`,
+проектах VS и `run_tests.bat`).
