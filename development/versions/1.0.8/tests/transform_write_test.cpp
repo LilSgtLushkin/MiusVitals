@@ -1,6 +1,7 @@
 #include "transform_write.h"
 #include <stdio.h>
 #include <stdint.h>
+#include <math.h>
 
 static int checks, failed;
 static void check(bool ok, const char *name) {
@@ -80,6 +81,48 @@ int main()
         }
     }
     check(equivalent, "1000 arbitrary bit-pattern updates match the pre-elision path and repeat without writes");
+    // A late transform runs a unit on with the motion its owner reported. The orientation has to
+    // follow the angular velocity the same way the position follows the linear one, and it has to
+    // stay an orientation: rows of r are the body axes in world space.
+    {
+        float r[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
+        float none[3] = {};
+        spin_orientation(r, none, 0.25f);
+        check(!memcmp(r, (const float[9]){ 1, 0, 0, 0, 1, 0, 0, 0, 1 }, sizeof r), "a unit that is not turning keeps the heading it arrived with");
+
+        float z[3] = { 0, 0, (float)(3.14159265358979 / 2.0) };   // a quarter turn about the vertical, per second
+        spin_orientation(r, z, 1.0f);
+        const float quarter[9] = { 0, 1, 0, -1, 0, 0, 0, 0, 1 };  // body x goes to world y, body y to world -x
+        float worst = 0;
+        for (int i = 0; i < 9; ++i) worst = fmaxf(worst, fabsf(r[i] - quarter[i]));
+        check(worst < 1e-5f, "a quarter turn about the vertical takes the body axes where they belong");
+
+        // Two halves of a turn are the whole turn, and an orientation stays an orientation.
+        float one[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, two[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
+        float w[3] = { 0.7f, -1.1f, 2.3f };
+        spin_orientation(one, w, 0.25f);
+        spin_orientation(two, w, 0.125f); spin_orientation(two, w, 0.125f);
+        worst = 0;
+        for (int i = 0; i < 9; ++i) worst = fmaxf(worst, fabsf(one[i] - two[i]));
+        check(worst < 1e-5f, "spinning in two halves is the same turn as spinning once");
+        float skew = 0;
+        for (int row = 0; row < 3; ++row) {
+            for (int col = 0; col < 3; ++col) {
+                float dot = 0;
+                for (int i = 0; i < 3; ++i) dot += one[row * 3 + i] * one[col * 3 + i];
+                skew = fmaxf(skew, fabsf(dot - (row == col ? 1.0f : 0.0f)));
+            }
+        }
+        check(skew < 1e-5f, "a spun orientation is still orthonormal");
+
+        // Many small steps agree with one step: the same rotation, however the frame divided it.
+        float many[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
+        for (int i = 0; i < 400; ++i) spin_orientation(many, w, 0.25f / 400.0f);
+        worst = 0;
+        for (int i = 0; i < 9; ++i) worst = fmaxf(worst, fabsf(many[i] - one[i]));
+        check(worst < 1e-4f, "integrating the turn over 400 steps lands on the same heading");
+    }
+
     printf("transform write selftest: %d checks, %d failed\n", checks, failed);
     return failed ? 1 : 0;
 }

@@ -3,6 +3,31 @@
 // original writes, including the inverse rotation. Arrays with a 4-float stride retain their padding.
 #pragma once
 #include <string.h>
+#include <cmath>
+
+// A late transform must not freeze a turning hull. While the next one is missing the position runs
+// on with the linear velocity its owner reported; the orientation used to be copied unchanged, so a
+// tank in a turn slid straight ahead and then snapped to its new heading. Rows of r are the body
+// axes in world space - the same rows the blend keeps square - so a world-frame turn rotates each
+// of them. Rodrigues, not a small-angle approximation: a quarter second of a hard turn covers an
+// arc where the difference shows.
+inline void spin_orientation(float *r, const float *ang, float dt)
+{
+    float w[3] = { ang[0] * dt, ang[1] * dt, ang[2] * dt };
+    float angle = sqrtf(w[0] * w[0] + w[1] * w[1] + w[2] * w[2]);
+    if (!(angle > 1e-6f)) return;                    // not turning: heading stands as it was received
+    float axis[3] = { w[0] / angle, w[1] / angle, w[2] / angle };
+    float c = cosf(angle), s = sinf(angle), k = 1.0f - c, out[9];
+    for (int row = 0; row < 3; ++row) {
+        const float *v = r + row * 3;
+        float cross[3] = { axis[1] * v[2] - axis[2] * v[1],
+                           axis[2] * v[0] - axis[0] * v[2],
+                           axis[0] * v[1] - axis[1] * v[0] };
+        float dot = axis[0] * v[0] + axis[1] * v[1] + axis[2] * v[2];
+        for (int i = 0; i < 3; ++i) out[row * 3 + i] = v[i] * c + cross[i] * s + axis[i] * dot * k;
+    }
+    memcpy(r, out, sizeof out);
+}
 
 inline bool write_remote_transform(float *pos, float *rot, float *inv, float *lin, float *ang,
                                    const float *p, const float *r, const float *v, const float *w, bool moving)

@@ -1824,6 +1824,7 @@ void session_sim_step(ObjMan *om, u32 sim_ms)
             moving = t - h.b.at < k_run_on;
             for (int i = 0; i < 3; i++) pos[i] = B.pos[i] + B.lin[i] * (float)run;
             memcpy(rot, B.rot, sizeof rot);
+            spin_orientation(rot, B.ang, (float)run);   // a late transform must not stand a turning hull still
         }
         // the blended rows made square again: first row, second row at right angles to it, third their cross
         float n0 = sqrtf(rot[0] * rot[0] + rot[1] * rot[1] + rot[2] * rot[2]);
