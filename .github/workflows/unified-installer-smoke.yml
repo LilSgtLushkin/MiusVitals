@@ -27,6 +27,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Fetch the pinned installers the upgrade tests read
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The upgrade and rollback tests read retired installers straight from Git. A shallow
+          # checkout does not carry those commits, so they are fetched by revision here.
+          git fetch --no-tags --depth=1 origin 047195f1b16f034cf06f4a204402e6e800ca05ea
+          git fetch --no-tags --depth=1 origin 14adad9432ca01991c5ff91d437cab4fa017d598
       - name: Build a disposable packaging fixture
         shell: cmd
         run: |

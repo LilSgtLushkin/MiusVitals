@@ -99,9 +99,15 @@ jobs:
           # Structure plus the SHA-256 recorded beside it. The installer is rebuilt from the gated
           # source, so no fixed hash is pinned: the hash a pin would hold is written by the same
           # job that builds the file. The check itself lives in one place, not copied here.
-          python scripts/check_shipped_installer.py \
-            MiusMultiplayer_v${{ env.VERSION }}_INSTALL.zip
-          sha256sum MiusMultiplayer_v${{ env.VERSION }}_INSTALL.zip
+          archive="MiusMultiplayer_v${{ env.VERSION }}_INSTALL.zip"
+          # A version bump lands before its installer does: the gate runs on the source, and
+          # publish-installer.yml commits the archive only after this workflow is green.
+          if [ ! -f "$archive" ]; then
+            echo "::notice title=Shipped installer::$archive is not in the tree yet: version ${{ env.VERSION }} is not published. It is built below and committed by publish-installer.yml."
+            exit 0
+          fi
+          python scripts/check_shipped_installer.py "$archive"
+          sha256sum "$archive"
 
       - name: Install the disassembler and offline x64 emulator
         run: python -m pip install --quiet capstone unicorn==2.1.4
