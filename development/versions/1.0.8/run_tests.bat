@@ -108,9 +108,10 @@ for %%A in (%2 %3 %4 %5 %6 %7) do if /i "%%~xA"==".exe" if not exist "%%A" (
     set /a MISSING+=1
     exit /b 0
 )
-%PY% %2 %3 %4 %5 %6 %7 >nul 2>&1
+%PY% %2 %3 %4 %5 %6 %7 >"%DIR%\pair_%~n2.out" 2>&1
 if errorlevel 1 (
-    echo   FAIL    %LABEL%
+    echo   FAIL    %LABEL%   ^(exit !errorlevel!, output in %DIR%\pair_%~n2.out^)
+    type "%DIR%\pair_%~n2.out"
     set /a FAILN+=1
 ) else (
     echo   ok      %LABEL%
@@ -124,9 +125,12 @@ if not exist "%1" (
     set /a MISSING+=1
     exit /b 0
 )
-"%1" >nul 2>&1
+rem A quiet run stays quiet, but the output of a failing test is the only record of why it
+rem failed - a batch file cannot ask the process again afterwards, so keep it next to the exe.
+"%1" >"%DIR%\%~n1.out" 2>&1
 if errorlevel 1 (
-    echo   FAIL    %1
+    echo   FAIL    %1   ^(exit !errorlevel!, output in %DIR%\%~n1.out^)
+    type "%DIR%\%~n1.out"
     set /a FAILN+=1
 ) else (
     echo   ok      %1

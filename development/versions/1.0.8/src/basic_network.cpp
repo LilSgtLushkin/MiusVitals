@@ -309,6 +309,7 @@ static DWORD WINAPI profile_thread(LPVOID main_thread)
         }
         mp_log("%s", line);
     }
+    CloseHandle((HANDLE)main_thread);   // the starter handed this handle over to us
     return 0;
 }
 
@@ -317,7 +318,15 @@ static void start_profiler_from_env(void)
     char v[8];
     if (!GetEnvironmentVariableA("MP_PROFILE", v, sizeof v)) return;
     HANDLE main_thread = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, GetCurrentThreadId());
-    if (main_thread) CloseHandle(CreateThread(0, 0, profile_thread, main_thread, 0, 0));
+    if (!main_thread) return;
+    // The handle goes to the thread: it closes it when its samples are done. CreateThread can fail,
+    // and CloseHandle(NULL) is not a harmless no-op, so the two calls stay apart.
+    HANDLE profiler = CreateThread(0, 0, profile_thread, main_thread, 0, 0);
+    if (!profiler) {
+        CloseHandle(main_thread);
+        return;
+    }
+    CloseHandle(profiler);
 }
 
 // ---------------------------------------------------------------- input isolation for the multiplayer menu
