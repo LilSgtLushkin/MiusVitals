@@ -1,16 +1,21 @@
 # MiusMultiplayer
 
-## 1.0.7 EXPERIMENTAL net+fps — единый тестовый установщик
+## 1.0.8 — единый тестовый установщик
 
-**Скачать:** [`MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip`](MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET%2BFPS_INSTALL.zip)
+**Скачать:** [`MiusMultiplayer_v1.0.8_INSTALL.zip`](MiusMultiplayer_v1.0.8_INSTALL.zip)
 
-Это **единственный** установщик 1.0.7 в репозитории: прежние архивы `1.0.7`, `1.0.7 EXPERIMENTAL`
-и первая сборка `1.0.7 EXPERIMENTAL net+fps` (протокол 17) удалены из дерева и остаются только в
-истории Git. Здесь лежит самая свежая сборка (протокол 18), и её пересобирает CI из коммита,
-прошедшего полный gate. SHA-256 сборки и коммит, из которого она собрана, записаны рядом, в
-[`MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip.sha256.txt`](MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET%2BFPS_INSTALL.zip.sha256.txt);
+Это **единственный** установщик 1.0.8 в репозитории: его пересобирает CI из коммита, прошедшего
+полный gate. SHA-256 сборки и коммит, из которого она собрана, записаны рядом, в
+[`MiusMultiplayer_v1.0.8_INSTALL.zip.sha256.txt`](MiusMultiplayer_v1.0.8_INSTALL.zip.sha256.txt);
 совпадение проверяется при каждой проверке релиза. Архив обновляется вместе с исходником, поэтому
 на обоих ПК нужно сверить один и тот же SHA-256.
+
+**Что нового в 1.0.8**
+
+* Часы модуля переведены на `GetTickCount64`: прежний `GetTickCount` переворачивался каждые 49.7
+  суток, и после этого каждое сравнение «пора ли?» молча меняло знак.
+* Удалённый боец удерживается на последнем полученном снимке: раньше через 3 секунды после
+  прекращения снимков юнит отдавался локальному движку, и мёртвый начинал анимироваться сам.
 
 Установка — **один `.bat`**: распаковать папку `MiusMultiplayer` рядом с `starter_x64.exe` и запустить
 `Enable_Multiplayer.bat`. Он сам ставит все шесть файлов, включая сетевой модуль `net_v21` и его
@@ -29,16 +34,16 @@
 Быстрая проверка не обнаружит запись в чужую доступную память при повреждении метаданных пула.
 Подробности, переключение, откат и пределы тестов — в [описании net+fps](docs/NET_V21_107_EXPERIMENTAL_NET_FPS.md).
 
-## Предыдущая 1.0.7 EXPERIMENTAL — единый тестовый установщик
+## Предыдущая версия: 1.0.7 EXPERIMENTAL net+fps
 
-**Скачать:** [`MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip`](MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip)
+**Скачать:** [`MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip`](MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET%2BFPS_INSTALL.zip)
 
-SHA-256: `60e7b7a2f2914ae75cf203f48aacc89e9469f71b15b654f70805d50e50736f78`.
+SHA-256 и коммит сборки — в `MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip.sha256.txt`.
 
 Это эксперимент для **Graviteam Tactics: Mius-Front**, Steam build 3598/1, а не стабильный релиз.
 Игра и настоящий Steam с этой сборкой не проверены: возможны вылеты, рассинхронизация, неверные
 итоги боя и повреждение сохранений. На обоих ПК используйте **один и тот же новый архив**;
-предыдущий [`1.0.7 TEST`](MiusMultiplayer_v1.0.7_TEST_INSTALL.zip) сохранён отдельно.
+прежний `1.0.7 TEST` удалён из дерева и остался в истории Git.
 
 1. Закройте игру на обоих ПК и отдельно скопируйте профили и сохранения операции.
 2. Распакуйте папку `MiusMultiplayer` из архива рядом со `starter_x64.exe` и запустите
@@ -79,7 +84,8 @@ SHA-256: `60e7b7a2f2914ae75cf203f48aacc89e9469f71b15b654f70805d50e50736f78`.
 
 | Архив | Назначение |
 |---|---|
-| [`MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip`](MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET%2BFPS_INSTALL.zip) | единственный текущий установщик, пересобирается CI после зелёного gate |
+| [`MiusMultiplayer_v1.0.8_INSTALL.zip`](MiusMultiplayer_v1.0.8_INSTALL.zip) | единственный текущий установщик, пересобирается CI после зелёного gate |
+| [`MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip`](MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET%2BFPS_INSTALL.zip) | предыдущая версия 1.0.7, оставлена для отката |
 | `MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip`, `MiusMultiplayer_v1.0.7_TEST_INSTALL.zip` | прежние сборки 1.0.7, удалены из дерева и остались в истории Git |
 | [`MiusMultiplayer_v1.0.0_TEST_INSTALL_known_good.zip`](MiusMultiplayer_v1.0.0_TEST_INSTALL_known_good.zip) | сохранённая контрольная копия для отката |
 | [`MiusMultiplayer_v1.0.0_TEST_INSTALL.zip`](MiusMultiplayer_v1.0.0_TEST_INSTALL.zip) | прежняя тестовая сборка `net_v21` |
