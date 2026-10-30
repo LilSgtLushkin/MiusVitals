@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated for Visual Studio 2026 (platform toolset v145). The flags mirror build.bat exactly:
+     CI builds through build.bat, this project exists so the tree can be opened and compiled
+     inside the IDE. If build.bat and this file ever disagree, build.bat is the reference. -->
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>18.0</VCProjectVersion>
+    <ProjectGuid>{9318A56E-A3F5-530D-A0AF-621BE7AF8874}</ProjectGuid>
+    <RootNamespace>netv21</RootNamespace>
+    <Keyword>Win32Proj</Keyword>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ConfigurationType>Makefile</ConfigurationType>
+    <PlatformToolset>v145</PlatformToolset>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <CharacterSet>NotSet</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Label="Configuration" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ConfigurationType>Makefile</ConfigurationType>
+    <PlatformToolset>v145</PlatformToolset>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <CharacterSet>NotSet</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="net-v21-common.props" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <NMakeBuildCommandLine>build.bat selftest $(Configuration) &amp;&amp; run_tests.bat $(Configuration)</NMakeBuildCommandLine>
+    <NMakeReBuildCommandLine>build.bat selftest $(Configuration) &amp;&amp; run_tests.bat $(Configuration)</NMakeReBuildCommandLine>
+    <NMakeCleanCommandLine>if exist build\selftest-debug rmdir /s /q build\selftest-debug</NMakeCleanCommandLine>
+    <NMakeOutput>$(ProjectDir)build\selftest-debug\steam_selftest.exe</NMakeOutput>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <NMakeBuildCommandLine>build.bat selftest $(Configuration) &amp;&amp; run_tests.bat $(Configuration)</NMakeBuildCommandLine>
+    <NMakeReBuildCommandLine>build.bat selftest $(Configuration) &amp;&amp; run_tests.bat $(Configuration)</NMakeReBuildCommandLine>
+    <NMakeCleanCommandLine>if exist build\selftest rmdir /s /q build\selftest</NMakeCleanCommandLine>
+    <NMakeOutput>$(ProjectDir)build\selftest\steam_selftest.exe</NMakeOutput>
+  </PropertyGroup>
+  <ItemGroup />
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets" />
+</Project>
