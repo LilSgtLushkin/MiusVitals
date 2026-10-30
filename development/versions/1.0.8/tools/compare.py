@@ -14,7 +14,7 @@ The reference is whichever binary is authoritative for the question:
 Names make the report readable.  A DLL carries no symbol table, so the candidate gets its names from
 the linker map (`/MAP`); the reference gets them from the v20 recovery's known-name table.
 
-    python development/net-v21/tools/compare.py \
+    python development/versions/<версия>/tools/compare.py \
         --candidate build/basic_network.codelib --candidate-map build/basic_network.map \
         --reference development/v20-recovery/work/v12.codelib --label M1 --out build/compare-m1.md
 """

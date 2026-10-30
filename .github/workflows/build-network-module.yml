@@ -135,6 +135,19 @@ jobs:
           type development\versions\${{ env.VERSION }}\build\baseline.log
           exit /b %rc%
 
+      - name: Report the baseline build log
+        if: failure()
+        shell: powershell
+        run: |
+          $log = Join-Path "development/versions/${{ env.VERSION }}/build" "baseline.log"
+          if (Test-Path $log) {
+            $lines = Select-String -LiteralPath $log -Pattern 'error|fatal|LNK' |
+                     Select-Object -Last 15 | ForEach-Object { $_.Line.Trim() }
+            if ($lines) {
+              $message = ($lines -join ' | ').Replace('%', '%25').Replace("`r", '').Replace("`n", ' ')
+              Write-Output ("::error title=baseline build failed::" + $message)
+            }
+          }
       - name: M2 - build the same tree plus the Steam layer
         shell: cmd
         run: |
@@ -143,6 +156,19 @@ jobs:
           type development\versions\${{ env.VERSION }}\build\module.log
           exit /b %rc%
 
+      - name: Report the module build log
+        if: failure()
+        shell: powershell
+        run: |
+          $log = Join-Path "development/versions/${{ env.VERSION }}/build" "module.log"
+          if (Test-Path $log) {
+            $lines = Select-String -LiteralPath $log -Pattern 'error|fatal|LNK' |
+                     Select-Object -Last 15 | ForEach-Object { $_.Line.Trim() }
+            if ($lines) {
+              $message = ($lines -join ' | ').Replace('%', '%25').Replace("`r", '').Replace("`n", ' ')
+              Write-Output ("::error title=module build failed::" + $message)
+            }
+          }
       - name: M2 - build and run the Steam self-test (no Steam, no game needed)
         shell: cmd
         run: |
