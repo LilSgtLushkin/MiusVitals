@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "engine.h"   // u64: 64-bit clock type, declared once for the whole tree
 
 // --------------------------------------------------------------------------- Steam flat API
 // Only the pieces this file touches.  A CSteamID is a uint64 by value; every function returns bool

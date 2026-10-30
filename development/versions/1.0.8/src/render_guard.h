@@ -1,5 +1,6 @@
 #pragma once
 #include <windows.h>
+#include "engine.h"   // u64: the widened clock the guard is reported against
 
 // Tactical-only renderer guards. No patch is attempted unless all required code/recovery bytes match.
 void render_guard_install();

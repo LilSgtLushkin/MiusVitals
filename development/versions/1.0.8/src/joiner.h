@@ -19,6 +19,7 @@
 #include "opsave.h"
 #include "opsave_checked.h"
 #include "map_file_windows.h"
+#include "engine.h"   // u64: 64-bit clock type, declared once for the whole tree
 
 struct Joiner {
     enum State { IDLE, CONNECTING, WAITING_FOR_BATTLE, RECEIVING, DONE, FAILED };

@@ -1,6 +1,7 @@
 // Implementation of netlog.h.  No dependencies beyond the C runtime and kernel32, so the same file
 // can be linked into the module, into mp_join and into the self-test.
 #include "netlog.h"
+#include "engine.h"   // u64: the widened clock is spelled the same in every file that logs time
 
 #include <stdarg.h>
 #include <stdio.h>
