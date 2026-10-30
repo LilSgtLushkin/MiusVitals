@@ -43,6 +43,9 @@ static unsigned char timer_observed;
 static int checks, failures;
 
 static DWORD GetTickCount() { return fake_now; }
+// The sliced code reads the clock as 64 bits now; both spellings must move together, or the
+// slice would measure its own deadlines against two different clocks.
+static u64 GetTickCount64() { return fake_now; }
 static u32 vitals_epoch() { return 11; }
 static u32 vitals_peer_epoch() { return 777; }
 static void mp_log(const char *, ...) {}
