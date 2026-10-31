@@ -1926,6 +1926,12 @@ static void mark_ready(void)
 
 void session_test_ready(void) { if (gate_active()) mark_ready(); }
 
+// Both players have asked to leave this phase, so the engine may carry out its own way out of it. Ending
+// deployment is not only a phase step: it is what sends this player's squads to take the positions they
+// were placed by ("Занять позиции"). Answering for the engine - a swallowed button, or a yes turned into
+// a no - steps the phase but skips that, and the squads stand in the open through the whole battle.
+static bool phase_agreed(void) { return g_my_ready > g_phase && g_peer_ready > g_phase; }
+
 // Tests: end this battle as if the player had confirmed the game's "leave for the operational phase" box
 // (message box 6, "it_mb_2oper"). Carried out from the logic pass, not from inside the render pipeline.
 static bool g_resign_asked;
@@ -2021,6 +2027,13 @@ static u64 start_action_hook(Object *ui, u64 a, u64 b, u64 c)
     if (vote) { request_pause_vote(); return 1; }
     if (!gate_active()) return g_start_action(ui, a, b, c);
     mark_ready();
+    if (phase_agreed()) {
+        // The other player has finished the phase too, so the engine may end it in its own way here;
+        // advance_phase() is held off for its step interval so the phase is not stepped twice.
+        g_last_phase_step = GetTickCount64();
+        mp_log("ui: both players have finished the phase - the engine carries this action out itself");
+        return g_start_action(ui, a, b, c);
+    }
     return 0;
 }
 
@@ -2045,18 +2058,27 @@ static void input_action_hook(Object *ui, u64 b, const char *event)
     if (vote) { request_pause_vote(); return; }
     if (gate_active() && g_phase == 1 && release) {
         mark_ready();
-        return;
+        // As with the button: once both have finished the phase, the key is the engine's to handle.
+        if (phase_agreed()) g_last_phase_step = GetTickCount64();
+        else return;
     }
     g_input_action(ui, b, event);
 }
 
 static void box_result_hook(Object *ui, int result, u64 c, u64 d)
 {
-    // +0xde8: which box is open. A yes to "end deployment?" becomes a no for the engine (the box closes,
-    // nothing else happens) and a ready mark for us.
+    // +0xde8: which box is open. A yes to "end deployment?" is a ready mark for us, and a no for the engine
+    // (the box closes, nothing else happens) until the other player has finished deployment too. From then
+    // on the yes is left a yes: the engine's own end of deployment is what sends this player's squads to
+    // take the positions they were placed by, and only the engine can order that.
     if (gate_active() && g_phase == 0 && result && *(u32 *)((char *)ui + 0xde8) == 3) {
         mark_ready();
-        result = 0;
+        if (phase_agreed()) {
+            g_last_phase_step = GetTickCount64();
+            mp_log("ui: both players have finished deployment - the engine ends it in its own way");
+        } else {
+            result = 0;
+        }
     }
     g_box_result(ui, result, c, d);
 }
