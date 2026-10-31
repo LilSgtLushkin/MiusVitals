@@ -15,7 +15,24 @@
 
 namespace animation_channel {
 enum { critical_flag = 1, rebase_flag = 2, max_units = 20000, max_events = 32768, max_unit_events = 256,
-       retry_ms = 400, attempt_ms = 200, work_per_tick = 128 };
+       retry_ms = 400, attempt_ms = 200,
+       // A head that the peer never acknowledges must not be retransmitted for the rest of the
+       // battle: at one datagram every retry_ms per stuck soldier, a thousand stuck soldiers are
+       // a thousand datagrams every 400 ms, which is how the real battle drowned its own wire and
+       // then stopped applying anything at all. After give_up_ms the queue is re-issued as one
+       // explicitly flagged current state, which the peer accepts on revision alone.
+       give_up_ms = 2000,
+       // Engine replay is not free: one call is the game setting an animation group. Both sides
+       // are metered against the wall clock, so a frame that runs many simulation steps - exactly
+       // what happens when the frame rate drops - cannot multiply the work it asks the engine
+       // for: at eight frames per second the old allowance was 128 engine calls per step over
+       // seven steps, which is most of the frame spent replaying animation. The per-call ceilings
+       // repeat the allowance one call used to get, so a slow frame can still drain a full batch;
+       // the per-second totals were measured against the battle that collapsed, and carry the
+       // same traffic the old code sent while leaving a smaller backlog and more soldiers
+       // showing an up-to-date state.
+       replay_per_second = 4000, replay_max = 128, replay_floor = 2,
+       send_per_second = 4000, send_max = 128, send_floor = 2 };
 
 // Scalar snapshots are cosmetic and replaceable. Pressure affects only their sampling rate;
 // critical events continue to be observed immediately. Hysteresis restores the exact normal
@@ -61,6 +78,7 @@ class Channel {
         ShotRec latest = {};
         uint32_t latest_revision = 0, last_ack = 0, tail = 0;
         bool dirty = false;
+        uint64_t blocked_since = 0;
     };
     struct RxUnit {
         Data event = {}, latest = {};
@@ -77,6 +95,7 @@ public:
         local_ = peer_ = seq_ = revision_ = 0; event_count_ = 0; rebase_count_ = 0;
         tx_.clear(); rx_.clear(); tx_order_.clear(); rx_order_.clear();
         tx_cursor_ = rx_cursor_ = room_cursor_ = 0; cadence_.reset();
+        send_budget_ = Budget(send_per_second); replay_budget_ = Budget(replay_per_second);
     }
     size_t pending_events() const { return event_count_; }
     size_t send_units() const { return tx_.size(); }
@@ -137,13 +156,24 @@ public:
     // animation or the independent gameplay event stream.
     void tick(uint64_t now, Send send) {
         if (!send || tx_order_.empty()) return;
+        size_t budget = send_budget_.take(now, send_max, send_floor);
         size_t visited = 0, work = 0;
-        while (visited++ < tx_order_.size() && work < work_per_tick) {
+        while (visited++ < tx_order_.size() && work < budget) {
             if (tx_cursor_ >= tx_order_.size()) tx_cursor_ = 0;
             TxUnit &u = tx_.find(tx_order_[tx_cursor_++])->second;
             if (!u.events.empty()) {
                 Event &event = u.events.front();
-                if (!event.sent || now - event.sent_at >= (uint64_t)retry_ms) {
+                if (!u.blocked_since) u.blocked_since = now; // first attempt on this head
+                if (event.sent && now - u.blocked_since >= (uint64_t)give_up_ms) {
+                    // The peer has not answered this head for seconds. Re-issue the newest state
+                    // as one explicitly flagged current state instead of repeating the same
+                    // datagram forever: a rebase is accepted on revision alone, so this is what
+                    // recovers a soldier whose ordered stream has been interrupted.
+                    collapse(u, u.events.back().packet.record, ++revision_);
+                    Event &fresh = u.events.front();
+                    fresh.sent = true; fresh.sent_at = now; u.blocked_since = now;
+                    send(&fresh.packet, sizeof fresh.packet); ++work;
+                } else if (!event.sent || now - event.sent_at >= (uint64_t)retry_ms) {
                     event.sent = true; event.sent_at = now; send(&event.packet, sizeof event.packet); ++work;
                 }
             } else if (u.dirty) {
@@ -169,7 +199,7 @@ public:
             if (it == tx_.end() || it->second.events.empty() || it->second.events.front().packet.record.seq != ack.seq ||
                 !it->second.events.front().sent) return false;
             TxUnit &u = it->second;
-            u.events.pop_front(); --event_count_; u.last_ack = ack.seq;
+            u.events.pop_front(); --event_count_; u.last_ack = ack.seq; u.blocked_since = 0; // the new head restarts the give-up clock
             return true;
         }
         if (h.type != PKT_ANIM || size != sizeof(Data) || h.count != 1 ||
@@ -190,11 +220,13 @@ public:
         RxUnit &u = it->second;
         if (critical) {
             if (data.record.seq <= u.last_event) { acknowledge(key, data.record.seq, send); return true; }
+            if (data.revision <= u.last_revision) return false; // an old state cannot roll a newer applied one back
             if (!rebase) {
-                if (data.barrier != u.last_event || data.revision <= u.last_revision) return false;
+                // data.barrier is an ordering hint, not a correctness requirement: every event
+                // carries this soldier's complete state, so a newer revision is safe to apply
+                // even when the event that was expected before it never arrived. Requiring the
+                // exact predecessor left a soldier's stream stuck for the rest of a battle.
                 if (u.has_event) return u.event.record.seq == data.record.seq; // repeated, still awaiting replay
-            } else if (data.revision <= u.last_revision) {
-                return false; // an old rebase cannot roll a newer applied state back
             }
             u.event = data; u.has_event = true; u.attempted = u.halted = false;
             return true;
@@ -207,8 +239,9 @@ public:
 
     void apply(uint64_t now, Replay replay, void *context, Send send) {
         if (!replay || !send || rx_order_.empty()) return;
+        size_t budget = replay_budget_.take(now, replay_max, replay_floor);
         size_t visited = 0, work = 0;
-        while (visited++ < rx_order_.size() && work < work_per_tick) {
+        while (visited++ < rx_order_.size() && work < budget) {
             if (rx_cursor_ >= rx_order_.size()) rx_cursor_ = 0;
             uint64_t key = rx_order_[rx_cursor_++];
             RxUnit &u = rx_.find(key)->second;
@@ -236,6 +269,29 @@ public:
         }
     }
 private:
+    // A token bucket: a second of battle always buys the same number of engine calls, whether
+    // it is spent as sixty frames or as six, and whether those calls arrive as one batch or as
+    // several. Work that a frame does not spend is kept for the next one instead of being lost,
+    // so a slow frame drains its full share while no single call can stall the frame it is in.
+    class Budget {
+    public:
+        explicit Budget(unsigned per_second) : per_second_(per_second ? per_second : 1), tokens_((double)per_second_) {}
+        size_t take(uint64_t now, size_t cap, size_t minimum) {
+            if (last_) {
+                uint64_t elapsed = now > last_ ? now - last_ : 0;
+                tokens_ += (double)per_second_ * (double)elapsed / 1000.0;
+                if (tokens_ > (double)per_second_) tokens_ = (double)per_second_;
+            }
+            last_ = now;
+            size_t take = tokens_ > 0 ? (size_t)tokens_ : 0;
+            if (take > cap) take = cap;
+            if (take < minimum && tokens_ > 0) take = minimum; // never let a stream starve entirely
+            tokens_ -= (double)take;
+            return take;
+        }
+    private:
+        unsigned per_second_; double tokens_; uint64_t last_ = 0;
+    };
     void acknowledge(uint64_t unit, uint32_t seq, Send send) const {
         Ack ack = { make_head(PKT_ANIM_ACK), peer_, local_, seq, unit };
         send(&ack, sizeof ack);
@@ -246,6 +302,7 @@ private:
     void collapse(TxUnit &unit, const ShotRec &record, uint32_t revision) {
         event_count_ -= unit.events.size();
         unit.events.clear();
+        unit.blocked_since = 0;
         Data data = {};
         data.h = make_head(PKT_ANIM, 1);
         data.h.flags = (unsigned char)(critical_flag | rebase_flag);
@@ -267,6 +324,7 @@ private:
     }
     uint32_t local_ = 0, peer_ = 0, seq_ = 0, revision_ = 0;
     size_t event_count_ = 0, rebase_count_ = 0, tx_cursor_ = 0, rx_cursor_ = 0, room_cursor_ = 0;
+    Budget send_budget_{send_per_second}, replay_budget_{replay_per_second};
     Cadence cadence_;
     std::unordered_map<uint64_t, TxUnit> tx_;
     std::unordered_map<uint64_t, RxUnit> rx_;

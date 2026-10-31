@@ -21,6 +21,8 @@ char g_program[32] = "tacgame";
 static unsigned char ammo[0xc8], weapon[0xc8], third_desc[0xc8];
 static unsigned launched, tables, trenches, hit_calls, hit_completed, anim_calls, ammo_queries;
 static unsigned hit_resets, anim_wait_resets, table_resets, trench_forgets;
+static unsigned end_words;      // the other player's word, as the session would receive it
+static EndRec last_end;
 static bool hit_ready, anim_ready = true, mapping_ready = true, third_maps_to_null;
 static u32 missing_description = 0xffffffffu;
 static void *unreadable_pointer, *last_obj2, *last_obj5, *last_desc3;
@@ -62,6 +64,7 @@ bool anim_received(const ShotRec &, ObjMan *) { ++anim_calls; return anim_ready;
 void hits_reset_peer() { ++hit_resets; }
 void anim_reset_wait() { ++anim_wait_resets; }
 void anim_reset_peer() {}
+void session_end_record(const ShotRec &s) { ++end_words; memcpy(&last_end, s.launch, sizeof last_end); }
 
 static void *lookup(ObjMan *, u32 id) { return id == 1 ? ammo : id == 2 ? weapon : id == 3 ? third_desc : nullptr; }
 static Object *find(ObjMan *, Dep *) { return nullptr; }
@@ -172,6 +175,22 @@ int main()
     incoming(1001, &bad, 1);
     shots_sim_step(&om);
     check(launched == 4 && latest_ack() == 6, "mismatched ammunition is explicitly refused, not launched");
+
+    // The end of a battle rides this same channel: the other player's word, answered and repeated
+    // like any other record here, and spoken to the session exactly once.
+    ShotRec word = make_record(7, SHOT_END);
+    EndRec spoken = {};
+    spoken.propose = 1; spoken.over = 1; spoken.result = 3;
+    memcpy(word.launch, &spoken, sizeof spoken);
+    incoming(1001, &word, 1);
+    shots_sim_step(&om);
+    check(end_words == 1 && last_end.propose == 1 && last_end.over == 1 && last_end.result == 3,
+          "the other player's word arrives on the shots channel with the result it carried");
+    check(latest_ack() == 7, "a word is acknowledged like any other record of the channel");
+    incoming(1001, &word, 1);
+    shots_sim_step(&om);
+    check(end_words == 1, "a retransmitted word is not spoken to the session twice");
+    check(launched == 4, "a word launches no shell");
 
     // Missing descriptions must never fall back to their numeric value. A later table may
     // unblock the head before its deadline; a completed shot must not replay on retransmission.

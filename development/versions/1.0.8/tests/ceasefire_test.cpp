@@ -73,6 +73,24 @@ int main()
     check((s.observe(true, false, 0, false, 0) & changed) && s.peer_proposed,
           "legacy packet accepted before sequenced support is seen");
 
+    // The word sent on the shots' reliable channel: delivered exactly once and in order, so it is
+    // applied whatever the datagram sequence has reached - a delayed packet must not mask it.
+    s = State{};
+    check(s.observe(false, false, 0, true, 40000) == 0, "a quiet datagram leaves the state alone");
+    check((s.observe_word(true, false, 0) & changed) && s.peer_proposed,
+          "the reliable word is heard although the datagram numbering is far ahead");
+    check(s.observe_word(true, false, 0) == 0, "the same word twice changes nothing");
+    check((s.observe_word(false, false, 0) & cancelled) == 0 && !s.peer_proposed,
+          "the reliable word can be taken back");
+    s = State{};
+    check((s.observe_word(false, true, 9) & changed) == 0 && s.peer_over && s.peer_result == 9,
+          "the reliable word carries the other game's result");
+    check(!(s.observe_word(false, true, 11) & changed) && s.peer_result == 9,
+          "a second result does not replace the first");
+    s = State{};
+    check((s.observe(true, false, 0, false, 0) & changed) && (s.observe_word(false, false, 0) & changed),
+          "an unsequenced datagram and the reliable word agree with each other");
+
     printf("ceasefire selftest: %d checks, %d failed\n", checks, failures);
     return failures ? 1 : 0;
 }

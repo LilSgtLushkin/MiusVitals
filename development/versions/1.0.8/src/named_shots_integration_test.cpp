@@ -50,6 +50,7 @@ bool anim_received(const ShotRec &, ObjMan *) { return true; }
 void hits_reset_peer() {}
 void anim_reset_wait() {}
 void anim_reset_peer() {}
+void session_end_record(const ShotRec &) {}
 static void *lookup(ObjMan *, u32 id) {
     return id == 7 ? shells + 0x170 : id == 8 ? weapons + 0x130 :
            id == 41 ? shells : id == 42 ? weapons : nullptr;

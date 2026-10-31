@@ -202,6 +202,8 @@ static u32 g_my_ready, g_peer_ready;       // the phase each player has asked to
 // M3: how far the battle's end has gone (see the "end of a battle" section below).
 static ceasefire::State g_end;
 static u64   g_end_last_tx;
+static u64   g_end_rec_tx;                 // the reliable channel: when this player's word last went out
+static EndRec g_end_rec_last = {};         // and what it was, so an unchanged word is not sent again
 static DWORD g_end_key_was;           // key state, not a clock
 // The host is starting the battle again with both forces: the joining game must not take the silence that
 // follows for the host leaving.
@@ -1824,6 +1826,7 @@ void session_sim_step(ObjMan *om, u32 sim_ms)
             moving = t - h.b.at < k_run_on;
             for (int i = 0; i < 3; i++) pos[i] = B.pos[i] + B.lin[i] * (float)run;
             memcpy(rot, B.rot, sizeof rot);
+            spin_orientation(rot, B.ang, (float)run);   // a late transform must not stand a turning hull still
         }
         // the blended rows made square again: first row, second row at right angles to it, third their cross
         float n0 = sqrtf(rot[0] * rot[0] + rot[1] * rot[1] + rot[2] * rot[2]);
@@ -2265,6 +2268,31 @@ static void end_send(u64 now, unsigned char extra)
     send_to(g_peer, &e, sizeof e);
 }
 
+// The reliable, ordered channel the trenches and the unit tables travel on answers every record
+// and repeats what is not answered. v20 carried the end of a battle on it for the same reason: a
+// ceasefire is a single word, and losing it left two games proposing agreement into a four-minute
+// partition without either hearing the other. EndState stays for a build that does not know this
+// kind - it refuses the record and carries on - and still carries the host's restart notice to both.
+static void end_record(u64 now, bool force)
+{
+    if (!g_tactical || g_role == ROLE_NONE || !g_connected) return;
+    EndRec r = {};
+    r.propose = g_end.proposed ? 1 : 0;
+    r.over = g_end.left ? 1 : 0;
+    r.result = 0;
+    // Say it when it changes, and say it again every few seconds: the channel repeats what has not
+    // been answered, but a partition long enough to exhaust its queue must not leave the other game
+    // with a word it never heard. Nothing is said at all while there is nothing to say.
+    bool same = !memcmp(&r, &g_end_rec_last, sizeof r);
+    if (same && (!g_end_rec_tx || (!force && now - g_end_rec_tx < 5000))) return;
+    g_end_rec_tx = now;
+    g_end_rec_last = r;
+    ShotRec s = {};
+    s.kind = SHOT_END;
+    memcpy(s.launch, &r, sizeof r);
+    shots_queue(s);
+}
+
 static void end_frame(ObjMan *, u64 now)
 {
     if (!g_tactical || g_role == ROLE_NONE) return;
@@ -2276,6 +2304,7 @@ static void end_frame(ObjMan *, u64 now)
     } else {
         end_send(now, 0);
     }
+    end_record(now, (events & ceasefire::natural_end) != 0);
     if (events & ceasefire::agreed) {
         mp_log("end: both players want a ceasefire; confirming agreement in 5 s");
         netlog_mark("ceasefire agreed");
@@ -2284,6 +2313,25 @@ static void end_frame(ObjMan *, u64 now)
         mp_log("end: the other game reached its results; finish this battle using the game's own controls");
     if (events & ceasefire::finish_notice)
         mp_log("end: agreement/peer end noted; use the game's own controls to finish; no forced exit");
+}
+
+// The other player's word, from the reliable channel: exactly once, in the order it was spoken.
+void session_end_record(const ShotRec &s)
+{
+    static_assert(sizeof(EndRec) <= sizeof s.launch, "the word must fit the record that carries it");
+    if (s.kind != SHOT_END) return;
+    EndRec r = {};
+    memcpy(&r, s.launch, sizeof r);
+    bool proposed = r.propose != 0, over = r.over != 0;
+    unsigned events = g_end.observe_word(proposed, over, r.result);
+    if (events & ceasefire::changed) {
+        if (proposed) mp_log("end: the other player proposes a ceasefire");
+        else mp_log("end: the other player takes the ceasefire proposal back");
+    }
+    if (events & ceasefire::cancelled) {
+        mp_log("end: ceasefire countdown cancelled by the other player");
+        netlog_mark("peer withdrew ceasefire");
+    }
 }
 
 // F9 only exchanges consent. It does not call the game's abandon/exit path or mutate its result.
@@ -2857,7 +2905,7 @@ static void on_packet(const sockaddr_in &from, const unsigned char *data, int si
             // A temporary timeout from the same tactical process must retain the unacked stream;
             // a genuinely new process gets a fresh one after its identity is accepted below.
             if (!g_tactical || !vitals_peer_epoch() || in->vitals_epoch != vitals_peer_epoch()) shots_reset();
-            if (g_tactical) { g_end.new_peer(); g_end_last_tx = 0; }
+            if (g_tactical) { g_end.new_peer(); g_end_last_tx = 0; g_end_rec_tx = 0; }
             g_peer_ready = 0;
             g_peer_swap_known = false;
         }

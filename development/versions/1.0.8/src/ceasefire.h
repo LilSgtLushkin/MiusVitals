@@ -41,6 +41,16 @@ struct State {
         } else if (have_peer_seq) {
             return stale_packet;
         }
+        return word(peer_wants, over, result);
+    }
+
+    // The same word from the shots' reliable channel: delivered exactly once, in the order it was
+    // spoken, so there is no duplicate or overtaking to guard against - and no numbering of its own
+    // to confuse with the datagrams', which a delayed packet could still interleave with.
+    unsigned observe_word(bool peer_wants, bool over, uint32_t result) { return word(peer_wants, over, result); }
+
+    // One player's word, whichever channel carried it. Applying the same word twice changes nothing.
+    unsigned word(bool peer_wants, bool over, uint32_t result) {
         unsigned events = peer_wants != peer_proposed ? changed : 0;
         peer_proposed = peer_wants;
         if (over && !peer_over) { peer_over = true; peer_result = result; }
