@@ -33,7 +33,7 @@
 
 Проверено, что кнопку не прячут:
 
-* `mp_vitals.dll` — её `DllMain` всегда возвращает `TRUE` (`development/kit-source/src/mp_vitals.c:1364-1372`),
+* `mp_vitals.dll` — её `DllMain` всегда возвращает `TRUE` (`development/forbidden/development/kit-source/src/mp_vitals.c:1364-1372`,
   то есть сама DLL не отказывается загружаться и не может «выключить» кнопку своими signature checks;
 * переменные окружения `MP_MENU` (выставляется только при закрытии меню, `ui.cpp:52`) и `MP_AUTOJOIN`
   (только повторно открывает lobby, `ui.cpp:441`) не скрывают entry;
@@ -69,7 +69,7 @@ Stock-программа `opgame` сама перечисляет `basic_network
 ### 2.2 `mp_vitals.dll` отсутствует или не загружается
 
 `basic_network.codelib` из kit'а имеет **жёсткий статический импорт** `mp_vitals.dll!MpVitalsInit`
-(это проверяет `development/kit-source/src/verify_artifacts.py:check_module`). Windows разрешает
+(это проверял `development/kit-source/src/verify_artifacts.py:check_module`, скрипт убран 2026-10-31). Windows разрешает
 зависимости DLL по папке exe (`starter_x64.exe`), затем System32 и PATH — **не** по `bin\rel\x64`.
 Поэтому `mp_vitals.dll` обязана лежать в корне игры. Если её нет, повреждена, заблокирована или
 несовместима по разрядности, загрузится **ни** DLL, **ни** codelib. Engine молча продолжит без
@@ -174,7 +174,7 @@ SmartScreen, Smart App Control (Windows 11) и антивирусный кара
   `development/fps-beta-kit-source/`: его payload входит в v1.0.1, а второй installer с собственным
   codelib приводил к смешанным установкам — то есть к тому же «кнопки нет». В игре, где остался
   beta/withdrawn module, `Enable_Multiplayer.bat` из v1.0.1 заменяет codelib и packs безусловно.
-* Legacy developer-скрипты `development/kit-source/Install_Vitals.bat` и `Uninstall_Vitals.bat`
+* Legacy developer-скрипты `development/forbidden/development/kit-source/Install_Vitals.bat` и `Uninstall_Vitals.bat`
   (они не входят ни в один player archive) тоже больше не отказывают по unknown hash и не прерываются
   на проверке после copy: модуль заменяется безусловно, сохранённая копия возвращается без сверки hash-а.
 * Packaging-скрипты (`scripts/package_*.py`) теперь **запрещают** возврат прежних гейтов:

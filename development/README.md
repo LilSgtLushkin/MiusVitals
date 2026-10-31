@@ -7,9 +7,13 @@ development/
   versions/current.txt  текущая версия (сейчас 1.0.8)
   versions/1.0.7/       бэкап: исходник установщика 1.0.7
   versions/1.0.8/       рабочая папка: правки 1.0.8 вносятся здесь
-  forbidden/            парковка vitals, работа отложена
+  forbidden/            парковка vitals (исходник, его тест и DLL), работа отложена
   game-build-3598-1/  родные codelib игры 3598/1 — не изменять
-  kit-source/ …     исторические kit-деревья и инструменты, уходят при чистке
+  upstream/           vendored публичный baseline v12, база для baseline-сборки
+  unified-kit-source/ снимок файлов NET-установщика
+  unified-fps-kit-source/ proven-дерево v1.0.1, откуда паковщик берёт runtime-файлы
+  net-v21-kit/        скрипты установщика net_v21
+  v20-recovery/       отчёты восстановления исходника v20
 ```
 
 Правила — [`versions/README.md`](versions/README.md): новая версия делается копией предыдущей,
@@ -22,40 +26,34 @@ development/
 `package_net_v21_test.py`, `verify_release.sh`) читают версию из `current.txt`.
 
 
-`kit-source/` — каноническая исходная структура проверяемого MiusVitals v7.5.0 kit: manifest сборки, Vitals sidecar, тесты и входные player artifacts. **Не копируйте development-дерево целиком в папку игры.**
+Исходник Vitals sidecar и его портируемый тест припаркованы в [`forbidden/development/kit-source/src/`](forbidden/development/kit-source/src/): работа над vitals отложена до выяснения падений, а тест живёт рядом с исходником, потому что тянет его относительным путём. **Не копируйте development-дерево целиком в папку игры.**
 
 ## Объединённая исходная рабочая область
 
 По разрешению на выход за прежний предел 16 файлов в репозиторий добавлен закреплённый публичный исходник MiusPlayer вместе с MiusVitals:
 
 - [`upstream/miusplayer-public-43b2736/`](upstream/miusplayer-public-43b2736/) — C++ source/basic_network, program-pack tooling и launcher templates из публичного `VampyrCat/MiusPlayer` commit `43b2736d3b4a1e208e6c80f45f6ebbdd476de3aa` (CC0); `UPSTREAM.json` и `SOURCE_MANIFEST.sha256` фиксируют происхождение;
-- [`merged-source/`](merged-source/) — единая документация, source-boundary verifier и Windows entry point для сборки **analysis candidate** из C++ source;
-- [`kit-source/src/mp_vitals.c`](kit-source/src/mp_vitals.c) — текущий проверяемый Vitals sidecar для опубликованного v20 binary baseline.
+- [`forbidden/development/kit-source/src/mp_vitals.c`](forbidden/development/kit-source/src/mp_vitals.c) — проверяемый Vitals sidecar для опубликованного v20 binary baseline, припаркован вместе со своим тестом.
 
 Проверка объединённой рабочей области:
 
 ```sh
-python3 development/merged-source/verify_workspace.py
 python3 scripts/check_artifacts.py     # одинаковые бинарники во всех kit-источниках, хеши архивов, пути из .gitattributes
 ```
 
-Публичный release archive содержит `basic_network.codelib` с SHA-256 `8108bd…5723`, совпадающий с input v20 текущего release pipeline. Но имеющийся upstream C++ build output имеет другой hash, поэтому не считается replacement binary: перед выпуском source rebuild нужны новая бинарная mapping, native/PE проверки и two-peer evidence. Подробности — в [`merged-source/README.md`](merged-source/README.md).
+Публичный release archive содержит `basic_network.codelib` с SHA-256 `8108bd…5723`, совпадающий с input v20 текущего release pipeline. Но имеющийся upstream C++ build output имеет другой hash, поэтому не считается replacement binary: перед выпуском source rebuild нужны новая бинарная mapping, native/PE проверки и two-peer evidence. Подробности — в [`upstream/README.md`](upstream/README.md) и отчётах `v20-recovery/`.
 
 ## Установка игрока
 
 Текущий экспериментальный установщик: [`../MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip`](../MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET%2BFPS_INSTALL.zip). Он сразу устанавливает `net_v21`; инструкции и ограничения — в [корневом README](../README.md). Это единственная сборка 1.0.7 в дереве: прежние архивы 1.0.7 удалены и остаются в истории Git. Сохранены `_known_good` и исторический [`../MiusMultiplayer_OUTDATED_INSTALL.zip`](../MiusMultiplayer_OUTDATED_INSTALL.zip).
 
-Текущий установщик создаётся и проверяется `../scripts/package_net_v21_test.py`. `kit-source/` и старые unified-kit-деревья сохраняются как исторические источники и тестовые входы, а не как отдельная player install directory.
+Текущий установщик создаётся и проверяется `../scripts/package_net_v21_test.py`: сам модуль и `mp_join.exe` он получает аргументами `--codelib`/`--launcher`, а остальные runtime-файлы — `mp_vitals.dll`, оба `*.progpack`, `steam_appid.txt` и тексты установщика — берёт из `unified-fps-kit-source/` (proven-дерево v1.0.1) и `unified-kit-source/`. Оба дерева — источники и тестовые входы, а не отдельная player install directory.
 
 ## Steam-preserving FPS candidate
 
-`fps-candidate/` хранит воспроизводимый candidate `basic_network.codelib`: `scripts/build_steam_compatible_fps_candidate.py` получает его детерминированно из проверенного Steam 3598/1 module, а workflow `../.github/workflows/verify-fps-codelib.yml` заново собирает файл и сравнивает его byte-for-byte с checked-in копией. Этот candidate входил в исторический `MiusMultiplayer_v1.0.1_INSTALL.zip`; проверка `scripts/verify_legacy_fps_fixture.py` воспроизводит временный архив и сравнивает содержимое с закреплёнными хешами, не сохраняя старый ZIP.
+FPS-кандидат `basic_network.codelib` (SHA-256 `7b42a69a…01f67`) хранится внутри `unified-fps-kit-source/` — того самого proven-дерева v1.0.1, откуда паковщик берёт runtime-файлы; его хеш закреплён в `scripts/check_artifacts.py`. Отдельная папка `fps-candidate/`, скрипт детерминированной пересборки и workflow `verify-fps-codelib.yml` убраны 2026-10-31: кандидат больше не публикуется отдельным архивом, а повторная сборка ничего не доказывала без двухпировых прогонов.
 
-Отдельный `MiusMultiplayer_beta_FPS_fix_INSTALL.zip` и `fps-beta-kit-source/` удалены: второй installer с собственным codelib больше не публикуется. В игре, где остался прежний beta module (включая withdrawn `78e271…2916e`), `MiusMultiplayer\Enable_Multiplayer.bat` из v1.0.1 всё равно заменяет codelib и program packs безусловно.
-
-## Separate ordered-operation source candidate
-
-`merged-source/patches/0002-ordered-operation-turns-and-network-hygiene.patch` — отдельный C++ overlay, не включённый ни в один player archive. Он serializes operational turns `host → client → host resolution`, передаёт authoritative host snapshot перед client input, оставляет client attack в merged orders и coalesces tactical receive bursts во всех battle modes. Подготовка/проверка candidate описана в [`merged-source/README.md`](merged-source/README.md); до rebuild matching codelib + `mp_join.exe` и live two-peer tests это не installable runtime.
+Отдельный `MiusMultiplayer_beta_FPS_fix_INSTALL.zip` и `fps-beta-kit-source/` удалены раньше: второй installer с собственным codelib больше не публикуется. В игре, где остался прежний beta module (включая withdrawn `78e271…2916e`), `MiusMultiplayer\Enable_Multiplayer.bat` из v1.0.1 всё равно заменяет codelib и program packs безусловно.
 
 ## Восстановление исходника v20 (`v20-recovery/`)
 
@@ -93,15 +91,15 @@ Steam-слой отдельно — [`docs/V20_STEAM_LAYER.md`](../docs/V20_STEA
 | модуль | размер | метка |
 | --- | --- | --- |
 | shipped `basic_network.codelib` из установщика 1.0.7 | 424 960 | `GTMF_TA_A1` + **`NETV21_WIRE_PROTOCOL_18`** |
-| `kit-source/files/basic_network.codelib` | 377 856 | `GTMF_TA_A1` |
 | `unified-fps-kit-source/…/basic_network.codelib` | 378 368 | `GTMF_TA_A1` |
 | `game-build-3598-1/x64/basic_network.codelib` | 250 368 | `GTMF_TA_A1` |
 
 `NETV21_WIRE_PROTOCOL_18` задаётся в `net-v21/src/protocol.h` (`k_wire_tag`) и больше нет ни в
 одном бинарнике внутри `development/`. Значит: **весь современный код — в `net-v21/src`, а все
 `.codelib` в `development/` — это более старые сборки.** `upstream/miusplayer-public-43b2736` —
-vendored baseline публичного MiusPlayer (v12), `net-v21` уже вобрал оба патча из `merged-source`
-(`0001`, `0002`): в нём есть `src/operation_turn.h` и elision-счётчики в `session.cpp`.
+vendored baseline публичного MiusPlayer (v12); рабочая версия в `versions/` уже вобрала оба
+исторических патча (`0001`, `0002`): в ней есть `src/operation_turn.h` и elision-счётчики в
+`session.cpp`.
 
 ### Есть ли фиксы мимо самой современной версии — да, есть
 
@@ -124,27 +122,25 @@ vendored baseline публичного MiusPlayer (v12), `net-v21` уже воб
 | каталог | размер | зачем | вердикт |
 | --- | --- | --- | --- |
 | `game-build-3598-1/` | 8,5 МБ | родные бинарники игры 3598/1 — вход для `net-v21/tools/hook_audit.py`, `vitals_hook_audit.py` и шести selftest'ов, сверяющих адреса хуков | **держать** |
-| `net-v21/` | 1,9 МБ | современный исходник модуля, проекты VS 2026, 48 тестов | **держать** |
-| `kit-source/` | 1,4 МБ | сборщик kit: `src/build_release.sh`, `src/verify_artifacts.py`, `src/mp_vitals.c` (85 КБ) + входной v20-бинарь, чей SHA-256 проверяется до изменений | **держать** |
+| `versions/` | 3,7 МБ | актуальная и предыдущая версии, полный исходник и тесты каждой | **держать** |
 | `v20-recovery/` | 1,3 МБ | инструменты и отчёты восстановления v20; `work/` не коммитится | **держать** |
-| `unified-fps-kit-source/` | 773 К | снимок файлов FPS-установщика; вход `scripts/package_unified_fps_mod.py` | держать |
-| `unified-kit-source/` | 769 К | снимок файлов NET-установщика; **выход** `kit-source/src/build_release.sh` (шаги 28-29 пишут прямо сюда) и одновременно тестовый фикстур `net-v21/tests/force_test.cpp` | держать (см. ниже) |
+| `unified-fps-kit-source/` | 773 К | proven-дерево v1.0.1: отсюда `scripts/package_net_v21_test.py` берёт `mp_vitals.dll`, `mp_join.exe`, progpack'и и тексты для публикуемого установщика | **держать** |
+| `unified-kit-source/` | 769 К | снимок файлов NET-установщика; поставщик `mp_vitals.dll` и progpack'ов для паковщика, тестовый фикстур `tests/force_test.cpp` и образец PE для `tools/pe_scan_selftest.py` | держать (см. ниже) |
 | `upstream/` | 508 К | vendored публичный baseline, база для `git apply` патчей `0001`/`0002` | **держать** |
-| `fps-candidate/` | 373 К | воспроизводимый FPS-кандидат, пересобирается и сверяется `verify-fps-codelib.yml` | держать |
-| `merged-source/` | 112 К | патчи, `PORTING_LEDGER.md`, verifier границ исходника | **держать** |
 | `net-v21-kit/` | 104 К | скрипты установщика `net_v21`, `Switch_Pair.bat`; потребители — `unified-installer-smoke.yml`, `package_net_v21_test.py`, `test_switch_pair_windows.py` | **держать** |
-| `gtmp-alpha/` | 88 К | альфа-сборка vitals; `package_gtmp_alpha.py`, `verify-alpha-dll.yml` | держать |
 
 Ни один каталог не висит мёртвым: у каждого есть потребитель в `.github/workflows/`, `scripts/`
-или тестах, а бинарники вдобавок хэш-закреплены в `scripts/check_artifacts.py` (17 путей).
+или тестах, а бинарники вдобавок хэш-закреплены в `scripts/check_artifacts.py`. Удалять папку из
+этой таблицы можно только вместе с тем, что её читает: 2026-10-31 так ушли `kit-source/`,
+`fps-candidate/`, `merged-source/`, `gtmp-alpha/` и три workflow, которые их проверяли.
 
 ### Что реально дублируется
 
 10 групп байт-в-байт одинаковых файлов, 1,08 МБ лишнего:
 
-* `unified-kit-source/files/bin/rel/x64/basic_network.codelib` == `kit-source/files/basic_network.codelib`;
-* `unified-fps-kit-source/files/bin/rel/x64/basic_network.codelib` == `fps-candidate/basic_network.codelib`;
-* `mp_join.exe`, `mp_vitals.dll` и оба `*.progpack` повторены в обоих unified-деревьях.
+* `mp_join.exe`, `mp_vitals.dll` и оба `*.progpack` повторены в обоих unified-деревьях;
+* codelib в двух деревьях различаются: в `unified-kit-source` — стабильный `485b655…102a3`,
+  в `unified-fps-kit-source` — FPS-кандидат `7b42a69a…01f67`.
 
 Два unified-дерева — это один и тот же kit с разным codelib и немного разными текстами
 (`README.txt`, `Check_Install.ps1`, `Enable_Multiplayer.bat` у них различаются). Коммитить
@@ -153,6 +149,6 @@ vendored baseline публичного MiusPlayer (v12), `net-v21` уже воб
 
 ### Порядок обновления debug-исходников
 
-При каждом изменении исходников или тестов — [`net-v21/DEBUG_UPKEEP.md`](net-v21/DEBUG_UPKEEP.md)
+При каждом изменении исходников или тестов — [`versions/1.0.8/DEBUG_UPKEEP.md`](versions/1.0.8/DEBUG_UPKEEP.md)
 и `python scripts/check_debug_sources.py` (сверяет списки исходников и тестов в `build.bat`,
 проектах VS и `run_tests.bat`).

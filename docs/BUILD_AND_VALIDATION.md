@@ -2,14 +2,15 @@
 
 > Историческая схема: архивы 1.0.1–1.0.6 удалены из текущего дерева. Текущий экспериментальный
 > установщик описан в [NET_V21_107_EXPERIMENTAL_NET_FPS.md](NET_V21_107_EXPERIMENTAL_NET_FPS.md).
-> Проверка старого FPS kit теперь использует `python3 scripts/verify_legacy_fps_fixture.py`.
+> Проверка старых kit-деревьев теперь сводится к `python3 scripts/check_artifacts.py`: он сверяет
+> SHA-256 каждой копии бинарника в `development/`.
 > Windows-тест перехода с 1.0.6 читает подлинный архив из закреплённого Git-коммита и сверяет
 > SHA-256. Для shallow clone перед этим тестом нужна команда:
 > `git fetch --no-tags --depth=1 origin 047195f1b16f034cf06f4a204402e6e800ca05ea`.
 
 ## Воспроизводимые входы и артефакты
 
-`development/kit-source/src/build_release.sh` принимает только оригинальный MiusPlayer v20 `basic_network.codelib`; SHA-256 входа проверяется до всех изменений.
+Исторический сборщик kit `development/kit-source/src/build_release.sh` (убран 2026-10-31) принимал только оригинальный MiusPlayer v20 `basic_network.codelib`; SHA-256 входа проверялся до всех изменений.
 
 | Вариант | Преобразование | SHA-256 |
 | --- | --- | --- |
@@ -60,14 +61,15 @@ MSVC-built `basic_network.codelib`: `c3547d4efcb1c92ab2f53849f7995b018fb286ed502
 `development/upstream/miusplayer-public-43b2736/` содержит отобранный редактируемый public source snapshot `VampyrCat/MiusPlayer@43b2736d3b4a1e208e6c80f45f6ebbdd476de3aa`: C++ `basic_network`, headers, program-pack Python tooling и mpmod1 templates. Лицензия CC0 и origin зафиксированы в `UPSTREAM.json`; `SOURCE_MANIFEST.sha256` защищает каждый vendored source file. Это расширяет development workspace за пределы player kit, но не добавляет непроверенные файлы в игру.
 
 ```sh
-python3 development/merged-source/verify_workspace.py
+python3 scripts/check_artifacts.py
 ```
 
-Опубликованный public release `basic_network.codelib` имеет SHA-256 `8108bd1e9af8080ef8b1050512b8311848f5a336acb49a7479388733b4ae5723`, что совпадает с проверенным v20 input. Однако C++ output, приложенный самим upstream к source snapshot, имеет другой SHA-256 `eff7ae12c5f440dc91d0fccc9d9578022a383b0485da58793bffd217922f7af5`. Поэтому source rebuild — только candidate для правки/анализа: он не может быть установлен или пропущен через RVA-bound `patch_import.py` до новой binary mapping, PE/native validation и two-peer проверки. Полная карта процесса находится в [`../development/merged-source/README.md`](../development/merged-source/README.md).
+Опубликованный public release `basic_network.codelib` имеет SHA-256 `8108bd1e9af8080ef8b1050512b8311848f5a336acb49a7479388733b4ae5723`, что совпадает с проверенным v20 input. Однако C++ output, приложенный самим upstream к source snapshot, имеет другой SHA-256 `eff7ae12c5f440dc91d0fccc9d9578022a383b0485da58793bffd217922f7af5`. Поэтому source rebuild — только candidate для правки/анализа: он не может быть установлен или пропущен через RVA-bound `patch_import.py` до новой binary mapping, PE/native validation и two-peer проверки. Полная карта процесса — в [`../development/README.md`](../development/README.md) и отчётах
+`../development/v20-recovery/reports/`.
 
 ## Устаревший unified archive (outdated)
 
-`development/unified-kit-source/` — сохранённый source legacy v1.0.0 package; его player artifact публикуется как `MiusMultiplayer_OUTDATED_INSTALL.zip`. Актуальный v1.0.1 source лежит отдельно в `development/unified-fps-kit-source/`, чтобы v1.0.0 оставался доступным для deterministic rollback. Оба объединяют опубликованные MiusPlayer runtime assets с проверенными MiusVitals files; `kit-source/` остаётся только implementation/test layer и не устанавливается отдельно.
+`development/unified-kit-source/` — сохранённый source legacy v1.0.0 package; его player artifact публикуется как `MiusMultiplayer_OUTDATED_INSTALL.zip`. Актуальный v1.0.1 source лежит отдельно в `development/unified-fps-kit-source/`, чтобы v1.0.0 оставался доступным для deterministic rollback. Оба объединяют опубликованные MiusPlayer runtime assets с проверенными MiusVitals files; Сборщик kit убран 2026-10-31, а исходник vitals вместе с портируемым тестом припаркован в `development/forbidden/development/kit-source/src/` и не устанавливается отдельно.
 
 `scripts/package_unified_mod.py` строго проверяет runtime hashes, наличие `basic_network.codelib` в обоих program packs, CRC, fixed ZIP metadata, allow-list и byte identity. В archive ровно 13 файлов под единственным `MiusMultiplayer/` root:
 
@@ -97,19 +99,23 @@ sha256sum MiusMultiplayer_OUTDATED_INSTALL.zip
 
 ## Актуальный unified Steam + FPS + Vitals archive v1.0.1
 
-`MiusMultiplayer_v1.0.1_INSTALL.zip` — актуальный single installer. Его source tree — `development/unified-fps-kit-source/`; archive содержит те же Vitals DLL, launcher и program packs, что проверенный unified kit, но заменяет runtime `basic_network.codelib` на exact Steam-preserving FPS candidate:
+> Историческая схема: сам `MiusMultiplayer_v1.0.1_INSTALL.zip` удалён из дерева и остался в истории
+> Git. Текущий установщик собирает `scripts/package_net_v21_test.py`; единственный сохраняемый
+> архив из этой схемы — `MiusMultiplayer_OUTDATED_INSTALL.zip` (`scripts/package_unified_mod.py`),
+> он же контрольная копия для отката.
+
+`MiusMultiplayer_v1.0.1_INSTALL.zip` был актуальным single installer. Его source tree — `development/unified-fps-kit-source/`; archive содержит те же Vitals DLL, launcher и program packs, что проверенный unified kit, но заменяет runtime `basic_network.codelib` на exact Steam-preserving FPS candidate:
 
 - candidate SHA-256: `7b42a69abe58deb1583d2f5320eebbecd9718ffa27ea08933613e67df1901f67`;
 - stable Steam base SHA-256: `485b655662bd062e16278f9d699a3097b49a08de1948d2500dd589703a3102a3`;
 - `.fpsfix` trampoline skips `session_sim_step` only for zero-ms `ctrl_tick`; a nonzero step uses the original function;
 - the exact Steam Friends, rich-presence, Join Game, SteamNetworking P2P and Vitals import paths are retained from the base module.
 
-`scripts/package_unified_fps_mod.py` rejects a simple binary substitution: it reconstructs and byte-compares the deterministic transformation, checks the PE trampoline plus every required Steam marker, requires byte identity with `development/fps-candidate/basic_network.codelib`, validates all runtime hashes, both program-pack module references, ZIP allow-list and fixed metadata. The v1.0.1 installer has no migration allow-list and no replacement gate: any active codelib (v1.0.0, withdrawn beta, another mod or an unknown build) is backed up best-effort and replaced. `docs/MULTIPLAYER_MENU_BUTTON_2026-10-25.md` explains why a skipped or half-applied replacement leaves the main menu without the MULTIPLAYER entry.
+`scripts/package_unified_fps_mod.py` (убран 2026-10-31) не принимал простую подмену бинарника: он восстанавливал детерминированное преобразование и сравнивал побайтово, проверял PE-trampoline и все Steam-маркеры, требовал byte identity с FPS-кандидатом (`7b42a69a…01f67`), проверял runtime-хеши, оба program-pack reference, allow-list ZIP и фиксированные метаданные. Сам кандидат остаётся checked-in файлом `development/unified-fps-kit-source/files/bin/rel/x64/basic_network.codelib`. The v1.0.1 installer has no migration allow-list and no replacement gate: any active codelib (v1.0.0, withdrawn beta, another mod or an unknown build) is backed up best-effort and replaced. `docs/MULTIPLAYER_MENU_BUTTON_2026-10-25.md` explains why a skipped or half-applied replacement leaves the main menu without the MULTIPLAYER entry.
 
 ```sh
-python3 scripts/package_unified_fps_mod.py --output MiusMultiplayer_v1.0.1_INSTALL.zip
-python3 scripts/package_unified_fps_mod.py --verify MiusMultiplayer_v1.0.1_INSTALL.zip
-sha256sum MiusMultiplayer_v1.0.1_INSTALL.zip
+python3 scripts/package_unified_mod.py --output MiusMultiplayer_OUTDATED_INSTALL.zip
+sha256sum MiusMultiplayer_OUTDATED_INSTALL.zip
 ```
 
 `MiusMultiplayer_OUTDATED_INSTALL.zip` (the former v1.0.0 archive, unchanged payload) remains retained as a rollback artifact only. The standalone `MiusMultiplayer_beta_FPS_fix_INSTALL.zip` was removed: its only payload is the Steam-preserving FPS `basic_network.codelib`, which the v1.0.1 archive already ships, and two installers with different codelibs only invited mixed installs.
@@ -118,18 +124,18 @@ sha256sum MiusMultiplayer_v1.0.1_INSTALL.zip
 
 `MiusMultiplayer_beta_FPS_fix_INSTALL.zip`, `scripts/package_fps_beta.py` и `development/fps-beta-kit-source/` удалены: отдельный experimental installer больше не публикуется. Steam-preserving FPS `basic_network.codelib` — единственный payload того архива — входит в v1.0.1, а второй установщик с другим codelib приводил к смешанным установкам и к отсутствию кнопки MULTIPLAYER.
 
-Сам candidate остаётся воспроизводимым и проверяемым:
+Сам candidate сохраняется checked-in бинарником:
 
-- `scripts/build_steam_compatible_fps_candidate.py` начинает с exact verified Steam 3598/1 module (`485b655…102a3`) и добавляет отдельную executable `.fpsfix` PE section; её 23-byte trampoline пропускает исходный `session_sim_step` только когда `on_ctrl_tick` получает zero-ms step, а non-zero path вызывает original function без изменения;
-- checked-in кандидат лежит в `development/fps-candidate/basic_network.codelib`;
-- workflow `.github/workflows/verify-fps-codelib.yml` заново собирает его, сравнивает byte-for-byte с checked-in файлом и проверяет временную копию исторического kit по хешам всех 13 файлов через `scripts/verify_legacy_fps_fixture.py`;
-- `scripts/package_unified_fps_mod.py` по-прежнему допускает только exact transformation: base hash, original call signature, redirected call, `.fpsfix` code, retained Vitals import и Steam runtime markers `MP_STEAM_PEER`, `+gtmf_join=`, SteamFriends, SteamUser, SteamNetworking, `SendP2PPacket`, `ReadP2PPacket`, `JoinRequested`.
+- он начинается с exact verified Steam 3598/1 module (`485b655…102a3`) и добавляет отдельную executable `.fpsfix` PE section; её 23-byte trampoline пропускает исходный `session_sim_step` только когда `on_ctrl_tick` получает zero-ms step, а non-zero path вызывает original function без изменения;
+-checked-in кандидат лежит в `development/unified-fps-kit-source/files/bin/rel/x64/basic_network.codelib`, его хеш сверяет `scripts/check_artifacts.py`;
+- скрипт пересборки `scripts/build_steam_compatible_fps_candidate.py` и workflow `verify-fps-codelib.yml` убраны 2026-10-31: повторная сборка ничего не доказывала без живых two-peer прогонов, а отдельным архивом candidate не публикуется;
+- прежний паковщик допускал только exact transformation: base hash, original call signature, redirected call, `.fpsfix` code, retained Vitals import и Steam runtime markers `MP_STEAM_PEER`, `+gtmf_join=`, SteamFriends, SteamUser, SteamNetworking, `SendP2PPacket`, `ReadP2PPacket`, `JoinRequested`.
 
 Retained binary surface не заменяет live evidence: до Windows Steam two-peer regression (rich presence host, friends Join Game, P2P lobby, tactical session, reconnect, обе стороны host) candidate остаётся FPS test candidate, не gameplay-certified compatibility release.
 
-## GTMP_alpha: экспериментальный архив поверх v1.0.1
+## GTMP_alpha: экспериментальный архив поверх v1.0.1 (убран)
 
-`GTMP_alpha_INSTALL.zip` — не новая версия мода, а **копия v1.0.1 с одной заменой**:
+`GTMP_alpha_INSTALL.zip` (удалён 2026-10-30; `development/gtmp-alpha/` и `scripts/package_gtmp_alpha.py` — 2026-10-31) был не новой версией мода, а **копией v1.0.1 с одной заменой**:
 пересобранной `mp_vitals.dll` и перемаркированными установщиками. Модуль
 `basic_network.codelib` и все остальные runtime-файлы берутся из стабильного комплекта без
 изменений, поэтому alpha физически не может привезти другой codelib.
@@ -137,26 +143,19 @@ Retained binary surface не заменяет live evidence: до Windows Steam 
 | Файл | SHA-256 |
 |---|---|
 | `GTMP_alpha_INSTALL.zip` | `aacfe7dfd0cca82c0ed771e5a9088faa75565f3bf7d5757ceef8d3f532955924` |
-| `development/gtmp-alpha/files/mp_vitals.dll` | `808e1d5f6cb301ac971700e0aba6e78d1df1b13b02e748b8d01dd4bfc8a9881c` |
+| `development/forbidden/development/gtmp-alpha/files/mp_vitals.dll` (припаркованная копия) | `808e1d5f6cb301ac971700e0aba6e78d1df1b13b02e748b8d01dd4bfc8a9881c` |
 | `files/mp_vitals.dll` в v1.0.1 (для сравнения) | `71a1bf3a37923bbe6c8ee84448d0b91705c2bff7382b647f990b9d671ee224df` |
 
-Сборка DLL воспроизводима побайтово: `development/gtmp-alpha/rebuild.sh` собирает её тем же
-`build.sh` (Zig 0.17.0, только `KERNEL32`, без CRT) и сверяет хеш. Тот же скрипт с
-`--baseline <rev>` собирает исходник более раннего коммита и должен дать ровно
-`71a1bf3a…` — это проверка, что «съехал» не инструмент, а код.
+Сборка DLL была воспроизводима побайтово: `development/gtmp-alpha/rebuild.sh` собирал её тем же
+`build.sh` (Zig 0.17.0, только `KERNEL32`, без CRT) и сверял хеш; с `--baseline <rev>` тот же
+скрипт собирал исходник более раннего коммита и должен был дать ровно `71a1bf3a…` — проверка,
+что «съехал» не инструмент, а код. Скрипты и дерево лежат в истории Git, а alpha-DLL сохранена
+припаркованной копией и хеш-закреплена в `scripts/check_artifacts.py`.
 
-```sh
-python3 -m venv .venv && .venv/bin/pip install -r development/kit-source/src/requirements-build.txt
-development/gtmp-alpha/rebuild.sh                      # alpha DLL == 808e1d5f…
-development/gtmp-alpha/rebuild.sh --baseline e8d4a52   # stable DLL == 71a1bf3a…
-python3 scripts/package_gtmp_alpha.py --output GTMP_alpha_INSTALL.zip
-python3 scripts/package_gtmp_alpha.py --verify GTMP_alpha_INSTALL.zip
-```
-
-`package_gtmp_alpha.py` сначала вызывает `package_unified_fps_mod.require_sources()`, то есть
-alpha нельзя собрать поверх непроверенного стабильного комплекта. Затем он подменяет DLL,
-заменяет в текстах `v1.0.1` на `GTMP_alpha` и старый хеш DLL на новый, добавляет `ALPHA.txt`
-и требует, чтобы в текстах не осталось `v1.0.1`. Замена хеша обязательна и функциональна, а
+`package_gtmp_alpha.py` сначала вызывал `package_unified_fps_mod.require_sources()`, то есть
+alpha нельзя было собрать поверх непроверенного стабильного комплекта. Затем он подменял DLL,
+заменял в текстах `v1.0.1` на `GTMP_alpha` и старый хеш DLL на новый, добавлял `ALPHA.txt`
+и требовал, чтобы в текстах не осталось `v1.0.1`. Замена хеша обязательна и функциональна, а
 не косметическая: `Disable_Multiplayer.bat` удаляет DLL только при совпадении `VITALS=`.
 
 Что исправлено в alpha-DLL (подробно — `development/gtmp-alpha/README.md`): чтение
@@ -212,13 +211,11 @@ Native harness запускается с ASan/UBSan. Помимо прежних
 ## Полная пересборка
 
 ```sh
-python3 -m venv /tmp/mius-v7-venv
-/tmp/mius-v7-venv/bin/pip install -r development/kit-source/src/requirements-build.txt
-ZIG_PYTHON=/tmp/mius-v7-venv/bin/python development/kit-source/src/build_release.sh \
-  /path/to/mpmod1/files/bin/rel/x64/basic_network.codelib
-scripts/verify_release.sh
+python3 scripts/check_artifacts.py
+python3 scripts/archive_audit.py --check
+sh scripts/verify_release.sh
 ```
 
-Скрипт регенерирует все варианты codelib, собирает DLL, проверяет hashes/PE/map detour и создаёт exact install ZIP. Он не устанавливает ничего в игровую папку.
+Проверка идёт по checked-in бинарникам: `check_artifacts.py` сверяет SHA-256 каждой копии, `archive_audit.py` — состав архивов, `verify_release.sh` — портируемые тесты. Ничего в игровую папку не устанавливается.
 
-Нативные и static проверки не заменяют живую пару Graviteam. До заявления, что FPS-причина устранена, нужен two-peer **operational tactical** battle: на обоих ПК должен быть `object-number lists exchanged: yes`, один startup log новой policy, отсутствие `state:` saved-state traffic после exchange и рабочие transforms, shots, damage/death Vitals. Stable v7.5/global-map archive по-прежнему не изменён. Отдельный C++ source candidate для ordered operational map требует самостоятельного Windows/two-peer прогона host phase, authoritative handoff, client attack, обе завершённые фазы, disconnect/reconnect и battle exit перед любым выпуском. Финальный forced scan проверен нативно, но это ещё не отдельный блокирующий ACK-barrier при выходе из tactical game: его нельзя считать доказанным без отдельной живой проверки перехода карты.
+Нативные и static проверки не заменяют живую пару Graviteam. До заявления, что FPS-причина устранена, нужен two-peer **operational tactical** battle: на обоих ПК должен быть `object-number lists exchanged: yes`, один startup log новой policy, отсутствие `state:` saved-state traffic после exchange и рабочие transforms, shots, damage/death Vitals. Stable v7.5/global-map archive по-прежнему не изменён. Отдельный C++ source candidate для ordered operational map (убран 2026-10-31) требовал самостоятельного Windows/two-peer прогона host phase, authoritative handoff, client attack, обе завершённые фазы, disconnect/reconnect и battle exit перед любым выпуском. Финальный forced scan проверен нативно, но это ещё не отдельный блокирующий ACK-barrier при выходе из tactical game: его нельзя считать доказанным без отдельной живой проверки перехода карты.

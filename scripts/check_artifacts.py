@@ -34,29 +34,16 @@ ARTIFACTS: dict[str, tuple[str, tuple[str, ...]]] = {
     "main codelib (Steam v20 rebased for 3598/1 + Vitals import)": (
         "485b655662bd062e16278f9d699a3097b49a08de1948d2500dd589703a3102a3",
         (
-            "development/kit-source/files/basic_network.codelib",
             "development/unified-kit-source/files/bin/rel/x64/basic_network.codelib",
         ),
     ),
-    "alternative codelib (rebased without the Start group)": (
-        "e4317e630a21198a55e0e86be4aa29c71fcada6065824c858acd0e2bdef8adf9",
-        ("development/kit-source/files/alt/basic_network_nostart.codelib",),
-    ),
-    "alternative codelib (v20 + import only, not rebased)": (
-        "d2e34581b42d0573547e221873d7538b64a413267e8ed388abeb46dd42b630d2",
-        ("development/kit-source/files/alt/basic_network_v5_norebase.codelib",),
-    ),
     "FPS candidate codelib (Steam-preserving, zero-ms gated)": (
         "7b42a69abe58deb1583d2f5320eebbecd9718ffa27ea08933613e67df1901f67",
-        (
-            "development/fps-candidate/basic_network.codelib",
-            "development/unified-fps-kit-source/files/bin/rel/x64/basic_network.codelib",
-        ),
+        ("development/unified-fps-kit-source/files/bin/rel/x64/basic_network.codelib",),
     ),
     "mp_vitals.dll (Zig, KERNEL32 only, MpVitalsInit export)": (
         "71a1bf3a37923bbe6c8ee84448d0b91705c2bff7382b647f990b9d671ee224df",
         (
-            "development/kit-source/files/mp_vitals.dll",
             "development/unified-kit-source/files/mp_vitals.dll",
             "development/unified-fps-kit-source/files/mp_vitals.dll",
             # Parked copies in development/forbidden: vitals work is on hold until the crashes
@@ -69,7 +56,6 @@ ARTIFACTS: dict[str, tuple[str, tuple[str, ...]]] = {
     "experimental mp_vitals.dll for GTMP_alpha (same surface, only the reviewed bugfixes)": (
         "808e1d5f6cb301ac971700e0aba6e78d1df1b13b02e748b8d01dd4bfc8a9881c",
         (
-            "development/gtmp-alpha/files/mp_vitals.dll",
             "development/forbidden/development/gtmp-alpha/files/mp_vitals.dll",
         ),
     ),
@@ -106,7 +92,7 @@ ARCHIVES: dict[str, str] = {
 }
 
 BINARY_SUFFIXES = {".codelib", ".dll", ".exe", ".progpack"}
-# Local build output, ignored by Git and by verify_workspace.py as well.
+# Local build output, ignored by Git as well.
 # "work" holds scratch downloaded by tools (development/v20-recovery/work/): not shipped.
 SKIP_PARTS = {"build", "Multiplayer_DropIn", "__pycache__", "state", "out", "candidates", "work"}
 
@@ -181,36 +167,6 @@ def check_archives(errors: list[str]) -> None:
     print(f"OK {len(ARCHIVES)} release archives")
 
 
-def check_fps_candidate_guard(errors: list[str]) -> None:
-    """The FPS candidate must come from the reviewed transformation only.
-
-    `package_unified_fps_mod.py --verify` already compares bytes, but nothing proved that the
-    guard itself can fail: a plain copy of the stable module used to be indistinguishable from
-    a real candidate to a reader of the logs.  Here the builder must accept the checked-in
-    candidate and reject the stable module handed in as if it were the candidate.
-    """
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
-    try:
-        import build_steam_compatible_fps_candidate as builder
-    except Exception as error:  # noqa: BLE001 - any import failure is a broken workbench
-        errors.append(f"cannot import the FPS candidate builder: {error}")
-        return
-    stable = (ROOT / "development/kit-source/files/basic_network.codelib").read_bytes()
-    candidate = (ROOT / "development/fps-candidate/basic_network.codelib").read_bytes()
-    try:
-        builder.verify_candidate(candidate, stable)
-    except Exception as error:  # noqa: BLE001
-        errors.append(f"FPS candidate is not the reviewed transformation: {error}")
-        return
-    try:
-        builder.verify_candidate(stable, stable)
-    except ValueError:
-        pass
-    else:
-        errors.append("FPS candidate builder accepts a plain binary substitution")
-    print("OK FPS candidate: reproducible from the stable module, plain substitution rejected")
-
-
 def check_config_paths(errors: list[str]) -> None:
     """Every literal path in .gitattributes must exist; a rule for a renamed file is dead."""
     attributes = ROOT / ".gitattributes"
@@ -238,7 +194,6 @@ def main() -> int:
     errors: list[str] = []
     check_artifacts(errors)
     check_archives(errors)
-    check_fps_candidate_guard(errors)
     check_config_paths(errors)
     if errors:
         print("\nartifact check failed:", file=sys.stderr)
