@@ -806,8 +806,9 @@ static void update_ai_commander(void)
     if (!g_tactical || g_role == ROLE_NONE || state == 2) return;
     // As in v20: off while a battle runs and the filter is missing, while the host waits alone before
     // the battle, or when MP_TEST_AI_OFF asks for it.
-    int test_off = 0;
-    bool off = (g_versus && !ai_filter_installed())
+    int test_off = 0, test_on = 0;
+    bool on_for_a_test = env_integer("MP_TEST_AI_ON", &test_on) && test_on != 0;
+    bool off = (g_versus && !ai_filter_installed() && !on_for_a_test)
             || (g_role == ROLE_HOST && !g_connected && g_phase < 2)
             || (env_integer("MP_TEST_AI_OFF", &test_off) && test_off != 0);
     if (state == (int)off) return;
@@ -827,7 +828,10 @@ static void update_ai_commander(void)
     VirtualProtect(fn, 1, old, &old);
     FlushInstructionCache(GetCurrentProcess(), fn, 1);
     state = off;
-    mp_log("net: AI commander switched %s", off ? "off" : "on");
+    mp_log("net: AI commander switched %s%s", off ? "off" : "on",
+           !off && g_versus && !ai_filter_installed()
+               ? " - a test run without the filter, so it leads the other player's formations too"
+               : "");
 }
 
 // Tactical and non-tactical receivers are deliberately separate: M5 keeps the pre-hardening
