@@ -1969,9 +1969,56 @@ static bool pause_ui_enabled(Object *ui)
     return readable(ui, 0xedd) && !((unsigned char *)ui)[0xed9] &&
            !((unsigned char *)ui)[0xeda] && !((unsigned char *)ui)[0xedc];
 }
+// Diagnostics for the two interface controls we borrow for the shared pause. The Start button and
+// the Start key are the engine's own pause control during a battle, and the hook is only told the
+// interface object - not which action called it. MP_LOG_ACTIONS=1 prints the action name and the
+// interface flags for every call: that is how the pause action is told apart from the speed,
+// selection and order actions that share the same entry points.
+static bool actions_logged(void)
+{
+    static int state = -1;
+    if (state < 0) {
+        int value = 0;
+        state = env_integer("MP_LOG_ACTIONS", &value) && value ? 1 : 0;
+    }
+    return state == 1;
+}
+
+// A pointer argument may be one of the bindable action names adv_interf keeps as plain strings
+// (try_select, order, do_pause, ...): print it as a name when it reads as one, as a value otherwise.
+static void describe_action(char *out, size_t size, u64 value)
+{
+    const char *s = (const char *)value;
+    if (value && readable(s, 33)) {
+        size_t n = 0;
+        while (n < 32 && s[n] > 0x20 && s[n] < 0x7f) ++n;
+        if (n >= 3 && s[n] == 0) { sprintf_s(out, size, "\"%.*s\"", (int)n, s); return; }
+    }
+    sprintf_s(out, size, "0x%llx", (unsigned long long)value);
+}
+
+static void describe_ui_flags(char *out, size_t size, const Object *ui)
+{
+    if (!readable(ui, 0xedd)) { strcpy_s(out, size, "flags unreadable"); return; }
+    sprintf_s(out, size, "ed9=%u eda=%u edc=%u",
+              (unsigned)((const unsigned char *)ui)[0xed9],
+              (unsigned)((const unsigned char *)ui)[0xeda],
+              (unsigned)((const unsigned char *)ui)[0xedc]);
+}
+
 static u64 start_action_hook(Object *ui, u64 a, u64 b, u64 c)
 {
-    if (pause_managed() && pause_ui_enabled(ui)) { request_pause_vote(); return 1; }
+    const bool vote = pause_managed() && pause_ui_enabled(ui);
+    if (actions_logged()) {
+        char first[64] = { 0 }, second[64] = { 0 }, flags[32] = { 0 };
+        describe_action(first, sizeof first, a);
+        describe_action(second, sizeof second, b);
+        describe_ui_flags(flags, sizeof flags, ui);
+        mp_log("ui: start action %s, arg2 %s, arg3 0x%llx; %s; phase %u, managed %d -> %s",
+               first, second, (unsigned long long)c, flags, g_phase, (int)pause_managed(),
+               vote ? "pause vote" : gate_active() ? "deployment gate" : "the engine");
+    }
+    if (vote) { request_pause_vote(); return 1; }
     if (!gate_active()) return g_start_action(ui, a, b, c);
     mark_ready();
     return 0;
@@ -1981,11 +2028,22 @@ static void input_action_hook(Object *ui, u64 b, const char *event)
 {
     // The verified +0x3b460 key handler toggles the timer directly rather than calling
     // start_action_hook. Intercept its release too, otherwise the keyboard bypasses agreement.
-    if (pause_managed() && pause_ui_enabled(ui) && readable(event, 0x10) && *(const float *)(event + 8) < 0) {
-        request_pause_vote();
-        return;
+    const bool release = readable(event, 0x10) && *(const float *)(event + 8) < 0;
+    const bool vote = pause_managed() && pause_ui_enabled(ui) && release;
+    if (actions_logged()) {
+        char flags[32] = { 0 };
+        describe_ui_flags(flags, sizeof flags, ui);
+        if (readable(event, 0x10))
+            mp_log("ui: start key %08x %08x at %.3f; %s; phase %u, managed %d -> %s",
+                   (unsigned)*(const u32 *)event, (unsigned)*(const u32 *)(event + 4),
+                   (double)*(const float *)(event + 8), flags, g_phase, (int)pause_managed(),
+                   vote ? "pause vote" : gate_active() && g_phase == 1 ? "deployment gate" : "the engine");
+        else
+            mp_log("ui: start key, event unreadable; %s; phase %u, managed %d -> %s",
+                   flags, g_phase, (int)pause_managed(), vote ? "pause vote" : "the engine");
     }
-    if (gate_active() && g_phase == 1 && readable(event, 0x10) && *(const float *)(event + 8) < 0) {
+    if (vote) { request_pause_vote(); return; }
+    if (gate_active() && g_phase == 1 && release) {
         mark_ready();
         return;
     }
