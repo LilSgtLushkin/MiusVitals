@@ -789,13 +789,27 @@ static void load_battle_description(void)
 // step is switched off in this process: the first instruction of its handler becomes a return.
 // A host keeps it off from the start of its battle, so the opponent has no computer-made plan when the other
 // player takes command; it comes back if the battle begins without a second player, or with one on the host's side.
+// v20 keeps the AI commander alive for the whole battle and lets it lead the computer-led formations
+// of this player's own side only - "the AI commander leads them, and only them" (MP_AI_ALLIES). There,
+// switching the commander off altogether is a test switch (MP_TEST_AI_OFF) and a last resort for a game
+// build whose per-side step cannot be filtered. The filter is not ported yet, so a versus battle has to
+// keep using the blunt switch: without it our game would lead the other player's formations while his
+// own game leads them as well, the same squads taking orders from both sides at once. Porting the
+// filter turns this on and frees versus from the switch.
+static bool ai_filter_installed(void) { return false; }
+
 static void update_ai_commander(void)
 {
     static const unsigned char sig[] = { 0x40, 0x57, 0x48, 0x83, 0xec, 0x30, 0x48, 0x8b, 0xf9 };
     static int state = -1;          // -1 unknown, 0 active, 1 off, 2 unknown game build
     static unsigned char *fn;
     if (!g_tactical || g_role == ROLE_NONE || state == 2) return;
-    bool off = g_versus || (g_role == ROLE_HOST && !g_connected && g_phase < 2);
+    // As in v20: off while a battle runs and the filter is missing, while the host waits alone before
+    // the battle, or when MP_TEST_AI_OFF asks for it.
+    int test_off = 0;
+    bool off = (g_versus && !ai_filter_installed())
+            || (g_role == ROLE_HOST && !g_connected && g_phase < 2)
+            || (env_integer("MP_TEST_AI_OFF", &test_off) && test_off != 0);
     if (state == (int)off) return;
     if (!fn) {
         if (!GetModuleHandleA("adv_game.codelib")) return;
