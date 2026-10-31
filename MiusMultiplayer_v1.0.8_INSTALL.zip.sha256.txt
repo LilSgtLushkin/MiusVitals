@@ -1,2 +1,2 @@
 594db15cbb7a8077ef003dc04327949045a987ea5dfda807d7e752abaafe5f6a  MiusMultiplayer_v1.0.8_INSTALL.zip
-source commit: 8a33f5304136598948d3b3226f4abc7f331315df
+source commit: 6f77868d49ecbf687f9c534c7bfefaf8d10a258a
