@@ -40,8 +40,10 @@ python scripts/check_debug_sources.py
    внутри release-ветви, это повод разобраться, а не коммитить.
 6. **Смена протокола** (`protocol.h`, `k_wire_tag`) → проверить, что debug и release одинаково
    проходят handshake; симптом рассинхрона — расхождение версий в логе.
-7. **PDB** — после debug-сборки в папку игры должны попасть вместе `basic_network.codelib`
-   и `basic_network.pdb` (либо задайте `MIUS_GAME_DIR`, и post-build скопирует сам).
+7. **PDB** — после debug-сборки `basic_network.codelib` и `basic_network.pdb` должны лежать
+   вместе, и не в корне игры, а в `<папка игры>\bin\rel\x64\`: оттуда модуль грузит движок и
+   оттуда же его проверяет `Check_Install.bat` (либо задайте `MIUS_GAME_DIR`, и post-build
+   скопирует сам).
 
 ## Ограничения
 

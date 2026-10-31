@@ -93,8 +93,8 @@
   </PropertyGroup>
   <ItemDefinitionGroup>
     <PostBuildEvent>
-      <Command>if defined MIUS_GAME_DIR ( copy /y "$(TargetPath)" "%MIUS_GAME_DIR%\" &amp; if exist "$(TargetDir)$(TargetName).pdb" copy /y "$(TargetDir)$(TargetName).pdb" "%MIUS_GAME_DIR%\" )</Command>
-      <Message>Copy the module next to the game when MIUS_GAME_DIR is set</Message>
+      <Command>if defined MIUS_GAME_DIR ( if not exist "%MIUS_GAME_DIR%\bin\rel\x64\" mkdir "%MIUS_GAME_DIR%\bin\rel\x64\" &amp; copy /y "$(TargetPath)" "%MIUS_GAME_DIR%\bin\rel\x64\" &amp; if exist "$(TargetDir)$(TargetName).pdb" copy /y "$(TargetDir)$(TargetName).pdb" "%MIUS_GAME_DIR%\bin\rel\x64\" )</Command>
+      <Message>Copy the module to the game's bin\rel\x64, the folder it is loaded from, when MIUS_GAME_DIR is set</Message>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
