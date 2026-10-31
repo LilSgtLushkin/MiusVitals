@@ -2015,6 +2015,27 @@ static void request_pause_vote()
         mp_log("pause: local vote is now %s; waiting for agreement", g_pause.my_vote() ? "pause" : "run");
     } else mp_log("pause: sequence exhausted; a new tactical process identity is required");
 }
+// The engine's pause and its speed controls share this entry point, and the hook is told the action by
+// name, not by code: 'ui_play', 'ui_play_fast' and 'ui_play_slow' change the battle speed, everything
+// else that reaches the control is the shared pause. The second speed is the right mouse button and the
+// pause is the left one and Enter, so a speed action must stay the engine's own - swallowing it is what
+// took the second speed away. Only names we know are listed: an unknown name keeps being a pause vote,
+// so nothing that works today is lost if a build spells the speed differently.
+static bool same_action(u64 name, const char *want)
+{
+    const char *s = (const char *)name;
+    if (!name || !readable(s, 32)) return false;
+    size_t i = 0;
+    for (; want[i]; i++) if (s[i] != want[i]) return false;
+    return s[i] < 0x21 || s[i] > 0x7e;          // the name ends where its printable run ends
+}
+
+static bool action_is_speed(u64 name)
+{
+    return same_action(name, "ui_play") || same_action(name, "ui_play_fast") ||
+           same_action(name, "ui_play_slow");
+}
+
 static bool pause_ui_enabled(Object *ui)
 {
     // +0xed9 indicates the game's modal/alternate action branch. It must keep its original
@@ -2061,7 +2082,7 @@ static void describe_ui_flags(char *out, size_t size, const Object *ui)
 
 static u64 start_action_hook(Object *ui, u64 a, u64 b, u64 c)
 {
-    const bool vote = pause_managed() && pause_ui_enabled(ui);
+    const bool vote = pause_managed() && pause_ui_enabled(ui) && !action_is_speed(a);
     if (actions_logged()) {
         char first[64] = { 0 }, second[64] = { 0 }, flags[32] = { 0 };
         describe_action(first, sizeof first, a);
