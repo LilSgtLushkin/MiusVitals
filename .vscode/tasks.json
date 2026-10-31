@@ -7,7 +7,7 @@
         {
             "label": "Build: module (Release)",
             "type": "shell",
-            "command": "${workspaceFolder}/development/versions/1.0.8/build.bat",
+            "command": "${workspaceFolder}/development/versions/1.0.9/build.bat",
             "args": ["module", "release"],
             "group": { "kind": "build", "isDefault": true },
             "problemMatcher": ["$msCompile"],
@@ -16,7 +16,7 @@
         {
             "label": "Build: module (Debug)",
             "type": "shell",
-            "command": "${workspaceFolder}/development/versions/1.0.8/build.bat",
+            "command": "${workspaceFolder}/development/versions/1.0.9/build.bat",
             "args": ["module", "debug"],
             "group": "build",
             "problemMatcher": ["$msCompile"],
@@ -25,7 +25,7 @@
         {
             "label": "Build: baseline (Release)",
             "type": "shell",
-            "command": "${workspaceFolder}/development/versions/1.0.8/build.bat",
+            "command": "${workspaceFolder}/development/versions/1.0.9/build.bat",
             "args": ["baseline", "release"],
             "problemMatcher": ["$msCompile"],
             "detail": "исходники v12 без изменений — эталон для сравнения"
@@ -33,42 +33,42 @@
         {
             "label": "Build: baseline (Debug)",
             "type": "shell",
-            "command": "${workspaceFolder}/development/versions/1.0.8/build.bat",
+            "command": "${workspaceFolder}/development/versions/1.0.9/build.bat",
             "args": ["baseline", "debug"],
             "problemMatcher": ["$msCompile"]
         },
         {
             "label": "Build: selftests (Release)",
             "type": "shell",
-            "command": "${workspaceFolder}/development/versions/1.0.8/build.bat",
+            "command": "${workspaceFolder}/development/versions/1.0.9/build.bat",
             "args": ["selftest", "release"],
             "problemMatcher": ["$msCompile"]
         },
         {
             "label": "Build: selftests (Debug)",
             "type": "shell",
-            "command": "${workspaceFolder}/development/versions/1.0.8/build.bat",
+            "command": "${workspaceFolder}/development/versions/1.0.9/build.bat",
             "args": ["selftest", "debug"],
             "problemMatcher": ["$msCompile"]
         },
         {
             "label": "Build: mp_join (Release)",
             "type": "shell",
-            "command": "${workspaceFolder}/development/versions/1.0.8/build.bat",
+            "command": "${workspaceFolder}/development/versions/1.0.9/build.bat",
             "args": ["join", "release"],
             "problemMatcher": ["$msCompile"]
         },
         {
             "label": "Build: mp_join (Debug)",
             "type": "shell",
-            "command": "${workspaceFolder}/development/versions/1.0.8/build.bat",
+            "command": "${workspaceFolder}/development/versions/1.0.9/build.bat",
             "args": ["join", "debug"],
             "problemMatcher": ["$msCompile"]
         },
         {
             "label": "Build: render guard test (Debug)",
             "type": "shell",
-            "command": "${workspaceFolder}/development/versions/1.0.8/build.bat",
+            "command": "${workspaceFolder}/development/versions/1.0.9/build.bat",
             "args": ["render_test", "debug"],
             "problemMatcher": ["$msCompile"],
             "detail": "быстрая обратная связь по защите рендерера"
@@ -76,7 +76,7 @@
         {
             "label": "Build: everything (Release)",
             "type": "shell",
-            "command": "${workspaceFolder}/development/versions/1.0.8/build.bat",
+            "command": "${workspaceFolder}/development/versions/1.0.9/build.bat",
             "args": ["all", "release"],
             "problemMatcher": ["$msCompile"],
             "dependsOn": [],
@@ -85,7 +85,7 @@
         {
             "label": "Run: self-tests (Release)",
             "type": "shell",
-            "command": "${workspaceFolder}/development/versions/1.0.8/run_tests.bat",
+            "command": "${workspaceFolder}/development/versions/1.0.9/run_tests.bat",
             "args": ["release"],
             "dependsOn": ["Build: selftests (Release)"],
             "problemMatcher": [],
@@ -94,7 +94,7 @@
         {
             "label": "Run: self-tests (Debug)",
             "type": "shell",
-            "command": "${workspaceFolder}/development/versions/1.0.8/run_tests.bat",
+            "command": "${workspaceFolder}/development/versions/1.0.9/run_tests.bat",
             "args": ["debug"],
             "dependsOn": ["Build: selftests (Debug)"],
             "problemMatcher": [],
