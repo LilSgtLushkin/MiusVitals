@@ -88,7 +88,8 @@ int main()
         float r[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
         float none[3] = {};
         spin_orientation(r, none, 0.25f);
-        check(!memcmp(r, (const float[9]){ 1, 0, 0, 0, 1, 0, 0, 0, 1 }, sizeof r), "a unit that is not turning keeps the heading it arrived with");
+        const float still[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };   // the heading it arrived with
+        check(!memcmp(r, still, sizeof r), "a unit that is not turning keeps the heading it arrived with");
 
         float z[3] = { 0, 0, (float)(3.14159265358979 / 2.0) };   // a quarter turn about the vertical, per second
         spin_orientation(r, z, 1.0f);
