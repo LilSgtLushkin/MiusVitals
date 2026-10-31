@@ -97,6 +97,7 @@ static bool test_xlate_ready;
 bool xlate_ready() { return test_xlate_ready; }
 void xlate_frame(ObjMan *) {}
 static unsigned shot_steps, trench_steps, tactical_shot_packets, legacy_shot_packets;
+static unsigned queued_words, queued_kind;   // end-of-battle words the session spoke onto the shots channel
 void shots_install(ObjMan *) {}
 void shots_sim_step(ObjMan *) { ++shot_steps; }
 void shots_frame(void (*)(const void *, int)) {}
@@ -104,6 +105,7 @@ void shots_on_packet(const unsigned char *, int, void (*)(const void *, int)) { 
 void shots_on_packet_legacy(const unsigned char *, int, void (*)(const void *, int)) { ++legacy_shot_packets; }
 void shots_reset() {}
 void shots_report() {}
+void shots_queue(ShotRec &s) { ++queued_words; queued_kind = s.kind; }
 void hits_install(ObjMan *) {}
 bool hits_available() { return false; }
 unsigned hits_features() { return 0; }
@@ -833,20 +835,22 @@ int main(int argc, char **argv)
             if (disconnected_at && now - disconnected_at >= 4500) {
                 char role[32] = {}; GetEnvironmentVariableA("MP_ROLE", role, sizeof role);
                 bool ok = offered && saw_offer && saw_withdrawal && !session_test_end_left() &&
-                          !session_test_udp_open() && !strcmp(role, "join") && session_role() == ROLE_JOIN;
-                printf("SESSION_RESULT join ok=%d disconnected=1 role_kept=%d offer=%d withdrawal=%d peer_over=%d pending=%d left=%d udp=%d\n",
+                          !session_test_udp_open() && !strcmp(role, "join") && session_role() == ROLE_JOIN &&
+                          (queued_words == 0 || queued_kind == SHOT_END);
+                printf("SESSION_RESULT join ok=%d disconnected=1 role_kept=%d offer=%d withdrawal=%d peer_over=%d pending=%d left=%d udp=%d words=%u\n",
                        (int)ok, (int)(!strcmp(role, "join")), (int)saw_offer, (int)saw_withdrawal, (int)saw_peer_over,
-                       (int)session_test_end_pending(), (int)session_test_end_left(), (int)session_test_udp_open());
+                       (int)session_test_end_pending(), (int)session_test_end_left(), (int)session_test_udp_open(), queued_words);
                 session_stop(); steam_shutdown();
                 return ok ? 0 : 1;
             }
         }
         if (host && ended_at && now - ended_at >= 6000) {
             bool ok = offered && saw_offer && session_test_end_left() && !session_test_udp_open() &&
-                      intruder_sent && session_test_hello_rejected() > 0;
-            printf("SESSION_RESULT host ok=%d offer=%d withdrew=%d left=%d udp=%d rejected=%u\n",
+                      intruder_sent && session_test_hello_rejected() > 0 &&
+                      (queued_words == 0 || queued_kind == SHOT_END);   // whatever it said, it said as a word
+            printf("SESSION_RESULT host ok=%d offer=%d withdrew=%d left=%d udp=%d rejected=%u words=%u\n",
                    (int)ok, (int)saw_offer, (int)(withdrew_at != 0), (int)session_test_end_left(),
-                   (int)session_test_udp_open(), session_test_hello_rejected());
+                   (int)session_test_udp_open(), session_test_hello_rejected(), queued_words);
             session_stop(); steam_shutdown();
             return ok ? 0 : 1;
         }
