@@ -5,12 +5,12 @@
         "engine.h": "cpp"
     },
     "search.exclude": {
-        "**/development/versions/1.0.8/build/**": true,
+        "**/development/versions/1.0.9/build/**": true,
         "**/development/game-build-3598-1/x64/**": true
     },
     "C_Cpp.default.cppStandard": "c++14",
     "C_Cpp.default.intelliSenseMode": "windows-msvc-x64",
     "C_Cpp.files.exclude": {
-        "**/development/versions/1.0.8/build/**": true
+        "**/development/versions/1.0.9/build/**": true
     }
 }

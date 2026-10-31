@@ -30,7 +30,7 @@ concurrency:
 # The version being built. Sources live in development/versions/<version>/, one folder per
 # release; bumping this is part of making a release, together with development/versions/current.txt.
 env:
-  VERSION: 1.0.8
+  VERSION: 1.0.9
 
 jobs:
   native-artifact-and-kit-checks:

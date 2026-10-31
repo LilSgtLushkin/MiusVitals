@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""No-game packaging checks for the unified 1.0.7 experimental net+fps installer and preserved archives."""
+"""No-game packaging checks for the unified installer of the current version and preserved archives."""
 from __future__ import annotations
 import copy
 import hashlib
@@ -15,6 +15,11 @@ spec = importlib.util.spec_from_file_location("package_net_v21_test", ROOT / "sc
 pkg = importlib.util.module_from_spec(spec)
 assert spec and spec.loader
 spec.loader.exec_module(pkg)
+
+
+def shipped_installer() -> Path:
+    """The installer CI publishes for the current version; absent until its first gated build."""
+    return ROOT / ("MiusMultiplayer_v%s_INSTALL.zip" % pkg.VERSION)
 
 
 class Packaging(unittest.TestCase):
@@ -75,12 +80,13 @@ class Packaging(unittest.TestCase):
                      "MiusMultiplayer_v1.0.5_TEST_INSTALL.zip",
                      "MiusMultiplayer_v1.0.6_TEST_INSTALL.zip",
                      "MiusMultiplayer_v1.0.7_TEST_INSTALL.zip",
-                     "MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip"):
+                     "MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip",
+                     "MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip"):
             with self.subTest(name=name), self.assertRaisesRegex(SystemExit, "refusing to overwrite"):
                 pkg.build(ROOT, Path("nonexistent.codelib"), ROOT / name, Path("nonexistent.exe"))
 
     def test_the_shipped_installer_is_verifiable_and_republishable(self):
-        shipped = ROOT / "MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip"
+        shipped = shipped_installer()
         if not shipped.exists():
             self.skipTest("the shipped installer has not been published yet")
         pkg.verify(shipped)
@@ -89,7 +95,7 @@ class Packaging(unittest.TestCase):
         self.assertEqual(fields[1], shipped.name, "the record describes a different archive")
         self.assertEqual(fields[0], hashlib.sha256(shipped.read_bytes()).hexdigest(),
                          "the installer no longer matches the SHA-256 recorded beside it")
-        # It is the only 1.0.7 archive and publish-installer.yml replaces it with a newer gated
+        # It is the only installer of this version and publish-installer.yml replaces it with a newer gated
         # build, so this name must stay writable: the refusal is what the retired names get.
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
@@ -136,7 +142,9 @@ class Packaging(unittest.TestCase):
             launcher.write_bytes(self.old_launcher + b"NETV21_WIRE_PROTOCOL_17")
             with self.assertRaisesRegex(SystemExit, "wire-protocol tag"):
                 pkg.build(ROOT, module, temp / "old-pair.zip", launcher)
-        pkg.verify(ROOT / "MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip")
+        shipped = shipped_installer()
+        if shipped.exists():
+            pkg.verify(shipped)
 
     def test_tagged_pair_is_required(self):
         with tempfile.TemporaryDirectory() as tmp:

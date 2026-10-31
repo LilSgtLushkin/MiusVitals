@@ -458,12 +458,14 @@ def build(repo: Path, codelib: Path, archive_path: Path, launcher: Path) -> None
                  "MiusMultiplayer_v1.0.3_TEST_INSTALL.zip", "MiusMultiplayer_v1.0.4_TEST_INSTALL.zip",
                  "MiusMultiplayer_v1.0.5_TEST_INSTALL.zip", "MiusMultiplayer_v1.0.6_TEST_INSTALL.zip",
                  "MiusMultiplayer_v1.0.7_TEST_INSTALL.zip",
-                 "MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip")
+                 "MiusMultiplayer_v1.0.7_EXPERIMENTAL_INSTALL.zip",
+                 "MiusMultiplayer_v1.0.7_EXPERIMENTAL_NET+FPS_INSTALL.zip")
     if archive_path.resolve() in {(repo / name).resolve() for name in protected}:
         raise SystemExit("refusing to overwrite a preserved archive")
-    # The one shipped installer is the deliberate exception: it is the only 1.0.7 archive in the
-    # tree and publish-installer.yml rebuilds and commits it from the gated source, so it stays
-    # writable. Everything else above is frozen.
+    # The shipped installer of the current version is the deliberate exception: it is the only
+    # installer of that version in the tree and publish-installer.yml rebuilds and commits it
+    # from the gated source, so it stays writable. Everything else above is frozen - a version
+    # that has been retired joins the list and cannot reappear under its old name.
     if not codelib.is_file():
         raise SystemExit(f"no module to package: {codelib}")
     if not launcher.is_file():

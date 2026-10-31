@@ -2,6 +2,7 @@
 // can be linked into the module, into mp_join and into the self-test.
 #include "netlog.h"
 #include "engine.h"   // u64: the widened clock is spelled the same in every file that logs time
+#include "version.h"  // NETV21_VERSION: the only place the module spells its own version
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -219,9 +220,9 @@ void netlog_open(HMODULE self, const char *program, const char *out_dir)
     // Build time macros made otherwise identical release binaries change on every build. The
     // actual log has wall-clock timestamps; FNV, image size, PE stamp and compiler identify the
     // loaded module while allowing the candidate to be independently rebuilt and compared.
-    sprintf_s(g_identity, sizeof g_identity, "net_v21 v1.0.7-experimental-net+fps, program %s; image %s, %llu bytes, fnv1a64 %016llx, pe stamp %08lx",
-              program, path, size, hash, pe_stamp(self));
-    write_line("boot", "=== net_v21: our own network module, v1.0.7-experimental-net+fps ===");
+    sprintf_s(g_identity, sizeof g_identity, "net_v21 v%s, program %s; image %s, %llu bytes, fnv1a64 %016llx, pe stamp %08lx",
+              NETV21_VERSION, program, path, size, hash, pe_stamp(self));
+    write_line("boot", "=== net_v21: our own network module, v%s ===", NETV21_VERSION);
 #ifdef _MSC_VER
     write_line("boot", "build: compiled with MSVC %d (reproducible build; time omitted)", (int)_MSC_VER);
 #else
