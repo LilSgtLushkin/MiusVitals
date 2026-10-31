@@ -798,8 +798,37 @@ static void load_battle_description(void)
 // filter turns this on and frees versus from the switch.
 static bool ai_filter_installed(void) { return false; }
 
-static void update_ai_commander(void)
+// Once per battle, under MP_LOG_AI_SIDE=1: the AI colonel keeps one record per side of the battle at
+// +0x6b0, 0x80 bytes each - +0x20 where that side's formations start, +0x2c how many of them there are.
+// The step that leads a side is told its number, 0 or 1, while the description names the sides by code,
+// so which number is this player's side has to be read out of the running game before it can be filtered.
+static void ai_side_dump(ObjMan *om)
 {
+    static bool done = false;
+    int on = 0;
+    if (done || !env_integer("MP_LOG_AI_SIDE", &on) || !on) return;
+    Object *ai = engine_find(om, "i_aicolonel", "aicolonel");
+    if (!ai) return;
+    const unsigned char *base = (const unsigned char *)ai + 0x6b0;
+    if (!readable(base, 0x100)) return;
+    done = true;
+    unsigned us = 0, them = 0;
+    image::sides(g_image, &us, &them);
+    mp_log("ai: colonel at 0x%llx; this player commands the %s, the other player the %s; %zu units of his own",
+           (unsigned long long)ai, image::side_name(us), image::side_name(them), g_my_units.size());
+    for (unsigned side = 0; side < 2; side++) {
+        for (unsigned row = 0; row < 8; row++) {
+            const unsigned char *p = base + side * 0x80 + row * 0x10;
+            char hex[16 * 3 + 1] = { 0 };
+            for (unsigned i = 0; i < 16; i++) sprintf_s(hex + i * 3, 4, "%02x ", p[i]);
+            mp_log("ai: side %u +0x%02x  %s", side, row * 0x10, hex);
+        }
+    }
+}
+
+static void update_ai_commander(ObjMan *om)
+{
+    ai_side_dump(om);
     static const unsigned char sig[] = { 0x40, 0x57, 0x48, 0x83, 0xec, 0x30, 0x48, 0x8b, 0xf9 };
     static int state = -1;          // -1 unknown, 0 active, 1 off, 2 unknown game build
     static unsigned char *fn;
@@ -3427,7 +3456,7 @@ void session_frame(ObjMan *om)
         last_presence = now ? now : 1;
         steam_broadcast(true, 0);
     }
-    update_ai_commander();
+    update_ai_commander(om);
     if (g_tactical && g_role != ROLE_NONE) { render_guard_install(); render_guard_report(now); }
     if (g_tactical && (g_role != ROLE_NONE || GetEnvironmentVariableA("MP_LOG_SHOTS", 0, 0))) shots_install(om);
     if (g_tactical && g_role != ROLE_NONE) { trench_install(); hits_install(om); anim_install(om); }
