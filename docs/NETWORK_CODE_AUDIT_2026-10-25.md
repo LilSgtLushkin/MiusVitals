@@ -7,7 +7,7 @@
 
 ## Граница аудита
 
-Проверен весь runtime source публичного `VampyrCat/MiusPlayer@43b2736d3b4a1e208e6c80f45f6ebbdd476de3aa` (`basic_network/*.cpp`, `*.h`, включая launcher `mp_join.cpp`) и действующий C sidecar `development/kit-source/src/mp_vitals.c`.
+Проверен весь runtime source публичного `VampyrCat/MiusPlayer@43b2736d3b4a1e208e6c80f45f6ebbdd476de3aa` (`basic_network/*.cpp`, `*.h`, включая launcher `mp_join.cpp`) и действующий C sidecar `development/forbidden/development/kit-source/src/mp_vitals.c` (припаркован вместе со своим тестом).
 
 Закреплённый upstream tree не редактируется: изменения оформлены отдельным C++ overlay `0002-ordered-operation-turns-and-network-hygiene.patch`, который применяется **после** FPS overlay `0001`. Это не бинарный release и не изменение player archives.
 
@@ -50,6 +50,9 @@ python3 development/merged-source/verify_workspace.py
 scripts/test_native.sh
 scripts/verify_release.sh
 ```
+
+> Дерево `development/merged-source/` убрано 2026-10-31; три верхние команды остаются в отчёте
+> как фиксация того, что проверялось на дату аудита.
 
 `test_ordered_operation_patch.py` применяет оба overlay к disposable copy pinned source, компилирует standalone C++ codec, моделирует порядок host/client/collect/host-resolve и проверяет newest-per-unit receive coalescing. Windows workflow `.github/workflows/build-ordered-operation-candidate.yml` предназначен для реальной VS2022 x64 compilation всего codelib и matching launcher.
 

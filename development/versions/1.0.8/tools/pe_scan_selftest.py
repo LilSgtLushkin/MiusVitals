@@ -13,7 +13,7 @@ import pe_scan
 
 REPO = Path(__file__).resolve().parents[4]
 PHYSIC = REPO / "development/game-build-3598-1/x64/adv_physic.codelib"
-FPS = REPO / "development/fps-candidate/basic_network.codelib"
+MODULE = REPO / "development/unified-kit-source/files/bin/rel/x64/basic_network.codelib"
 SCRIPT = Path(pe_scan.__file__).resolve()
 
 
@@ -21,7 +21,7 @@ class Addresses(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.physic = pe_scan.PE(PHYSIC)
-        cls.fps = pe_scan.PE(FPS)
+        cls.module = pe_scan.PE(MODULE)
 
     def describe(self, pe, rva):
         with io.StringIO() as output, redirect_stdout(output):
@@ -50,7 +50,7 @@ class Addresses(unittest.TestCase):
         self.assertEqual(pe_scan.pointer_rva(self.physic, 0x43230), 0x43230)
         self.assertIsNone(pe_scan.pointer_rva(self.physic, 0))
         self.assertIsNone(pe_scan.pointer_rva(self.physic, self.physic.image_base + 0xC79D8))
-        self.assertIn("possible pointer to +0x43378", self.describe(self.fps, 0x580A0))
+        self.assertIn("possible pointer to +0x43378", self.describe(self.module, 0x580A0))
 
     def test_relocated_va_converts_address_but_not_file_contents(self):
         base = 0x7FF800000000

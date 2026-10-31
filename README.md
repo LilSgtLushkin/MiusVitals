@@ -93,8 +93,8 @@ SHA-256 и коммит сборки — в `MiusMultiplayer_v1.0.7_EXPERIMENTAL
 У этих архивов есть различия в составе или бинарных файлах; одинаковый базовый установщик внутри тестовых ZIP не делает их одинаковыми сборками. Результат проверки и удалённый дубликат — в [инвентаре архивов](docs/ARCHIVE_INVENTORY_2026-10-27.md).
 
 Отдельный experimental `MiusMultiplayer_beta_FPS_fix_INSTALL.zip` **удалён**: его единственный payload (Steam-preserving FPS `basic_network.codelib`) давно входит в v1.0.1, а два installer'а с разными codelib только путали установку. `GTMP_alpha_INSTALL.zip` и `MiusMultiplayer_OUTDATED_INSTALL.zip` удалены 2026-10-30: истории Git
-достаточно, а при надобности их воспроизводят `scripts/package_gtmp_alpha.py` и
-`scripts/package_unified_mod.py`. Вместе с архивом удалены `scripts/package_fps_beta.py` и `development/fps-beta-kit-source/`; воспроизводимая сборка самого FPS candidate остаётся в [`development/fps-candidate/`](development/fps-candidate/) и проверяется workflow [`verify-fps-codelib.yml`](.github/workflows/verify-fps-codelib.yml).
+достаточно: OUTDATED при надобности воспроизводит `scripts/package_unified_mod.py`, а
+альфа-DLL сохранена припаркованной копией и хеш-закреплена в `scripts/check_artifacts.py`. Вместе с архивом удалены `scripts/package_fps_beta.py` и `development/fps-beta-kit-source/`; сборка самого FPS candidate больше не пересоздаётся в CI. Папка `development/fps-candidate/`, скрипт пересборки и workflow `verify-fps-codelib.yml` убраны 2026-10-31: candidate сохраняется checked-in бинарником внутри [`development/unified-fps-kit-source/`](development/unified-fps-kit-source/) — того же дерева, откуда паковщик берёт runtime-файлы, — и его хеш сверяет `scripts/check_artifacts.py`.
 
 ### GTMP_alpha — экспериментальная сборка поверх v1.0.1
 
