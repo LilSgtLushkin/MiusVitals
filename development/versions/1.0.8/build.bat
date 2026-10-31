@@ -17,9 +17,9 @@ rem   build.bat module            release
 rem   build.bat module debug      /Od /Zi /MD, symbols, build\module-debug\
 rem   build.bat module release    the same as no second argument
 rem
-rem Set MIUS_GAME_DIR to the game's folder and every successful module link copies the module next
-rem to the game - and its symbols too, in debug - so it is ready to attach to. The module project
-rem has always done this in the IDE; the command line did not.
+rem Set MIUS_GAME_DIR to the game's folder and every successful module link drops the module into
+rem its bin\rel\x64 - the folder the game loads it from - and its symbols too, in debug, so it is
+rem ready to attach to. The module project has always done this in the IDE; the command line did not.
 rem
 rem The debug build still links the release C runtime on purpose: the module is loaded by the
 rem game, and the game's process has no reason to carry the debug runtime DLLs.
@@ -116,9 +116,10 @@ rem The module project puts the module next to the game when MIUS_GAME_DIR is se
 rem can be attached to at once. The command line did not, which left the symbols behind in build\.
 rem Release carries no symbols, so it says nothing there.
 if defined MIUS_GAME_DIR (
-    copy /y "build\module%SUFFIX%\basic_network.codelib" "%MIUS_GAME_DIR%\" >nul
-    if exist "build\module%SUFFIX%\basic_network.pdb" copy /y "build\module%SUFFIX%\basic_network.pdb" "%MIUS_GAME_DIR%\" >nul
-    echo   module and symbols copied to %MIUS_GAME_DIR%
+    if not exist "%MIUS_GAME_DIR%\bin\rel\x64\" mkdir "%MIUS_GAME_DIR%\bin\rel\x64\"
+    copy /y "build\module%SUFFIX%\basic_network.codelib" "%MIUS_GAME_DIR%\bin\rel\x64\" >nul
+    if exist "build\module%SUFFIX%\basic_network.pdb" copy /y "build\module%SUFFIX%\basic_network.pdb" "%MIUS_GAME_DIR%\bin\rel\x64\" >nul
+    echo   module and symbols copied to %MIUS_GAME_DIR%\bin\rel\x64\
 )
 exit /b %errorlevel%
 

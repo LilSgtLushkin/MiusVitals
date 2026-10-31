@@ -53,8 +53,8 @@
 ## Переменные окружения
 
 * **`MIUS_GAME_DIR`** — путь к папке игры. Если она задана:
-  * после сборки `net-v21-module` готовый `basic_network.codelib` и его `.pdb` копируются в папку
-    игры (post-build шаг);
+  * после сборки `net-v21-module` готовый `basic_network.codelib` и его `.pdb` копируются в
+    `bin\rel\x64` внутри папки игры — именно оттуда модуль грузит движок (post-build шаг);
   * **F5** в конфигурации Debug запускает игру (`tacgame.exe`) из этой папки.
   Переменную удобно задать один раз: `setx MIUS_GAME_DIR "D:\Games\Mius"`.
 * **`MIUS_VS`** — принудительно указать установку Visual Studio для `build.bat`
@@ -65,7 +65,8 @@
 
 1. Соберите `net-v21-module` в Debug.
 2. Подложите модуль в игру: либо задайте `MIUS_GAME_DIR` (тогда шаг 2 делает сам post-build), либо
-   скопируйте `build\module-debug\basic_network.codelib` и `basic_network.pdb` в папку игры вручную.
+   скопируйте `build\module-debug\basic_network.codelib` и `basic_network.pdb` вручную в
+   `<папка игры>\bin\rel\x64\`. Не в корень игры: оттуда модуль не читается.
 3. Запустите игру и нажмите **Отладка → Присоединиться к процессу → tacgame.exe** (или
    `opgame.exe`). Либо просто **F5**, если задан `MIUS_GAME_DIR`: студия запустит игру сама.
 4. Точка останова в `src\session.cpp` сработает — символы берутся из `build\module-debug`.
